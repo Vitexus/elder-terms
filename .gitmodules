@@ -4,3 +4,6 @@
 [submodule "deps/libxyzm"]
 	path = deps/libxyzm
 	url = https://github.com/kekyo/libxyzm/
+[submodule "deps/boxrig"]
+	path = deps/boxrig
+	url = https://github.com/kekyo/boxrig.git
