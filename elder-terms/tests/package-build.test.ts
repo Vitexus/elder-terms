@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -15,6 +16,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createGtkAppLauncher } from 'gestament';
+import { toPass } from 'gestament/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -762,7 +765,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     expect(missingXdgUtilsValidation.stderr).toContain('xdg-utils');
   });
 
-  it('installs package data and resolvable public commands through Meson', () => {
+  it('installs package data and resolvable public commands through Meson', async () => {
     const destination = join(temporaryRoot, 'meson-install');
     const buildDirectory = join(projectRoot, '.build');
     const introspection = run('meson', [
@@ -847,6 +850,93 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     const dynamicSection = run('readelf', ['-d', launcher]);
     expectSuccess(dynamicSection, 'installed launcher ELF inspection failed');
     expect(dynamicSection.stdout).toContain('[$ORIGIN/..]');
+
+    const terminal = join(installedRoot, 'bin/elder-terms-vte');
+    const environment = { ...process.env };
+    delete environment.LD_LIBRARY_PATH;
+    delete environment.LD_PRELOAD;
+    // ldd's direct loader invocation does not resolve executable symlinks as exec does.
+    const loaded = run('ldd', [realpathSync(terminal)], environment);
+    expectSuccess(loaded, 'installed terminal dependency resolution failed');
+    expect(loaded.stdout).not.toContain('not found');
+    for (const component of [
+      'boxrig',
+      'boxrig-ui',
+      'boxrig-session',
+      'boxrig-posix',
+      'boxrig-gtk3',
+    ]) {
+      const name = `lib${component}.so.0`;
+      const expectedPath = join(
+        installedRoot,
+        libraryDirectory,
+        'elder-terms',
+        name
+      );
+      const resolved = loaded.stdout
+        .split('\n')
+        .find((line) => line.trimStart().startsWith(`${name} => `))
+        ?.split(' => ')[1]
+        ?.split(' (')[0];
+      expect(
+        resolved,
+        `${name} must be loaded from the installation`
+      ).toBeDefined();
+      expect(realpathSync(resolved!)).toBe(realpathSync(expectedPath));
+      const libraryDynamicSection = run('readelf', ['-d', expectedPath]);
+      expectSuccess(libraryDynamicSection, `${name} ELF inspection failed`);
+      expect(libraryDynamicSection.stdout).toContain(
+        `Library soname: [${name}]`
+      );
+      expect(libraryDynamicSection.stdout).toContain('[$ORIGIN]');
+    }
+
+    const configPath = join(temporaryRoot, 'installed-terminal.ini');
+    const peerPath = join(temporaryRoot, 'installed-peer.mjs');
+    const receivedPath = join(temporaryRoot, 'installed-input.txt');
+    writeFileSync(
+      peerPath,
+      `import { appendFileSync } from 'node:fs';
+process.stdin.setRawMode(true);
+process.stdin.on('data', (bytes) => appendFileSync(process.argv[2], bytes));
+process.stdout.write('INSTALLED-TERMINAL-READY');
+`
+    );
+    writeFileSync(
+      configPath,
+      `[general]\nauto_close=false\n[local]\ncommand_line=${process.execPath} ${peerPath} ${receivedPath}\n[log]\nenabled=true\nbase_directory=${temporaryRoot}\nfile_name_format=installed-output.log\n`
+    );
+    const appLauncher = createGtkAppLauncher({
+      appPath: terminal,
+      args: ['-c', configPath],
+      env: {
+        XDG_CONFIG_HOME: join(temporaryRoot, 'installed-config'),
+        LD_LIBRARY_PATH: '',
+        LD_PRELOAD: '',
+        LIBGL_ALWAYS_SOFTWARE: '1',
+        GTK_IM_MODULE: 'gtk-im-context-simple',
+      },
+    });
+    try {
+      const app = await appLauncher.launch();
+      const view = await app.getById('terminal_view');
+      expect((await view.info()).interfaces).toContain('Text');
+      await toPass(() => {
+        expect(
+          readFileSync(join(temporaryRoot, 'installed-output.log'), 'utf8')
+        ).toBe('INSTALLED-TERMINAL-READY');
+      });
+      const bounds = (await view.capture()).bounds;
+      await app.input.moveMouseTo(bounds.x + 20, bounds.y + 20);
+      await app.input.setMouseButton('left', true);
+      await app.input.setMouseButton('left', false);
+      await app.input.pressKey('x');
+      await toPass(() => {
+        expect(readFileSync(receivedPath, 'utf8')).toBe('x');
+      });
+    } finally {
+      await appLauncher.release();
+    }
   });
 
   it('re-includes package data filtered by minimal distribution images', () => {

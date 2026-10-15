@@ -26,17 +26,58 @@ boxrig_sdk_dir = meson.project_build_root() / 'boxrig/sdk'
 boxrig_pkg_config = find_program('pkg-config')
 boxrig_pkg_env = environment()
 boxrig_pkg_env.prepend('PKG_CONFIG_PATH', boxrig_sdk_dir / 'lib/pkgconfig')
+boxrig_compiler = meson.get_compiler('cpp')
 boxrig_deps = {}
+boxrig_runtime_files = []
+boxrig_runtime_sources = []
 foreach component : ['boxrig', 'boxrig-ui', 'boxrig-session', 'boxrig-posix', 'boxrig-gtk3']
+  boxrig_link_args = []
+  boxrig_link_dependencies = []
+  foreach flag : run_command(boxrig_pkg_config, '--libs', component,
+      env: boxrig_pkg_env, check: true).stdout().strip().split()
+    if flag.startswith('-lboxrig')
+      # A library dependency lets Meson remove its build RUNPATH on install.
+      boxrig_link_dependencies += boxrig_compiler.find_library(flag.substring(2),
+        dirs: boxrig_sdk_dir / 'lib', static: false)
+    else
+      boxrig_link_args += flag
+    endif
+  endforeach
   boxrig_deps += {component: declare_dependency(
     compile_args: run_command(boxrig_pkg_config, '--cflags', component,
       env: boxrig_pkg_env, check: true).stdout().strip().split(),
-    link_args: run_command(boxrig_pkg_config, '--libs', component,
-      env: boxrig_pkg_env, check: true).stdout().strip().split() +
-      ['-Wl,-rpath,' + boxrig_sdk_dir / 'lib'],
+    link_args: boxrig_link_args,
+    dependencies: boxrig_link_dependencies,
     sources: boxrig_sdk_target,
   )}
+  runtime_name = 'lib' + component + '.so.0'
+  boxrig_runtime_files += runtime_name
+  boxrig_runtime_sources += boxrig_sdk_dir / 'lib' / runtime_name
 endforeach
+custom_target('boxrig-private-runtime',
+  output: boxrig_runtime_files,
+  command: [find_program('cp')] + boxrig_runtime_sources + ['@OUTDIR@'],
+  depends: boxrig_sdk_target,
+  build_by_default: true,
+  install: true,
+  install_dir: elder_terms_private_install_dir,
+)
+
+install_data(
+  'deps/boxrig/LICENSE',
+  'deps/boxrig/packaging/licenses/README.md',
+  'deps/boxrig/packaging/licenses/README_ja.md',
+  'deps/boxrig/packaging/licenses/sources.json',
+  'deps/boxrig/deps/utf8proc/LICENSE.md',
+  'deps/boxrig/deps/libpng/LICENSE',
+  'deps/boxrig/deps/zlib/LICENSE',
+  'deps/boxrig/resources/unicode/17.0.0/LICENSE.txt',
+  'deps/boxrig/data/encoding/whatwg/LICENSE',
+  rename: ['LICENSE', 'README.md', 'README_ja.md', 'sources.json',
+    'utf8proc-LICENSE.md', 'libpng-LICENSE', 'zlib-LICENSE',
+    'Unicode-LICENSE.txt', 'WHATWG-Encoding-LICENSE'],
+  install_dir: get_option('datadir') / 'doc/elder-terms/licenses/boxrig',
+)
 
 cardio_root_dir = meson.project_source_root() / 'deps/cardio'
 cardio_include_dir = include_directories('deps/cardio/include')
