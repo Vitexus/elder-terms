@@ -201,9 +201,19 @@ int main(int argc, char **argv) {
   Driver driver;
   elder_terms::TelnetConnectionSettings telnet{};
   elder_terms::SshConnectionSettings ssh{};
+  elder_terms::SerialConnectionSettings serial{
+      .device = {}, .device_match_mode = elder_terms::SerialDeviceMatchMode::exact_path, .device_usb_serial = {},
+      .baudrate = 9600, .bits = 8, .parity = elder_terms::SerialParity::none, .stop_bit = 1,
+      .flow_control = elder_terms::SerialFlowControl::none, .carrier_detect = elder_terms::SerialCarrierDetect::ignore};
   elder_terms::AuthenticatedSshTransportOptions options;
   for (int index = 1; index < argc; ++index) {
     if (std::string_view(argv[index]) == "--local") driver.connection_mode = true;
+    else if (std::string_view(argv[index]) == "--serial" && index + 1 < argc) {
+      driver.connection_mode = true;
+      serial.device = argv[++index];
+    }
+    else if (std::string_view(argv[index]) == "--baud" && index + 1 < argc)
+      serial.baudrate = std::strtol(argv[++index], nullptr, 10);
     else if (std::string_view(argv[index]) == "--telnet" && index + 2 < argc) {
       driver.connection_mode = true;
       telnet.address = argv[++index];
@@ -263,6 +273,8 @@ int main(int argc, char **argv) {
     driver.transport = elder_terms::make_ssh_transport_request(ssh, driver.command.encoding, callbacks, options);
   else if (!telnet.address.empty())
     driver.transport = elder_terms::make_telnet_transport_request(telnet, driver.command.encoding, callbacks, options);
+  else if (!serial.device.empty())
+    driver.transport = elder_terms::make_serial_transport_request(serial, driver.command.encoding, callbacks);
   auto *controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_pack_start(GTK_BOX(content), controls, FALSE, FALSE, 0);
   auto *zoom = gtk_button_new_with_label("Zoom in");

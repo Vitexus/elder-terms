@@ -27,4 +27,16 @@ TerminalTransportRequest make_telnet_transport_request(TelnetConnectionSettings 
 TerminalTransportRequest make_ssh_transport_request(SshConnectionSettings settings,
     std::string encoding, TerminalSessionCallbacks callbacks, AuthenticatedSshTransportOptions options);
 
+/**
+ * Creates a serial byte-stream factory using the saved device identity.
+ * @param settings Device identity, character framing, baud rate and flow control.
+ * @param encoding Peer character encoding.
+ * @param callbacks Receive and send activity notifications.
+ * @return Reusable factory; each open resolves and configures a fresh descriptor.
+ * @remarks This factory opens one port. Device and carrier recovery policy is
+ * separate from its bounded stream operations.
+ */
+TerminalTransportRequest make_serial_transport_request(SerialConnectionSettings settings,
+    std::string encoding, TerminalSessionCallbacks callbacks);
+
 }
