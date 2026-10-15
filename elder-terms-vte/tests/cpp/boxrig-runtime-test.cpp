@@ -13,6 +13,7 @@ using namespace elder_terms;
 
 struct Fixture {
   TerminalRuntime *runtime = nullptr;
+  GtkWidget *window = nullptr;
   cardio::primitives::conditional changed;
   cardio::primitives::conditional received;
   cardio::primitives::conditional resize_ready;
@@ -123,22 +124,67 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   fixture->received.trigger();
   while (text(fixture).find("RETAINED DISPLAY") == std::string::npos) co_await fixture->changed.wait();
   auto *widget = terminal_runtime_widget(fixture->runtime);
-  expect(terminal_runtime_set_preferred_grid(fixture->runtime, 30, 100) == BOXRIG_UI_OK, "request first grid");
+  fixture->incoming = "\033[8;30;100t";
+  fixture->received.trigger();
   while (!fixture->resize_pending) co_await fixture->changed.wait();
-  expect(fixture->requested_rows == 30 && fixture->requested_columns == 100, "peer receives requested grid");
+  expect(fixture->requested_rows == 30 && fixture->requested_columns == 100, "host grid request reaches the peer through layout");
   boxrig_ui_layout_result layout{};
   fixture->incoming = "\033[999;999H\033[6n\033[2;1H";
   fixture->received.trigger();
   while (fixture->outgoing.find('R') == std::string::npos) co_await fixture->changed.wait();
   expect(fixture->outgoing == "\033[24;80R", "terminal replies use the confirmed grid while peer resize is pending");
-  expect(terminal_runtime_set_preferred_grid(fixture->runtime, 32, 110) == BOXRIG_UI_OK, "retain newer allocation");
+  fixture->incoming = "\033[8;;110t";
+  fixture->received.trigger();
+  std::size_t preferred_rows = 0, preferred_columns = 0;
+  do {
+    co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_preferred_grid(widget, &preferred_rows, &preferred_columns);
+  } while (preferred_columns != 110);
+  expect(preferred_rows == 24, "omitted rows retain the confirmed core grid while a resize is pending");
   fixture->resize_ready.trigger();
   while (fixture->requested_columns != 110) co_await fixture->changed.wait();
   fixture->resize_ready.trigger();
   while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
-  expect(boxrig_gtk3_terminal_widget_get_layout(widget, &layout) == BOXRIG_UI_OK && layout.columns == 110,
+  expect(boxrig_gtk3_terminal_widget_get_layout(widget, &layout) == BOXRIG_UI_OK && layout.columns == 110 && layout.rows == 24,
       "later grid completes after its own peer request");
 
+  fixture->hold_resize = false;
+  fixture->incoming = "\033[8;0;0t";
+  fixture->received.trigger();
+  while (fixture->requested_columns <= 110 || fixture->requested_rows <= 24 ||
+      !terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  boxrig_gtk3_terminal_widget_get_preferred_grid(widget, &preferred_rows, &preferred_columns);
+  expect(preferred_columns > 110 && preferred_rows > 24, "zero dimensions expand to the display instead of retaining the old grid");
+  fixture->incoming = "\033[8;4294967295;4294967295tREJECTED_SIZE";
+  fixture->received.trigger();
+  while (text(fixture).find("REJECTED_SIZE") == std::string::npos || !terminal_runtime_is_settled(fixture->runtime))
+    co_await fixture->changed.wait();
+  std::size_t retained_rows = 0, retained_columns = 0;
+  boxrig_gtk3_terminal_widget_get_preferred_grid(widget, &retained_rows, &retained_columns);
+  expect(preferred_rows == retained_rows && preferred_columns == retained_columns, "unbounded peer dimensions are rejected without changing the preferred grid");
+
+  for (const auto state : {GDK_WINDOW_STATE_MAXIMIZED, GDK_WINDOW_STATE_TILED, GDK_WINDOW_STATE_FULLSCREEN}) {
+    GdkEventWindowState event{};
+    event.type = GDK_WINDOW_STATE;
+    event.new_window_state = state;
+    gboolean handled = FALSE;
+    g_signal_emit_by_name(fixture->window, "window-state-event", &event, &handled);
+    const auto marker = "CONSTRAINED_" + std::to_string(static_cast<int>(state));
+    fixture->incoming = "\033[8;29;90t\r\n" + marker;
+    fixture->received.trigger();
+    while (text(fixture).find(marker) == std::string::npos || !terminal_runtime_is_settled(fixture->runtime))
+      co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_preferred_grid(widget, &retained_rows, &retained_columns);
+    expect(preferred_rows == retained_rows && preferred_columns == retained_columns,
+        "constrained window states reject peer requests without replacing the normal grid");
+  }
+  GdkEventWindowState normal{};
+  normal.type = GDK_WINDOW_STATE;
+  gboolean handled = FALSE;
+  g_signal_emit_by_name(fixture->window, "window-state-event", &normal, &handled);
+  while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+
+  fixture->hold_resize = true;
   fixture->fail_resize = true;
   expect(terminal_runtime_set_preferred_grid(fixture->runtime, 34, 120) == BOXRIG_UI_OK, "request failing grid");
   while (!fixture->resize_pending) co_await fixture->changed.wait();
@@ -368,6 +414,7 @@ int main(int argc, char **argv) {
   auto *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_container_add(GTK_CONTAINER(window), content);
   Fixture fixture;
+  fixture.window = window;
   auto *directory = g_dir_make_tmp("boxrig-runtime-transfer-XXXXXX", nullptr);
   if (!directory) return 1;
   fixture.transfer_directory = directory;

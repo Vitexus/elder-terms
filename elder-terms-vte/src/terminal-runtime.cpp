@@ -4,6 +4,7 @@
 #include <limits>
 #include <new>
 #include <array>
+#include <algorithm>
 #include <optional>
 #include <string>
 #include <variant>
@@ -346,6 +347,46 @@ static bool process_layout(TerminalRuntime *runtime) {
   return true;
 }
 
+static boxrig_ui_status apply_host_grid(TerminalRuntime *runtime, boxrig_grid_size_request request) {
+  if (runtime->ui_failed || !runtime->widget_allocated || runtime->window_state != BOXRIG_UI_WINDOW_NORMAL)
+    return BOXRIG_UI_OK;
+  auto *widget = GTK_WIDGET(runtime->widget);
+  auto *native_window = gtk_widget_get_window(GTK_WIDGET(runtime->window));
+  if (!native_window) return BOXRIG_UI_OK;
+  auto *monitor = gdk_display_get_monitor_at_window(gtk_widget_get_display(widget), native_window);
+  if (!monitor) return BOXRIG_UI_OK;
+  boxrig_font_effective_metrics metrics{};
+  if (boxrig_gtk3_terminal_widget_get_effective_metrics(runtime->widget, &metrics) != BOXRIG_FONT_CATALOG_OK ||
+      metrics.cell_width == 0 || metrics.cell_height == 0) return BOXRIG_UI_OK;
+  GdkRectangle workarea{}, frame{};
+  gdk_monitor_get_workarea(monitor, &workarea);
+  gdk_window_get_frame_extents(native_window, &frame);
+  // Subtract the observed non-terminal extent once, including decorations and
+  // application controls. Workarea uses logical pixels; cell metrics use output
+  // pixels. DISPLAY requests must not apply the backing scale twice.
+  const auto extra_width = std::max(0, frame.width - gtk_widget_get_allocated_width(widget));
+  const auto extra_height = std::max(0, frame.height - gtk_widget_get_allocated_height(widget));
+  if (workarea.width <= extra_width || workarea.height <= extra_height) return BOXRIG_UI_OK;
+  const auto scale = static_cast<std::uint64_t>(gtk_widget_get_scale_factor(widget));
+  const auto display_columns = std::min<std::uint64_t>(1024,
+      static_cast<std::uint64_t>(workarea.width - extra_width) * scale / metrics.cell_width);
+  const auto display_rows = std::min<std::uint64_t>(1024,
+      static_cast<std::uint64_t>(workarea.height - extra_height) * scale / metrics.cell_height);
+  std::size_t rows = 0, columns = 0;
+  boxrig_terminal_size(runtime->terminal, &rows, &columns);
+  if (request.rows.mode == BOXRIG_GRID_SIZE_EXPLICIT) rows = request.rows.cells;
+  else if (request.rows.mode == BOXRIG_GRID_SIZE_DISPLAY) rows = display_rows;
+  if (request.columns.mode == BOXRIG_GRID_SIZE_EXPLICIT) columns = request.columns.cells;
+  else if (request.columns.mode == BOXRIG_GRID_SIZE_DISPLAY) columns = display_columns;
+  // Peer requests may only use the current display's available area and a
+  // finite cell budget. Rejection leaves the user's normal-state preference.
+  if (rows == 0 || columns == 0 || rows > display_rows || columns > display_columns ||
+      rows * columns > 256 * 1024) return BOXRIG_UI_OK;
+  const auto status = boxrig_gtk3_terminal_widget_set_preferred_grid(runtime->widget, rows, columns);
+  if (status == BOXRIG_UI_OK) request_frame(runtime);
+  return status;
+}
+
 static bool process_host_items(TerminalRuntime *runtime) {
   boxrig_host_item item{};
   bool consumed = false;
@@ -354,6 +395,14 @@ static bool process_host_items(TerminalRuntime *runtime) {
       const std::string title(item.payload_length == 0 ? "" :
           reinterpret_cast<const char *>(item.payload), item.payload_length);
       if (g_utf8_validate(title.c_str(), title.size(), nullptr)) gtk_window_set_title(runtime->window, title.c_str());
+    }
+    if (item.type == BOXRIG_HOST_ITEM_GRID_RESIZE) {
+      const auto status = apply_host_grid(runtime, item.grid_resize);
+      if (status == BOXRIG_UI_BUSY) {
+        if (consumed) request_frame(runtime);
+        return true;
+      }
+      if (!ui_result(status, "host grid preference")) return false;
     }
     const auto request_id = item.request_id;
     if (boxrig_terminal_host_item_consume(runtime->terminal) != BOXRIG_STATUS_OK) return false;

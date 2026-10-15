@@ -136,6 +136,15 @@ it('runs TELNET negotiation, terminal replies, resize and reconnect through boxr
     if (window.kind !== 'window' || status.kind !== 'label')
       throw new Error('Missing driver window');
     await window.activate();
+    sockets[0].write('\x1b[8;28;100t');
+    await toPass(async () => {
+      expect(await status.text()).toContain('grid=100x28');
+      expect(
+        Buffer.concat(received[0]).includes(
+          Buffer.from([255, 250, 31, 0, 100, 0, 28, 255, 240])
+        )
+      ).toBe(true);
+    });
     const bounds = await window.bounds();
     await window.resizeTo(bounds.width + 120, bounds.height + 80);
     await toPass(async () => {
