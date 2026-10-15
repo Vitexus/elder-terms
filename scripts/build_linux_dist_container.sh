@@ -135,6 +135,12 @@ validate_installed_package() {
 
 	for installed_file in \
 		/usr/lib/elder-terms/libelder-terms.so \
+		/usr/lib/elder-terms/libcardio.so \
+		/usr/lib/elder-terms/libboxrig.so.0 \
+		/usr/lib/elder-terms/libboxrig-ui.so.0 \
+		/usr/lib/elder-terms/libboxrig-session.so.0 \
+		/usr/lib/elder-terms/libboxrig-posix.so.0 \
+		/usr/lib/elder-terms/libboxrig-gtk3.so.0 \
 		/usr/lib/elder-terms/launcher/elder-terms \
 		/usr/lib/elder-terms/launcher/main-window.ui \
 		/usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
@@ -150,6 +156,15 @@ validate_installed_package() {
 		/usr/share/doc/elder-terms/docs/ja/webdav.md \
 		/usr/share/doc/elder-terms/docs/en/webdav.md \
 		/usr/share/doc/elder-terms/docs/en/webdav-validation.md \
+		/usr/share/doc/elder-terms/licenses/boxrig/LICENSE \
+		/usr/share/doc/elder-terms/licenses/boxrig/README.md \
+		/usr/share/doc/elder-terms/licenses/boxrig/README_ja.md \
+		/usr/share/doc/elder-terms/licenses/boxrig/sources.json \
+		/usr/share/doc/elder-terms/licenses/boxrig/utf8proc-LICENSE.md \
+		/usr/share/doc/elder-terms/licenses/boxrig/libpng-LICENSE \
+		/usr/share/doc/elder-terms/licenses/boxrig/zlib-LICENSE \
+		/usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
+		/usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
 		/usr/share/doc/elder-terms/copyright; do
 		assert_file "$installed_file"
 	done
@@ -251,6 +266,12 @@ chmod 0644 "$control_dir/control"
 
 for staged_file in \
 	usr/lib/elder-terms/libelder-terms.so \
+	usr/lib/elder-terms/libcardio.so \
+	usr/lib/elder-terms/libboxrig.so.0 \
+	usr/lib/elder-terms/libboxrig-ui.so.0 \
+	usr/lib/elder-terms/libboxrig-session.so.0 \
+	usr/lib/elder-terms/libboxrig-posix.so.0 \
+	usr/lib/elder-terms/libboxrig-gtk3.so.0 \
 	usr/lib/elder-terms/launcher/elder-terms \
 	usr/lib/elder-terms/launcher/main-window.ui \
 	usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
@@ -266,6 +287,15 @@ for staged_file in \
 	usr/share/doc/elder-terms/docs/ja/webdav.md \
 	usr/share/doc/elder-terms/docs/en/webdav.md \
 	usr/share/doc/elder-terms/docs/en/webdav-validation.md \
+	usr/share/doc/elder-terms/licenses/boxrig/LICENSE \
+	usr/share/doc/elder-terms/licenses/boxrig/README.md \
+	usr/share/doc/elder-terms/licenses/boxrig/README_ja.md \
+	usr/share/doc/elder-terms/licenses/boxrig/sources.json \
+	usr/share/doc/elder-terms/licenses/boxrig/utf8proc-LICENSE.md \
+	usr/share/doc/elder-terms/licenses/boxrig/libpng-LICENSE \
+	usr/share/doc/elder-terms/licenses/boxrig/zlib-LICENSE \
+	usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
+	usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
 	usr/share/doc/elder-terms/copyright; do
 	assert_file "$stage_dir/$staged_file"
 done

@@ -99,6 +99,7 @@ const createPackageStage = (
     'usr/share/doc/elder-terms',
     'usr/share/doc/elder-terms/docs/ja',
     'usr/share/doc/elder-terms/docs/en',
+    'usr/share/doc/elder-terms/licenses/boxrig',
     'usr/share/icons/hicolor/256x256/apps',
     'usr/share/locale/ja/LC_MESSAGES',
   ];
@@ -122,6 +123,12 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
   const executablePaths = [
     'usr/bin/etctl',
     'usr/lib/elder-terms/libelder-terms.so',
+    'usr/lib/elder-terms/libcardio.so',
+    'usr/lib/elder-terms/libboxrig.so.0',
+    'usr/lib/elder-terms/libboxrig-ui.so.0',
+    'usr/lib/elder-terms/libboxrig-session.so.0',
+    'usr/lib/elder-terms/libboxrig-posix.so.0',
+    'usr/lib/elder-terms/libboxrig-gtk3.so.0',
     'usr/lib/elder-terms/launcher/elder-terms',
     'usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal',
     'usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer',
@@ -164,6 +171,22 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     ['usr/share/icons/hicolor/256x256/apps/elder-terms.png', 'icon\n'],
     ['usr/share/locale/ja/LC_MESSAGES/elder-terms.mo', 'locale\n'],
   ]);
+  for (const name of [
+    'LICENSE',
+    'README.md',
+    'README_ja.md',
+    'sources.json',
+    'utf8proc-LICENSE.md',
+    'libpng-LICENSE',
+    'zlib-LICENSE',
+    'Unicode-LICENSE.txt',
+    'WHATWG-Encoding-LICENSE',
+  ]) {
+    textFiles.set(
+      `usr/share/doc/elder-terms/licenses/boxrig/${name}`,
+      'license fixture\n'
+    );
+  }
   for (const [relativePath, contents] of textFiles) {
     if (relativePath !== omittedPath) {
       writeFileSync(join(stageRoot, relativePath), contents);
@@ -799,6 +822,43 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         expect(validation.status).not.toBe(0);
         expect(validation.stderr).toContain(missingPath);
       }
+    }
+
+    for (const missingPath of [
+      ...[
+        'libcardio.so',
+        'libboxrig.so.0',
+        'libboxrig-ui.so.0',
+        'libboxrig-session.so.0',
+        'libboxrig-posix.so.0',
+        'libboxrig-gtk3.so.0',
+      ].map((name) => `usr/lib/elder-terms/${name}`),
+      ...[
+        'LICENSE',
+        'README.md',
+        'README_ja.md',
+        'sources.json',
+        'utf8proc-LICENSE.md',
+        'libpng-LICENSE',
+        'zlib-LICENSE',
+        'Unicode-LICENSE.txt',
+        'WHATWG-Encoding-LICENSE',
+      ].map((name) => `usr/share/doc/elder-terms/licenses/boxrig/${name}`),
+    ]) {
+      const name = missingPath.replace(/\//g, '-');
+      const stage = join(temporaryRoot, `missing-${name}-stage`);
+      const output = join(temporaryRoot, `missing-${name}.deb`);
+      createPackageStage(stage, debianArchitecture, missingPath, true, true);
+      expectSuccess(
+        run(dpkgDeb, ['--root-owner-group', '--build', stage, output]),
+        'incomplete runtime package creation failed'
+      );
+      const validation = runSourced(
+        'VERSION=1.2.3\nvalidate_deb_package "$2" "$3"',
+        [output, canonicalArchitecture!]
+      );
+      expect(validation.status, missingPath).not.toBe(0);
+      expect(validation.stderr).toContain(missingPath);
     }
 
     const missingCaValidation = runSourced(
