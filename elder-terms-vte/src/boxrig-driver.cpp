@@ -27,6 +27,7 @@ struct Driver {
   bool sftp_active = false;
   elder_terms::TerminalLocalCommand command;
   std::optional<elder_terms::TerminalTransportRequest> transport;
+  std::optional<elder_terms::SerialConnectionSettings> serial;
   std::shared_ptr<elder_terms::InlinePromptController> prompt;
   std::unique_ptr<elder_terms::TerminalLogState, decltype(&elder_terms::destroy_terminal_log)> log{nullptr, elder_terms::destroy_terminal_log};
   std::uint64_t log_generation = 0;
@@ -266,6 +267,22 @@ static void encoding_changed(GtkButton *button, gpointer context) {
   if (elder_terms::terminal_runtime_request_encoding(driver->runtime, encoding)) {
     driver->command.encoding = encoding;
     if (driver->transport) driver->transport->encoding = encoding;
+  }
+  gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
+}
+
+static void baud_changed(GtkButton *button, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  auto settings = *driver->serial;
+  settings.baudrate = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(button), "baud"));
+  try {
+    driver->transport->configure_serial(settings);
+    driver->serial = std::move(settings);
+    std::printf("serial_baud=%lld generation=%llu\n", static_cast<long long>(driver->serial->baudrate),
+        static_cast<unsigned long long>(elder_terms::terminal_runtime_connection_state(driver->runtime).generation));
+    std::fflush(stdout);
+  } catch (const std::exception &error) {
+    std::fprintf(stderr, "Serial settings: %s\n", error.what());
   }
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
@@ -533,8 +550,10 @@ int main(int argc, char **argv) {
     driver.transport = elder_terms::make_ssh_transport_request(ssh, driver.command.encoding, callbacks, options);
   else if (!telnet.address.empty())
     driver.transport = elder_terms::make_telnet_transport_request(telnet, driver.command.encoding, callbacks, options);
-  else if (!serial.device.empty())
+  else if (!serial.device.empty()) {
+    driver.serial = serial;
     driver.transport = elder_terms::make_serial_transport_request(serial, driver.command.encoding, callbacks);
+  }
   auto *controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_pack_start(GTK_BOX(content), controls, FALSE, FALSE, 0);
   auto *zoom = gtk_button_new_with_label("Zoom in");
@@ -589,6 +608,17 @@ int main(int argc, char **argv) {
           G_CALLBACK(input_enabled_changed), &driver);
     }
     auto *sending = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    if (driver.serial) {
+      auto *serial_controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+      gtk_box_pack_start(GTK_BOX(content), serial_controls, FALSE, FALSE, 0);
+      for (const int baud : {9600, 115200}) {
+        auto *button = gtk_button_new_with_label((std::to_string(baud) + " baud").c_str());
+        gestament_gtk_assign_accessible_id(button, ("driver_baud_" + std::to_string(baud)).c_str());
+        g_object_set_data(G_OBJECT(button), "baud", GINT_TO_POINTER(baud));
+        gtk_box_pack_start(GTK_BOX(serial_controls), button, FALSE, FALSE, 0);
+        g_signal_connect(button, "clicked", G_CALLBACK(baud_changed), &driver);
+      }
+    }
     gtk_box_pack_start(GTK_BOX(content), sending, FALSE, FALSE, 0);
     auto *paste = gtk_button_new_with_label("Paste");
     gestament_gtk_assign_accessible_id(paste, "driver_paste");

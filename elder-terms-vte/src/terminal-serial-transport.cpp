@@ -19,8 +19,17 @@ struct SerialChannel {
   cardio::io_uring io{16};
   int descriptor = -1;
   TerminalSessionCallbacks callbacks;
+  SerialCarrierDetect carrier = SerialCarrierDetect::ignore;
+  std::uint64_t carrier_revision = 0;
+  cardio::cancellation_source carrier_interrupt;
 
   ~SerialChannel() { if (descriptor >= 0) ::close(descriptor); }
+};
+
+struct SerialFactory {
+  SerialConnectionSettings settings;
+  TerminalSessionCallbacks callbacks;
+  std::weak_ptr<SerialChannel> channel;
 };
 
 static cardio::promise<std::size_t> read_serial(SerialChannel *channel,
@@ -60,32 +69,48 @@ static cardio::promise<void> close_serial(SerialChannel *channel) {
     co_await cardio::io_urings::close(channel->io, std::exchange(channel->descriptor, -1));
 }
 
-static cardio::promise<void> watch_serial_carrier(SerialChannel *channel, SerialCarrierDetect selected,
+static cardio::promise<void> watch_serial_carrier(SerialChannel *channel,
     std::function<void(bool)> notify, cardio::cancellation cancellation) {
-  if (selected == SerialCarrierDetect::ignore) co_return;
+  auto selected = channel->carrier;
+  auto revision = channel->carrier_revision;
   SerialCarrierTracker tracker(selected);
   bool connected = true;
   try {
     for (;;) {
       cancellation.throw_if_cancellation_requested();
+      if (revision != channel->carrier_revision) {
+        selected = channel->carrier;
+        revision = channel->carrier_revision;
+        tracker = SerialCarrierTracker(selected);
+        connected = true;
+      }
+      channel->carrier_interrupt = cardio::cancellations::any(cancellation);
       const auto signals = read_serial_line_signals(channel->descriptor);
       if (channel->callbacks.indicator_state)
         for (const auto state : serial_line_indicator_states(signals))
           channel->callbacks.indicator_state(state.indicator, state.active);
-      const bool high = selected == SerialCarrierDetect::cts ? signals.cts :
+      const bool high = selected == SerialCarrierDetect::ignore ? true :
+          selected == SerialCarrierDetect::cts ? signals.cts :
           selected == SerialCarrierDetect::dsr ? signals.dsr : signals.cd;
       if (high) connected = true;
       if (tracker.update(signals) == SerialCarrierEvent::disconnected) connected = false;
       notify(connected);
-      const auto events = co_await channel->io.submit<short>(
-          [descriptor = channel->descriptor](::io_uring_sqe *sqe) {
-            ::io_uring_prep_poll_add(sqe, descriptor, POLLPRI | POLLERR | POLLHUP | POLLNVAL);
-          },
-          [](cardio::io_uring_completion completion) {
-            if (completion.result < 0)
-              throw std::system_error(-completion.result, std::generic_category(), "serial modem-line poll");
-            return static_cast<short>(completion.result);
-          }, cancellation);
+      short events = 0;
+      try {
+        events = co_await channel->io.submit<short>(
+            [descriptor = channel->descriptor](::io_uring_sqe *sqe) {
+              ::io_uring_prep_poll_add(sqe, descriptor, POLLPRI | POLLERR | POLLHUP | POLLNVAL);
+            },
+            [](cardio::io_uring_completion completion) {
+              if (completion.result < 0)
+                throw std::system_error(-completion.result, std::generic_category(), "serial modem-line poll");
+              return static_cast<short>(completion.result);
+            }, channel->carrier_interrupt.get_cancellation());
+      } catch (const cardio::canceled_exception &) {
+        cancellation.throw_if_cancellation_requested();
+        if (revision != channel->carrier_revision) continue;
+        throw;
+      }
       if ((events & (POLLERR | POLLHUP | POLLNVAL)) != 0)
         throw std::system_error(ENODEV, std::generic_category(), "serial modem-line hangup");
     }
@@ -110,9 +135,31 @@ static cardio::promise<void> break_serial(SerialChannel *channel, cardio::cancel
   if (failure) std::rethrow_exception(failure);
 }
 
-static cardio::promise<TerminalTransport> open_serial(SerialConnectionSettings settings,
-    TerminalSessionCallbacks callbacks, cardio::cancellation cancellation) {
-  auto resolving = cardio::promises::start_new([settings] {
+static void configure_serial(SerialFactory *factory, const SerialConnectionSettings &settings) {
+  auto next = settings;
+  // Saved profile edits must not change the active device or its recovery
+  // identity. A newly requested connection creates a factory with that target.
+  next.device = factory->settings.device;
+  next.device_match_mode = factory->settings.device_match_mode;
+  next.device_usb_serial = factory->settings.device_usb_serial;
+  const bool port_changed = factory->settings.baudrate != next.baudrate || factory->settings.bits != next.bits ||
+      factory->settings.parity != next.parity || factory->settings.stop_bit != next.stop_bit ||
+      factory->settings.flow_control != next.flow_control;
+  if (auto channel = factory->channel.lock(); channel && channel->descriptor >= 0) {
+    // Display-only and carrier-only edits must not issue another termios call.
+    if (port_changed) configure_serial_port(channel->descriptor, next);
+    if (channel->carrier != next.carrier_detect) {
+      channel->carrier = next.carrier_detect;
+      ++channel->carrier_revision;
+      channel->carrier_interrupt.cancel();
+    }
+  }
+  factory->settings = std::move(next);
+}
+
+static cardio::promise<TerminalTransport> open_serial(std::shared_ptr<SerialFactory> factory,
+    cardio::cancellation cancellation) {
+  auto resolving = cardio::promises::start_new([settings = factory->settings] {
     return resolve_serial_device(settings.device_match_mode, settings.device, settings.device_usb_serial);
   });
   const auto resolved = co_await resolving;
@@ -121,19 +168,21 @@ static cardio::promise<TerminalTransport> open_serial(SerialConnectionSettings s
     throw std::system_error(ENOENT, std::generic_category(), resolved.warnings.empty() ?
         "serial device is unavailable" : resolved.warnings.front());
   auto channel = std::make_shared<SerialChannel>();
-  channel->callbacks = std::move(callbacks);
+  channel->callbacks = factory->callbacks;
   channel->descriptor = co_await cardio::io_urings::open(channel->io, resolved.path.string(),
       O_RDWR | O_NOCTTY | O_NONBLOCK | O_CLOEXEC, 0, cancellation);
   cancellation.throw_if_cancellation_requested();
-  configure_serial_port(channel->descriptor, settings);
+  configure_serial_port(channel->descriptor, factory->settings);
+  channel->carrier = factory->settings.carrier_detect;
+  factory->channel = channel;
   co_return TerminalTransport{
       [channel](std::span<unsigned char> bytes, cardio::cancellation stop) { return read_serial(channel.get(), bytes, stop); },
       [channel](std::span<const unsigned char> bytes, cardio::cancellation stop) { return write_serial(channel.get(), bytes, stop); },
       [](std::size_t, std::size_t, cardio::cancellation stop) -> cardio::promise<void> { stop.throw_if_cancellation_requested(); co_return; },
       [channel] { return close_serial(channel.get()); }, {},
       [channel](cardio::cancellation stop) { return break_serial(channel.get(), stop); }, {},
-      [channel, selected = settings.carrier_detect](std::function<void(bool)> notify, cardio::cancellation stop) {
-        return watch_serial_carrier(channel.get(), selected, std::move(notify), stop);
+      [channel](std::function<void(bool)> notify, cardio::cancellation stop) {
+        return watch_serial_carrier(channel.get(), std::move(notify), stop);
       }};
 }
 
@@ -166,9 +215,12 @@ TerminalTransportRequest make_serial_transport_request(SerialConnectionSettings 
   request.watch_availability = [device = settings.device](std::function<void()> notify, cardio::cancellation cancellation) {
     return watch_serial_device(device, std::move(notify), cancellation);
   };
-  request.open = [settings = std::move(settings), callbacks = std::move(callbacks)](
-      std::size_t, std::size_t, cardio::cancellation cancellation) {
-    return open_serial(settings, callbacks, cancellation);
+  auto factory = std::make_shared<SerialFactory>(SerialFactory{std::move(settings), std::move(callbacks), {}});
+  request.open = [factory](std::size_t, std::size_t, cardio::cancellation cancellation) {
+    return open_serial(factory, cancellation);
+  };
+  request.configure_serial = [factory](const SerialConnectionSettings &settings) {
+    configure_serial(factory.get(), settings);
   };
   return request;
 }

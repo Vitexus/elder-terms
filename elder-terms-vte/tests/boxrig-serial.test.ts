@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { mkdtemp, rm, symlink, unlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -75,6 +75,22 @@ it('exchanges serial bytes, reconnects without clearing the display, and finaliz
       expect(await visible()).toContain('SERIAL:日本語');
       expect(received().toString()).toBe('\x1b[1;1R');
     });
+    expect(
+      execFileSync('stty', ['-F', path, 'speed'], { encoding: 'utf8' }).trim()
+    ).toBe('9600');
+    const baud = await app.getById('driver_baud_115200');
+    if (baud.kind !== 'button')
+      throw new Error('Missing serial settings control');
+    await baud.click();
+    await toPass(async () => {
+      expect(
+        execFileSync('stty', ['-F', path, 'speed'], { encoding: 'utf8' }).trim()
+      ).toBe('115200');
+      expect((await app.output()).stdout).toContain(
+        'serial_baud=115200 generation=1'
+      );
+      expect(await visible()).toContain('SERIAL:日本語');
+    });
     const sendBreak = await app.getById('driver_break');
     if (sendBreak.kind !== 'button') throw new Error('Missing BREAK control');
     await sendBreak.click();
@@ -111,6 +127,9 @@ it('exchanges serial bytes, reconnects without clearing the display, and finaliz
         'connection=connected generation=2'
       )
     );
+    expect(
+      execFileSync('stty', ['-F', path, 'speed'], { encoding: 'utf8' }).trim()
+    ).toBe('115200');
     peer.stdin.write('TX RECONNECTED\x1bE\n');
     await toPass(async () => {
       expect(await visible()).toContain('RECONNECTED');
@@ -189,6 +208,19 @@ it('recovers an initially absent serial device and a replacement without losing 
         connectedGeneration = Number(connected?.[1]);
         expect(connectedGeneration).toBeGreaterThan(priorGeneration);
       });
+      if (marker === 'FIRST_DEVICE') {
+        const baud = await app.getById('driver_baud_115200');
+        if (baud.kind !== 'button')
+          throw new Error('Missing serial settings control');
+        await baud.click();
+      }
+      await toPass(async () =>
+        expect(
+          execFileSync('stty', ['-F', path, 'speed'], {
+            encoding: 'utf8',
+          }).trim()
+        ).toBe('115200')
+      );
       peer.stdin!.write(`TX \x1b[${row};1H\x1b[6n${marker}\x1bE\n`);
       await toPass(async () => {
         const output = (await app.output()).stdout;

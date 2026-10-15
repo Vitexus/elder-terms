@@ -11,6 +11,7 @@
 namespace elder_terms {
 
 class AuthenticatedSshTransport;
+struct SerialConnectionSettings;
 
 /**
  * Owned communication operations, independent of terminal parsing and widgets.
@@ -56,6 +57,13 @@ struct TerminalTransportRequest {
    * monitoring. Return only after releasing callbacks. No timer retries are used.
    */
   std::function<cardio::promise<void>(std::function<void()>, cardio::cancellation)> watch_availability = {};
+  /**
+   * Applies serial framing and carrier policy to the current and future opens.
+   * Copies of the request share updates; the original device identity is kept.
+   * Call on the channel's dispatcher. Throws if applying live settings fails.
+   * Empty for non-serial transports. Device changes require a new factory.
+   */
+  std::function<void(const SerialConnectionSettings &)> configure_serial = {};
 };
 
 }

@@ -213,6 +213,12 @@ executable(
 )
 
 if get_option('build_tests')
+boxrig_serial_transport_test = executable('boxrig-serial-transport-test',
+  'tests/cpp/boxrig-serial-transport-test.cpp', dependencies: boxrig_runtime_dep,
+  link_args: ['-Wl,--wrap=ioctl', '-Wl,--wrap=tcsetattr'])
+test('boxrig-serial-settings-test', boxrig_serial_transport_test, timeout: 30)
+test('boxrig-serial-signals-test', boxrig_serial_transport_test, args: ['signals'], timeout: 30)
+
 boxrig_macros_test = executable('boxrig-macros-test',
   ['tests/cpp/boxrig-macros-test.cpp', 'src/terminal-received-macros.cpp'],
   dependencies: [boxrig_deps['boxrig'], elder_terms_dep])

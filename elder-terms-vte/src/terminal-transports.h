@@ -36,6 +36,8 @@ TerminalTransportRequest make_ssh_transport_request(SshConnectionSettings settin
  * @remarks Device notifications permit runtime recovery after a failed open or
  * unplug. The monitor is joined when the user disconnects or replaces the target.
  * Carrier drops suspend sending while retaining the open port and its reader.
+ * Copies share configure_serial updates, including during open and recovery.
+ * Only one channel may be open per factory. A new target needs a new factory.
  */
 TerminalTransportRequest make_serial_transport_request(SerialConnectionSettings settings,
     std::string encoding, TerminalSessionCallbacks callbacks);
