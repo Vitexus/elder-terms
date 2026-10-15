@@ -82,6 +82,16 @@ executable('boxrig-driver', ['src/boxrig-driver.cpp', 'src/inline-prompt.cpp', '
   dependencies: [boxrig_runtime_dep],
 )
 
+# Keep the upstream headless driver unchanged and link the same shared core as
+# the terminal. It does not initialize GTK, a display server, or an IME.
+boxrig_regex_flags = run_command(boxrig_pkg_config, '--cflags', '--libs', 'boxrig',
+  env: boxrig_pkg_env, check: true).stdout().strip().split()
+custom_target('boxrig-regex',
+  input: '../deps/boxrig/examples/core/regex.c', output: 'boxrig-regex',
+  command: [find_program('cc'), '-std=c99', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
+    '@INPUT@', '-o', '@OUTPUT@', '-Wl,-rpath,' + boxrig_sdk_dir / 'lib'] + boxrig_regex_flags,
+  depends: boxrig_sdk_target, build_by_default: true)
+
 telnet_protocol_source = 'src/terminal-sessions/telnet-session/telnet-protocol.cpp'
 elder_terms_sources = [
   'src/activity-indicator.cpp',
