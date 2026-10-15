@@ -2,6 +2,7 @@
 
 #include <boxrig/gtk3.h>
 #include <string_view>
+#include <elder-terms/settings.h>
 #include "terminal-connection.h"
 
 namespace elder_terms {
@@ -93,5 +94,31 @@ TerminalConnectionState terminal_runtime_connection_state(const TerminalRuntime 
  */
 void terminal_runtime_set_output_callback(TerminalRuntime *runtime,
     std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> callback);
+
+/**
+ * Requests an atomic exchange of Enter, Backspace and cursor-key settings.
+ * @param runtime Live runtime.
+ * @param settings Desired input settings; encoding belongs to the transport.
+ * @remarks A BUSY widget retains its old settings until an input/frame
+ * notification permits retry. A newer request replaces a pending request.
+ */
+void terminal_runtime_request_input_settings(TerminalRuntime *runtime, TerminalTextSettings settings);
+
+/**
+ * Reports whether an input-settings exchange is waiting for the widget.
+ * @param runtime Live runtime.
+ * @return True until a requested exchange is applied or fails.
+ */
+bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime);
+
+/**
+ * Requests input inhibition or resumption while preserving selection and display.
+ * @param runtime Live runtime.
+ * @param enabled Whether application policy permits terminal input.
+ * @remarks Connections additionally inhibit input while starting or closed.
+ * The widget's input state distinguishes accepted STOPPING from DISABLED;
+ * transport output may remain pending in either state.
+ */
+void terminal_runtime_request_input_enabled(TerminalRuntime *runtime, bool enabled);
 
 }

@@ -50,10 +50,12 @@ libxyzm_async_static_library = libxyzm_static_libraries[1]
 
 boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
   ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp'],
+  include_directories: elder_terms_shared_include_dir,
   dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep],
 )
 boxrig_runtime_dep = declare_dependency(
   link_with: boxrig_runtime_library,
+  include_directories: elder_terms_shared_include_dir,
   dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep],
 )
 executable('boxrig-driver', 'src/boxrig-driver.cpp',

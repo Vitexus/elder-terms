@@ -12,6 +12,7 @@ struct Driver {
   GtkWidget *status = nullptr;
   GtkWidget *connection_status = nullptr;
   elder_terms::TerminalLocalCommand command;
+  elder_terms::TerminalTextSettings input_settings;
   bool local = false;
   bool closing = false;
   std::string last_report;
@@ -64,9 +65,14 @@ static void report_state(void *context) {
   auto *visible_text = atk_text_get_text(ATK_TEXT(accessible), 0, -1);
   auto *encoded = g_base64_encode(reinterpret_cast<const guchar *>(visible_text),
       std::char_traits<char>::length(visible_text));
+  boxrig_ui_input_state input{};
+  boxrig_gtk3_terminal_widget_get_input_state(widget, &input);
   const std::string report = std::string(text) + " cell=" + std::to_string(metrics.cell_width) +
       "x" + std::to_string(metrics.cell_height) + " selected=" + std::to_string(atk_text_get_n_selections(ATK_TEXT(accessible))) +
       " ready=" + (elder_terms::terminal_runtime_is_settled(driver->runtime) ? "1" : "0") +
+      " input=" + std::to_string(input.phase) +
+      " input_pending=" + (elder_terms::terminal_runtime_input_settings_pending(driver->runtime) ? "1" : "0") +
+      " input_generation=" + std::to_string(input.generation) +
       " text=" + encoded;
   g_free(encoded);
   g_free(visible_text);
@@ -120,6 +126,33 @@ static void reconnect(GtkButton *, gpointer context) {
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
+static void input_settings_changed(GtkButton *button, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  driver->input_settings = {};
+  if (g_object_get_data(G_OBJECT(button), "trs80"))
+    driver->input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
+  elder_terms::terminal_runtime_request_input_settings(driver->runtime, driver->input_settings);
+  gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
+}
+
+static boxrig_input_key_route route_key(const boxrig_key_event *event, void *context) {
+  auto *driver = static_cast<Driver *>(context);
+  if (event->key != BOXRIG_KEY_F12 || event->modifiers != BOXRIG_MODIFIER_CONTROL)
+    return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
+  if (event->action == BOXRIG_KEY_PRESS) {
+    driver->input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
+    elder_terms::terminal_runtime_request_input_settings(driver->runtime, driver->input_settings);
+  }
+  return BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
+}
+
+static void input_enabled_changed(GtkButton *button, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  elder_terms::terminal_runtime_request_input_enabled(driver->runtime,
+      g_object_get_data(G_OBJECT(button), "enabled") != nullptr);
+  gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
+}
+
 int main(int argc, char **argv) {
   // Arguments after -- belong to the child; GTK must not consume their flags.
   gtk_init(nullptr, nullptr);
@@ -128,6 +161,18 @@ int main(int argc, char **argv) {
   Driver driver;
   for (int index = 1; index < argc; ++index) {
     if (std::string_view(argv[index]) == "--local") driver.local = true;
+    else if (std::string_view(argv[index]) == "--trs80")
+      driver.input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
+    else if (std::string_view(argv[index]) == "--return" && index + 1 < argc) {
+      const std::string_view value = argv[++index];
+      driver.input_settings.return_code = value == "cr" ? elder_terms::TerminalReturnCode::cr :
+          value == "lf" ? elder_terms::TerminalReturnCode::lf :
+          value == "crlf" ? elder_terms::TerminalReturnCode::crlf : elder_terms::TerminalReturnCode::automatic;
+    } else if (std::string_view(argv[index]) == "--backspace" && index + 1 < argc) {
+      const std::string_view value = argv[++index];
+      driver.input_settings.backspace_code = value == "bs" ? elder_terms::TerminalBackspaceCode::bs :
+          value == "del" ? elder_terms::TerminalBackspaceCode::del : elder_terms::TerminalBackspaceCode::automatic;
+    }
     else if (std::string_view(argv[index]) == "--") {
       for (++index; index < argc; ++index) driver.command.arguments.emplace_back(argv[index]);
       break;
@@ -166,12 +211,31 @@ int main(int argc, char **argv) {
     gtk_box_pack_start(GTK_BOX(connections), driver.connection_status, FALSE, FALSE, 0);
     g_signal_connect(stop, "clicked", G_CALLBACK(disconnect), &driver);
     g_signal_connect(start, "clicked", G_CALLBACK(reconnect), &driver);
+    auto *inputs = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(content), inputs, FALSE, FALSE, 0);
+    const char *input_labels[] = {"Use TRS-80 (Ctrl+F12)", "Use default keys", "Pause input", "Resume input"};
+    const char *input_ids[] = {"driver_trs80", "driver_default_input", "driver_pause_input", "driver_resume_input"};
+    for (unsigned int index = 0; index < 4; ++index) {
+      auto *button = gtk_button_new_with_label(input_labels[index]);
+      gestament_gtk_assign_accessible_id(button, input_ids[index]);
+      gtk_box_pack_start(GTK_BOX(inputs), button, FALSE, FALSE, 0);
+      if (index == 0) g_object_set_data(G_OBJECT(button), "trs80", GINT_TO_POINTER(1));
+      if (index == 3) g_object_set_data(G_OBJECT(button), "enabled", GINT_TO_POINTER(1));
+      g_signal_connect(button, "clicked", index < 2 ? G_CALLBACK(input_settings_changed) :
+          G_CALLBACK(input_enabled_changed), &driver);
+    }
   }
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }
   auto *widget = elder_terms::terminal_runtime_widget(driver.runtime);
+  if (boxrig_gtk3_terminal_widget_set_key_router(widget, route_key, &driver) != BOXRIG_UI_OK) {
+    elder_terms::destroy_terminal_runtime(driver.runtime);
+    gtk_widget_destroy(window);
+    return 1;
+  }
   gestament_gtk_assign_accessible_id(GTK_WIDGET(widget), "driver_terminal");
   elder_terms::terminal_runtime_set_changed_callback(driver.runtime, report_state, &driver);
+  elder_terms::terminal_runtime_request_input_settings(driver.runtime, driver.input_settings);
   g_signal_connect(zoom, "clicked", G_CALLBACK(zoom_in), &driver);
   g_signal_connect(copy, "clicked", G_CALLBACK(copy_selection), &driver);
   g_signal_connect(window, "delete-event", G_CALLBACK(close_window), &driver);

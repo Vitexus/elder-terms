@@ -69,10 +69,14 @@ struct TerminalConnection {
   std::optional<cardio::promise<void>> completion;
 };
 
-static void discard_outgoing(boxrig_terminal *terminal) {
+static bool discard_outgoing(boxrig_terminal *terminal) {
   const uint8_t *bytes = nullptr;
-  while (const auto count = boxrig_terminal_output_peek(terminal, &bytes))
+  bool discarded = false;
+  while (const auto count = boxrig_terminal_output_peek(terminal, &bytes)) {
     boxrig_terminal_output_consume(terminal, count);
+    discarded = true;
+  }
+  return discarded;
 }
 
 static boxrig_transport_status receive(
@@ -372,6 +376,8 @@ bool terminal_connection_dispatch(TerminalConnection *connection) {
     finish_input(connection);
     return false;
   }
+  if (!connection->operation || !connection->operation->session)
+    return discard_outgoing(connection->terminal);
   if (!connection->operation || !connection->operation->session ||
       (connection->state.phase == TerminalConnectionPhase::stopping &&
        !connection->operation->finishing)) return false;

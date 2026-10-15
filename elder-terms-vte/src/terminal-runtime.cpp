@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <limits>
 #include <new>
+#include <array>
+#include <optional>
 #include <string>
 
 namespace elder_terms {
@@ -12,6 +14,9 @@ struct TerminalRuntime {
   boxrig_ui_model *model = nullptr;
   TerminalConnection *connection = nullptr;
   std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> output;
+  std::optional<TerminalLocalCommand> pending_connection;
+  std::optional<TerminalTextSettings> pending_input;
+  bool input_allowed = true;
   BoxrigGtk3TerminalWidget *widget = nullptr;
   GtkWidget *scroll = nullptr;
   GtkWindow *window = nullptr;
@@ -102,6 +107,49 @@ static bool ui_result(boxrig_ui_status status, const char *operation) {
   if (status == BOXRIG_UI_OK) return true;
   g_warning("boxrig %s failed: %d", operation, status);
   return false;
+}
+
+static bool process_input_policy(TerminalRuntime *runtime) {
+  if (runtime->pending_input) {
+    const auto &settings = *runtime->pending_input;
+    auto config = boxrig_input_config_default();
+    config.enter_newline = settings.return_code == TerminalReturnCode::cr ? BOXRIG_NEWLINE_CR :
+        settings.return_code == TerminalReturnCode::lf ? BOXRIG_NEWLINE_LF :
+        settings.return_code == TerminalReturnCode::crlf ? BOXRIG_NEWLINE_CRLF : BOXRIG_NEWLINE_TERMINAL;
+    config.backspace_binding = settings.backspace_code == TerminalBackspaceCode::bs ? BOXRIG_ERASE_ASCII_BACKSPACE :
+        settings.backspace_code == TerminalBackspaceCode::del ? BOXRIG_ERASE_ASCII_DELETE : BOXRIG_ERASE_AUTO;
+    const std::array<uint8_t, 4> bytes{0x1e, 0x1f, 0x1c, 0x1d};
+    const std::array<boxrig_key_mapping, 4> mappings{{
+        {BOXRIG_KEY_UP, 0, &bytes[0], 1}, {BOXRIG_KEY_DOWN, 0, &bytes[1], 1},
+        {BOXRIG_KEY_RIGHT, 0, &bytes[2], 1}, {BOXRIG_KEY_LEFT, 0, &bytes[3], 1}}};
+    if (settings.cursor_key_mode == TerminalCursorKeyMode::trs80) {
+      config.key_mappings = mappings.data();
+      config.key_mapping_count = mappings.size();
+    }
+    const auto status = boxrig_gtk3_terminal_widget_set_input_config(runtime->widget, &config);
+    if (status != BOXRIG_UI_BUSY) {
+      runtime->pending_input.reset();
+      if (!ui_result(status, "input settings")) return false;
+    }
+  }
+  const auto connection = terminal_connection_state(runtime->connection);
+  const bool enabled = runtime->input_allowed && !runtime->pending_connection &&
+      (connection.generation == 0 ||
+      connection.phase == TerminalConnectionPhase::connected);
+  boxrig_ui_input_state input{};
+  if (!ui_result(boxrig_gtk3_terminal_widget_get_input_state(runtime->widget, &input), "input state")) return false;
+  if ((enabled && input.phase != BOXRIG_UI_INPUT_ENABLED) ||
+      (!enabled && input.phase == BOXRIG_UI_INPUT_ENABLED)) {
+    const auto status = boxrig_gtk3_terminal_widget_set_input_enabled(runtime->widget, enabled);
+    if (status != BOXRIG_UI_BUSY && !ui_result(status, "input inhibition")) return false;
+    if (!ui_result(boxrig_gtk3_terminal_widget_get_input_state(runtime->widget, &input), "input state")) return false;
+  }
+  if (runtime->pending_connection && input.phase == BOXRIG_UI_INPUT_DISABLED) {
+    auto command = std::move(*runtime->pending_connection);
+    runtime->pending_connection.reset();
+    if (!terminal_connection_start_local(runtime->connection, std::move(command))) return false;
+  }
+  return true;
 }
 
 static boxrig_ui_fixed allocation_fixed(TerminalRuntime *runtime, bool width) {
@@ -205,12 +253,18 @@ static gboolean dispatch_frame(gpointer context) {
     runtime->stopped = true;
     return G_SOURCE_REMOVE;
   }
+  if (!process_input_policy(runtime)) {
+    terminal_connection_stop(runtime->connection);
+    runtime->stopped = true;
+    return G_SOURCE_REMOVE;
+  }
   // Communication and stream finalization continue while the window is hidden.
   if (!gtk_widget_get_mapped(GTK_WIDGET(runtime->widget))) return G_SOURCE_REMOVE;
   boxrig_ui_component_frame_result result{};
   if (!process_layout(runtime) ||
       !ui_result(boxrig_ui_model_synchronize(runtime->model), "synchronize") ||
-      !ui_result(boxrig_gtk3_terminal_widget_frame(runtime->widget, &result), "frame")) {
+      !ui_result(boxrig_gtk3_terminal_widget_frame(runtime->widget, &result), "frame") ||
+      !process_input_policy(runtime)) {
     runtime->stopped = true;
     terminal_connection_stop(runtime->connection);
     boxrig_gtk3_terminal_widget_quiesce(runtime->widget);
@@ -346,11 +400,22 @@ bool terminal_runtime_is_settled(const TerminalRuntime *runtime) {
 }
 
 bool terminal_runtime_connect_local(TerminalRuntime *runtime, TerminalLocalCommand command) {
-  return terminal_connection_start_local(runtime->connection, std::move(command));
+  const auto phase = terminal_connection_state(runtime->connection).phase;
+  if (runtime->stopped || runtime->pending_connection ||
+      (phase != TerminalConnectionPhase::idle && phase != TerminalConnectionPhase::closed)) return false;
+  runtime->pending_connection = std::move(command);
+  runtime->input_allowed = true;
+  request_frame(runtime);
+  return true;
 }
 
 cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
+  runtime->pending_connection.reset();
+  runtime->input_allowed = false;
+  const auto status = boxrig_gtk3_terminal_widget_set_input_enabled(runtime->widget, false);
+  if (status != BOXRIG_UI_BUSY) ui_result(status, "disconnect input");
   terminal_connection_stop(runtime->connection);
+  request_frame(runtime);
   co_await terminal_connection_wait_stopped(runtime->connection);
 }
 
@@ -361,6 +426,18 @@ TerminalConnectionState terminal_runtime_connection_state(const TerminalRuntime 
 void terminal_runtime_set_output_callback(TerminalRuntime *runtime,
     std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> callback) {
   runtime->output = std::move(callback);
+}
+
+void terminal_runtime_request_input_settings(TerminalRuntime *runtime, TerminalTextSettings settings) {
+  runtime->pending_input = std::move(settings);
+  request_frame(runtime);
+}
+
+bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime) { return runtime->pending_input.has_value(); }
+
+void terminal_runtime_request_input_enabled(TerminalRuntime *runtime, bool enabled) {
+  runtime->input_allowed = enabled;
+  request_frame(runtime);
 }
 
 }
