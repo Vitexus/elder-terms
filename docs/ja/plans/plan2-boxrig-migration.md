@@ -6,17 +6,17 @@ elder-termsを、最初からboxrigで実装した端末アプリケーション
 
 boxrigは`deps/boxrig`のsubmoduleから、elder-termsの通常ビルド中に共有ライブラリとして生成する。移行後はlibvteへの参照と、elder-terms自身のPCRE2利用・直接依存を削除する。VTE型・signal・座標補正を再現する互換層や、旧backendへの切り替えは残さない。
 
-調査対象のelder-terms実装は`9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8`。boxrigは2026年10月15日に取得した`origin/develop` HEAD、`8ab9bdfe2c44c76b81d8d74899484350734fc86a`へ更新した。入れ子のsubmoduleも初期化済みである。最初の追加コミットは`f8b7aaa`、その時点の固定先は`5ebe6420f6f81b4bf38d11fe233285f470a83ae6`だった。
+調査対象のelder-terms実装は`9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8`。boxrigは2026年10月15日に取得した`origin/develop` HEAD、`19be168c464d0509c3388bdc7bb3bef4c2717d3d`へ更新した。入れ子のsubmoduleも初期化済みである。前回は`8ab9bdfe2c44c76b81d8d74899484350734fc86a`を固定した。最初の追加コミットは`f8b7aaa`、その時点の固定先は`5ebe6420f6f81b4bf38d11fe233285f470a83ae6`だった。
 
-2026年10月15日の再評価では、独立regexとcapture、入力禁止、設定交換、端末由来resize、PTY診断、共有ビルド、GTK3の本文アクセシビリティを公開APIへ対応づけた。利用者機能の維持に必要な追加APIは、設定保存前に名前付きcaptureの有無と番号を確認する操作である。[API要件資料](../boxrig-api-requirements.md)に解消済みの範囲、残る差分、担当、受け入れ試験を記す。
+今回の再評価では、正規表現の名前付き部分を照合前に調べるAPIを確認した。正規表現の照合と部分文字列の取得、入力禁止、設定交換、端末由来のサイズ要求、PTY診断、共有ビルド、GTK3の本文アクセシビリティを含め、本計画で必須としたAPI不足は解消している。[API要件資料](../boxrig-api-requirements.md)に対応状況、残る文法差、アプリの担当、受け入れ試験を記す。
 
-今回はsubmoduleの更新と再調査・計画の改訂を行う。共有ビルドと上流のドライバーを実行した範囲は末尾に記録し、elder-termsへの移行実装・結合完了とは区別する。未公開の追加案を実在APIとして扱わない。
+今回はsubmoduleの更新と再調査・計画の改訂を行う。共有ビルドと上流のドライバーを実行した範囲は末尾に記録し、elder-termsへの移行実装・結合完了とは区別する。
 
 本計画のUI modelは表示用モデル、GTK3 widgetはGTKへ配置する端末部品である。sessionは端末と通信路を結ぶ有限バッファ付きの処理単位を指す。host itemは端末からアプリへの通知、layout actionはアプリが反映する配置要求、revisionは要求や結果の世代番号である。
 
 regexは正規表現を指す。コンパイル済みの式をprogram、一つの入力を検索する状態をmatcherと呼ぶ。captureは括弧で抽出する部分文字列、recognizerは画面の論理行を認識する仕組み、snapshotは特定時点の状態を保持するコピーである。DIPはDPIに依存しない論理的な寸法、metricsはboxrigが確定した文字の寸法情報を指す。
 
-## 機能の対応と不足
+## 機能の対応と担当範囲
 
 以下のIDはAPI要件資料と共通である。「既存API」はVTE互換を意味せず、boxrigの責任分担に従って実現できる項目を示す。
 
@@ -31,7 +31,7 @@ regexは正規表現を指す。コンパイル済みの式をprogram、一つ�
 | Kitty keyboardの特殊キー補完 | coreのキー生成 | 既存API。アプリのKittyパーサーとcommit補正を削除する |
 | iconvの任意文字コード | UTF-8のcoreと通信側の文字変換 | アプリ機能として分離する。キー列を書き換える機能を持たせない |
 | OSC 8取得と画面リンクの認識 | hit test、共有programのrecognizer登録、保持済みcapture、annotation | R1・R2の照合機能は対応済み。候補の再照合を廃止する |
-| マクロ、ルール検証、番号・名前付きテンプレート | 独立regex・captureとアプリの受信行／実行管理 | R1対応済み。R2の名前を保存時に検証するAPIだけが残る |
+| マクロ、ルール検証、番号・名前付きテンプレート | 独立regex・capture・programの名前照会とアプリの受信行／実行管理 | R1・R2対応済み。照合前の保存時検証も公開APIへ接続する |
 | 色、接続背景、タイトル、ベル | color filter、background、TITLE／BELL host item | 色の適用規則、タイトル合成、音声再生はアプリが接続する |
 | メニュー・中クリック等からの速度指定付き貼り付け | router、GTK clipboard、アプリの送信サービス | 選択コピーは標準UIを使い、送信ポリシーはアプリに残す |
 | `resize-window`で受ける端末側の要求 | `BOXRIG_HOST_ITEM_GRID_RESIZE`からpreferred gridへ | W1対応済み。許可・上限・0／省略の意味をアプリで扱う |
@@ -141,7 +141,7 @@ grid-resize要求は通信先へ反映してからcoreをresizeし、同じrevis
 
 レイアウト試験も、固定倍率1.1、VTEのcell hints、低レベル強制resizeを正解とする前提を改める。文字の安定、希望gridの保持、制約されたwindowの表示、通信先との一致を検証する。ズーム中にgridが不要に往復しないことは動画とPTY通知の時系列で確認する。
 
-## 正規表現と不足APIの取り込み
+## 正規表現と共通設定の接続
 
 画面のregexリンクはboxrigのtext recognizerへ登録し、有限量ずつ走査する。認識IDをアプリのルール順へ対応させ、hitに重なる現在の結果から候補を選ぶ。annotation、ポインター表示、Ctrl+クリックは同じ結果を使い、古いrevision・`INCOMPLETE`・`RESCAN_REQUIRED`を完全な結果として利用しない。[認識器の仕様][text-guide]に従う。
 
@@ -149,9 +149,11 @@ OSC 8 URI、受信行マクロ、設定検証は公開`boxrig/regex.h`へ統一�
 
 マクロは制御列を含むUTF-8受信行を対象とする。現在の行、CRLFの扱い、LF前の実行、優先順、一行一度の実行、1 MiB上限はアプリが管理する。matcherは入力をコピーするので、受信が進んでも照合中のsnapshotを保持できる。未処理の受信通知を最新行だけにまとめて途中の一致を落とさず、有限キューと接続世代で管理する。生成時の入力検証・コピーは同期であり、resumeの仕事量制限とは別に入力長を制限する。既定VS CodeリンクとREADMEのcapture付きマクロは現在のAPIで実現できる。
 
-PCRE2の全構文互換は求めず、boxrigの最左最長と限定文法を採用する。番号・名前付きcaptureと`(?:...)`は対応済みである。先読み・後読み・後方参照・遅延量指定は使えず、空一致は全用途で禁止する。ASCIIだけの文字クラス、`.`がLFを含む点、anchorの対象、一致の選択規則を設定説明とテストへ反映する。ESCは`\u{1b}`で記述する。既存設定を黙って変換せず、構文とバイト位置の診断を表示する。
+PCRE2の全構文互換は求めず、boxrigの最左最長と限定文法を採用する。番号・名前付きcaptureと`(?:...)`は対応済みである。先読み・後読み・後方参照・遅延量指定は使えず、空一致は全用途で禁止する。ASCIIだけの文字クラス、`.`がLFを含む点、anchorの対象、一致の選択規則を設定説明とテストへ反映する。共通regex試験で使う`\p{L}`も非対応であり、Unicode captureの試験は対応する式で維持する。ESCは`\u{1b}`で記述する。既存設定を黙って変換せず、構文とバイト位置の診断を表示する。
 
-R2には名前の事前検証だけが残る。現在はprogramのgroup数は読めるが、名前の有無は成功結果からしか取得できない。設定保存時の`${missing}`拒否を維持するため、programから名前の存在と番号を得る公開APIを上流へ依頼する。名前を拾うアプリ独自パーサー、試験用subjectの生成、実行時までの検証延期を採用しない。公開コミットを取り込んで設定検証を完了する。番号の検証、照合、capture展開の実装は先に進められる。
+設定保存時の名前検証には、追加済みの`boxrig_regex_program_find_named_group()`を使う。成功時も`found`を確認し、存在しない`${missing}`を拒否する。番号は桁あふれを検査して0から`group_count()`までを受理する。optional groupや`{0}`内の名前は存在し、一致時の参加有無とは分けて扱う。NULを含む参照名はC文字列へ変換する前に拒否する。これらは照合や端末生成を必要としない。[regexガイド][regex-guide]と[APIコメント][regex-api]の契約に従う。
+
+共通regexの結果はboxrigの不変resultを所有し、番号・名前によるcapture取得を委譲する。既存の名前一覧mapと文字列配列は廃止し、列挙APIを追加で要求しない。定義済みだが未参加のgroupは空文字へ展開し、未知の参照はエラーにする。テンプレート構文・URI decode・コマンド用途はアプリに残す。上流API待ちの工程はなくなり、照合・展開と保存時検証を同じ段階で完成できる。
 
 ## OpenGL Preferredの構成と検証
 
@@ -203,7 +205,7 @@ boxrigと組み込むcodec、Unicode・encodingデータのライセンスを[�
 
 ### 段階0 調査とsubmodule固定
 
-submoduleを追加・初期化し、本計画とAPI要件資料を保存する。今回はdevelop HEADへ更新し、対応済みAPIとR2の残件を再評価する。完了条件は、固定した上流ソースが無変更であること、利用箇所と不足APIの根拠を追えること、PCRE2廃止・旧レイアウト撤去・Preferredが一貫した計画になっていることである。段階1〜3は現在の公開APIで進められる。
+submoduleを追加・初期化し、本計画とAPI要件資料を保存する。今回はdevelop HEADへ更新し、前回のR2が解消したことと、それ以外の契約への変更有無を確認する。完了条件は、固定した上流ソースが無変更であること、利用箇所とAPIの根拠を追えること、PCRE2廃止・旧レイアウト撤去・Preferredが一貫した計画になっていることである。段階1以降は追加APIの公開を待たずに進められる。
 
 ### 段階1 共有ライブラリとGTK3実行ドライバー
 
@@ -233,9 +235,9 @@ REDは相手に届くバイト、ログ、保留IME、転送中の入力、端�
 
 前半では現在のAPIで、GUIなしの照合・captureドライバーと、画面リンク・OSC 8・受信マクロを追加する。既定VS Code URI、番号・名前付きマクロ、制御列、複数リンク、古いrevisionをREDからGREENへ進める。この成果物だけで照合と展開を観測できる。
 
-後半ではR2のprogramに対する名前照会APIが公開されたコミットを取り込み、`shared`とlauncherのregex・テンプレート検証を切り替える。`${path}`を保存でき、`${missing}`を照合前に拒否できる試験を先にREDにする。文法エラー・容量超過・バイト位置、空一致拒否、UnicodeとLFの意味差も検証する。照会API待ちの間も前半のドライバーを実行可能に保つ。
+後半では、取り込み済みの名前照会APIを使って`shared`とlauncherのregex・テンプレート検証を切り替える。`${path}`を保存でき、`${missing}`を照合前に拒否できる試験を先にREDにする。optional group、数字の0・最大番号・桁あふれ、大小文字、NULを含む参照名を検証する。文法エラー・容量超過・バイト位置、空一致拒否、UnicodeとLFの意味差も対象とする。前半のドライバーを動かせる状態で保存時検証を接続し、追加の上流更新は前提にしない。
 
-完了条件は、boxrig経路のregexが一つのエンジンへ統一され、既定リンク・受信マクロ・テンプレートと保存時検証が動くこと。未公開の名前照会をアプリの構文解析で埋めず、本体切り替えの前提条件にする。移行前のVTE本体がまだ必要とする依存は一時的なものとして区別し、新経路へPCRE2を追加しない。前半・後半を意味のある単位でコミットする。例は`feat: use boxrig regex for terminal actions`と`feat: validate rule captures with boxrig metadata`。
+完了条件は、boxrig経路のregexが一つのエンジンへ統一され、既定リンク・受信マクロ・テンプレートと保存時検証が動くこと。名前表の独自解析や重複保持を残さず、本体切り替えの前提条件にする。移行前のVTE本体がまだ必要とする依存は一時的なものとして区別し、新経路へPCRE2を追加しない。前半・後半を意味のある単位でコミットする。例は`feat: use boxrig regex for terminal actions`と`feat: validate rule captures with boxrig metadata`。
 
 ### 段階5 本体UI切り替えと旧構造の撤去
 
@@ -292,7 +294,9 @@ GTK操作は既存のgestament環境を使う。試験の待機は状態・イ�
 
 ## 今回の確認結果
 
-段階0の再評価として、2026年10月15日にboxrigを`8ab9bdf`へ更新し、`7c3f59a`でgitlinkをコミットした。アプリの実装と外部ソースは変更していない。前回の不足8項目を再確認し、R2の名前照会以外は現公開APIで組み込めると判断した。
+### 前回の検証（8ab9bdf）
+
+前回は2026年10月15日にboxrigを`8ab9bdf`へ更新し、`7c3f59a`でgitlinkをコミットした。アプリの実装と外部ソースは変更していない。この時点では不足8項目のうち、R2の名前照会だけが残っていた。
 
 上流Makeの共有5本を外部ディレクトリへ生成・インストールし、移動後のSDKをC++20から使用できた。XvfbとMesaではOpenGL PreferredのOpenGL描画と、GL初期化失敗時のCairo描画を確認した。regex、capture、設定交換、TTY消去文字、入力停止、サイズ要求、PTY診断、GTK3の本文アクセシビリティの個別試験も成功した。実行範囲は[API要件資料](../boxrig-api-requirements.md#この調査の完了条件と結果)にまとめた。
 
@@ -307,35 +311,54 @@ GTK操作は既存のgestament環境を使う。試験の待機は状態・イ�
 
 launcherの失敗は、試験中にgitlink更新をコミットしたため、ビルド済みの`Version 1.8.4`とGitから再計算した`Version 1.8.5`がずれたことによる。実行順序の問題として扱い、版数を揃えて該当のtray lifecycle試験を再実行し、1件成功を確認した。全体コマンドは全workspaceを実行し、最初の失敗により終了コード1で終わった。この初回結果と、再試験の成功を分けて記録する。
 
-省略したlauncherの1件はDebian trixie i386の配布試験、C++の2件はvsftpdによるFTPSとApacheによるWebDAVの試験である。専用の使い捨て環境と実行用環境変数を必要とするため、今回のホスト実行には含めていない。
+省略したlauncherの1件はDebian trixie i386の配布試験、C++の2件はvsftpdによるFTPSとApacheによるWebDAVの試験である。専用の使い捨て環境と実行用環境変数を必要とするため、このホスト実行には含めていない。
 
 C++ビルドでは警告をエラーとして扱う設定で成功した。Vitestには、既存のCommonJS package内の`vitest.config.ts`がESM構文を使うため、将来のVite native loaderでは扱えないという警告がある。現在のloaderでは実行できており、boxrig共有ビルドの警告とは区別する。今回の依存更新で既存設定を変更したり、警告を隠したりはしていない。
 
-nanaism/yomiyasuの検査は両文書とも100/100で、指摘はなかった。ローカル参照29件と固定コミットへの上流参照50件の参照先、未定義の参照名がないこと、強調記法を使っていないことを確認した。`git diff --check`も成功した。
+前回のnanaism/yomiyasu検査は両文書とも100/100で、指摘はなかった。ローカル参照29件と固定コミットへの上流参照50件の参照先、未定義の参照名がないこと、強調記法を使っていないことを確認した。`git diff --check`も成功した。
+
+### 今回の検証（19be168）
+
+同日にboxrigを`19be168`へ更新し、`c9be8ee`でgitlinkをコミットした。差分2コミットを確認し、名前照会APIによってR2が解消したと判断した。fcitxの変更は試験開始時のfocus同期であり、製品側の補正を追加する変更ではない。アプリの実装と外部の追跡対象ソースは変更していない。
+
+新しい外部ディレクトリで共有5本をビルド・インストールし、SDK移動後のC99・C++20から新APIを呼び出せた。regex全体と共有consumer、既定リンク4ルールの事前メタデータ照会、OpenGL PreferredとCairo fallback、変更されたGTK3 fcitx試験に成功した。APIの契約と検証範囲は[API要件資料](../boxrig-api-requirements.md#この調査の完了条件と結果)に記録した。
+
+既存の[全体試験手順](../../en/ftps-validation.md#development-tree)に従い、`ELDER_TERMS_VTE_TEST_FILE_PARALLELISM=true npm test --workspaces -- --fileParallelism --maxWorkers=4`を実行した。workspaceの順序を保ち、各workspace内のファイルを最大4ワーカーで実行する構成である。対象の絞り込みとタイムアウト変更は行っていない。今回は実行前にgitlinkをコミットし、試験中の版数変化を避けた。全体コマンドは終了コード0で完了し、合計840件成功、3件省略となった。
+
+| 対象 | 今回の結果 |
+| --- | --- |
+| sharedのVitest | 4ファイル、124件成功 |
+| launcherのVitest | 8ファイル、107件成功、1件省略 |
+| MesonのC++試験 | 142件成功、2件省略、失敗・タイムアウトなし |
+| 端末UIのVitest | 21ファイル、467件成功。実行時間は約13分 |
+
+省略した3件の対象と実行条件は前回と同じである。C++ビルドは警告をエラーとして扱う設定で成功し、boxrigの共有ビルドにも警告はなかった。Vitestの将来のnative loaderに関する既存警告は今回も出ており、内容と扱いは前回の記録に記したとおりである。
+
+今回のnanaism/yomiyasu検査は両文書とも100/100で、指摘はなかった。ローカル参照33件、固定コミットへの上流参照52件、未定義の参照名や強調記法がないことを確認した。`git diff --check`も成功した。
 
 elder-termsの通常ビルドへの接続、GLとCairoのアプリ内描画、各通信方式、IME、配布の結合検証は段階1以降に残る。共有ライブラリ単体を構築できたことを、移行実装の完了とは扱わない。
 
-[gtk-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/platforms/gtk.md
-[gtk-api]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/include/boxrig/gtk3/terminal_widget.h
-[core-api]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/include/boxrig/terminal.h
-[session-api]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/include/boxrig/session.h
-[blinking-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/blinking.md
-[host-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/host-integration.md
-[font-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/fonts-and-layout.md
-[gtk-font-api]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/include/boxrig/gtk3/terminal_widget.h
-[gtk-layout-api]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/include/boxrig/gtk3/terminal_widget.h
-[native-host]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/examples/boxrig_term/gtk3/native_host.c
-[text-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/text.md
-[rendering-api]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/include/boxrig/gtk/rendering.h
-[renderers-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/renderers.md
-[building-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/building.md
-[upstream-make]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/Makefile
-[gtk-pkgconfig]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/pkgconfig/boxrig-gtk3.pc
-[distribution-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/reference/distribution.md
-[io-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/terminal-io.md
-[session-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/sessions.md
-[spawn-example]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/examples/pty_spawn/operation.cpp
-[ime-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/input-ime.md
-[regex-guide]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/docs/ja/regex.md
-[regex-api]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/include/boxrig/regex.h
-[shared-make]: https://github.com/kekyo/boxrig/blob/8ab9bdfe2c44c76b81d8d74899484350734fc86a/packaging/linux/rules.mk
+[gtk-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/platforms/gtk.md
+[gtk-api]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk3/terminal_widget.h
+[core-api]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/terminal.h
+[session-api]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/session.h
+[blinking-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/blinking.md
+[host-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/host-integration.md
+[font-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/fonts-and-layout.md
+[gtk-font-api]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk3/terminal_widget.h
+[gtk-layout-api]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk3/terminal_widget.h
+[native-host]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/examples/boxrig_term/gtk3/native_host.c
+[text-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/text.md
+[rendering-api]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk/rendering.h
+[renderers-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/renderers.md
+[building-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/building.md
+[upstream-make]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/Makefile
+[gtk-pkgconfig]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/pkgconfig/boxrig-gtk3.pc
+[distribution-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/reference/distribution.md
+[io-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/terminal-io.md
+[session-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/sessions.md
+[spawn-example]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/examples/pty_spawn/operation.cpp
+[ime-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/input-ime.md
+[regex-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/regex.md
+[regex-api]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/regex.h
+[shared-make]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/packaging/linux/rules.mk
