@@ -1,4 +1,5 @@
 #include "terminal-runtime.h"
+#include "terminal-transports.h"
 
 #include <gestament/gtk.h>
 #include <glib-unix.h>
@@ -12,15 +13,16 @@ struct Driver {
   GtkWidget *status = nullptr;
   GtkWidget *connection_status = nullptr;
   elder_terms::TerminalLocalCommand command;
+  elder_terms::TelnetConnectionSettings telnet;
   elder_terms::TerminalTextSettings input_settings;
-  bool local = false;
+  bool connection_mode = false;
   bool closing = false;
   std::string last_report;
   std::string last_connection_report;
 };
 
 static void report_connection(Driver *driver) {
-  if (!driver->local) return;
+  if (!driver->connection_mode) return;
   const auto state = elder_terms::terminal_runtime_connection_state(driver->runtime);
   const char *phase = state.phase == elder_terms::TerminalConnectionPhase::starting ? "starting" :
       state.phase == elder_terms::TerminalConnectionPhase::connected ? "connected" :
@@ -131,7 +133,10 @@ static void disconnect(GtkButton *, gpointer context) {
 
 static void reconnect(GtkButton *, gpointer context) {
   auto *driver = static_cast<Driver *>(context);
-  elder_terms::terminal_runtime_connect_local(driver->runtime, driver->command);
+  if (driver->telnet.address.empty())
+    elder_terms::terminal_runtime_connect_local(driver->runtime, driver->command);
+  else elder_terms::terminal_runtime_connect_transport(driver->runtime,
+      elder_terms::make_telnet_transport_request(driver->telnet, driver->command.encoding, {}, {}));
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
@@ -169,7 +174,13 @@ int main(int argc, char **argv) {
   cardio::dispatcher_host_glib_auto dispatcher(group);
   Driver driver;
   for (int index = 1; index < argc; ++index) {
-    if (std::string_view(argv[index]) == "--local") driver.local = true;
+    if (std::string_view(argv[index]) == "--local") driver.connection_mode = true;
+    else if (std::string_view(argv[index]) == "--telnet" && index + 2 < argc) {
+      driver.connection_mode = true;
+      driver.telnet.address = argv[++index];
+      driver.telnet.port = std::strtol(argv[++index], nullptr, 10);
+      driver.telnet.terminal_type = "xterm-256color";
+    }
     else if (std::string_view(argv[index]) == "--trs80")
       driver.input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
     else if (std::string_view(argv[index]) == "--encoding" && index + 1 < argc)
@@ -209,7 +220,7 @@ int main(int argc, char **argv) {
   driver.status = gtk_label_new("Starting boxrig");
   gestament_gtk_assign_accessible_id(driver.status, "driver_status");
   gtk_box_pack_start(GTK_BOX(controls), driver.status, FALSE, FALSE, 0);
-  if (driver.local) {
+  if (driver.connection_mode) {
     auto *connections = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_pack_start(GTK_BOX(content), connections, FALSE, FALSE, 0);
     auto *stop = gtk_button_new_with_label("Disconnect");
@@ -269,8 +280,10 @@ int main(int argc, char **argv) {
   std::string output;
   for (unsigned int line = 1; line <= 120; ++line) output += "History line " + std::to_string(line) + "\r\n";
   output += "\033[2J\033[H日本語の端末 — boxrig\r\n\033[1;32mBold green text\033[0m\r\nSelect and copy this text.\r\n";
-  const bool fed = driver.local ? elder_terms::terminal_runtime_connect_local(driver.runtime, driver.command) :
-      elder_terms::terminal_runtime_feed(driver.runtime, output);
+  const bool fed = !driver.connection_mode ? elder_terms::terminal_runtime_feed(driver.runtime, output) :
+      driver.telnet.address.empty() ? elder_terms::terminal_runtime_connect_local(driver.runtime, driver.command) :
+      elder_terms::terminal_runtime_connect_transport(driver.runtime,
+          elder_terms::make_telnet_transport_request(driver.telnet, driver.command.encoding, {}, {}));
   gtk_widget_show_all(window);
   gtk_widget_grab_focus(GTK_WIDGET(widget));
   if (fed) gtk_main();

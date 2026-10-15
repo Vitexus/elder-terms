@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <stdexcept>
 #include <utility>
 
 #include "telnet-protocol.h"
@@ -38,6 +39,14 @@ static TelnetBytes negotiation_response(unsigned char command,
 
 TelnetProtocol::TelnetProtocol(std::string terminal_type)
     : terminal_type(std::move(terminal_type)) {
+}
+
+TelnetBytes TelnetProtocol::finish_receive() {
+  TelnetBytes result;
+  if (state == ParseState::data_cr) result.push_back(telnet_cr);
+  state = ParseState::data;
+  suboption_bytes.clear();
+  return result;
 }
 
 void TelnetProtocol::handle_data_byte(unsigned char byte,
@@ -237,12 +246,14 @@ TelnetProtocol::receive(std::span<const unsigned char> bytes) {
       if (byte == telnet_iac) {
         state = ParseState::suboption_command;
       } else {
+        if (suboption_bytes.size() == 4096) throw std::length_error("TELNET subnegotiation exceeds 4096 bytes");
         suboption_bytes.push_back(byte);
       }
       break;
 
     case ParseState::suboption_command:
       if (byte == telnet_iac) {
+        if (suboption_bytes.size() == 4096) throw std::length_error("TELNET subnegotiation exceeds 4096 bytes");
         suboption_bytes.push_back(telnet_iac);
         state = ParseState::suboption;
       } else if (byte == telnet_se) {

@@ -46,6 +46,7 @@ static void consume(ByteQueue &queue, std::size_t length) {
 
 struct ConnectionOperation {
   boxrig_posix_pty *pty = nullptr;
+  TerminalTransport transport;
   boxrig_session *session = nullptr;
   ByteQueue incoming;
   ByteQueue outgoing;
@@ -59,6 +60,7 @@ struct ConnectionOperation {
   std::vector<unsigned char> decoded;
   std::size_t decoded_offset = 0;
   bool decoder_finished = false;
+  std::size_t pending_operations = 0;
   cardio::cancellation_source stop;
   cardio::cancellation_source io_stop;
   cardio::primitives::conditional receive_space;
@@ -134,13 +136,6 @@ static boxrig_transport_status receive_connection(
   return receive(static_cast<TerminalConnection *>(context)->operation.get(), bytes, capacity, length);
 }
 
-static boxrig_transport_status resize_transport(void *context, size_t rows, size_t columns) {
-  auto *connection = static_cast<TerminalConnection *>(context);
-  if (boxrig_posix_pty_resize(connection->operation->pty, rows, columns) == 0) return BOXRIG_TRANSPORT_OK;
-  connection->state.operation_error = errno;
-  return BOXRIG_TRANSPORT_ERROR;
-}
-
 static void fail(TerminalConnection *connection, int error) {
   if (connection->state.operation_error == 0) connection->state.operation_error = error;
   connection->state.phase = TerminalConnectionPhase::stopping;
@@ -178,19 +173,17 @@ static std::vector<unsigned char> finish_decoder(TerminalConnection *connection)
   return std::move(result.bytes);
 }
 
-static cardio::promise<void> read_local(TerminalConnection *connection) {
+static cardio::promise<void> read_stream(TerminalConnection *connection) {
   auto &operation = *connection->operation;
   const auto cancellation = operation.io_stop.get_cancellation();
   std::vector<unsigned char> buffer(operation.chunk_size);
-  const auto fd = boxrig_posix_pty_descriptor(operation.pty);
   try {
     for (;;) {
       cancellation.throw_if_cancellation_requested();
       while (operation.incoming.length == operation.incoming.storage.size())
         co_await operation.receive_space.wait(cancellation);
-      co_await cardio::from_fd(fd, cardio::fd_event::read, cancellation);
       const auto capacity = std::min(buffer.size(), operation.incoming.storage.size() - operation.incoming.length);
-      const auto count = ::read(fd, buffer.data(), capacity);
+      const auto count = co_await operation.transport.read(std::span(buffer).first(capacity), cancellation);
       if (count > 0) {
         const std::span<const unsigned char> bytes(buffer.data(), static_cast<std::size_t>(count));
         auto converted = convert_terminal_text(operation.decoder.get(), bytes);
@@ -198,27 +191,26 @@ static cardio::promise<void> read_local(TerminalConnection *connection) {
         // parser retries. The reader retains at most one converted chunk.
         if (connection->output) connection->output(bytes, converted.bytes);
         co_await queue_decoded(connection, std::move(converted.bytes), cancellation);
-      } else if (count == 0 || errno == EIO) {
+      } else {
         co_await queue_decoded(connection, finish_decoder(connection), cancellation);
         operation.eof = true;
         connection->wake();
         break;
-      } else if (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
-        throw std::system_error(errno, std::generic_category(), "read PTY");
       }
     }
   } catch (const cardio::canceled_exception &) {
   } catch (const std::system_error &error) {
     fail(connection, error.code().value());
+  } catch (const std::length_error &) {
+    fail(connection, EMSGSIZE);
   } catch (...) {
     fail(connection, ENOMEM);
   }
 }
 
-static cardio::promise<void> write_local(TerminalConnection *connection) {
+static cardio::promise<void> write_stream(TerminalConnection *connection) {
   auto &operation = *connection->operation;
   const auto cancellation = operation.io_stop.get_cancellation();
-  const auto fd = boxrig_posix_pty_descriptor(operation.pty);
   try {
     for (;;) {
       cancellation.throw_if_cancellation_requested();
@@ -229,25 +221,58 @@ static cardio::promise<void> write_local(TerminalConnection *connection) {
       connection->wake();
       std::size_t offset = 0;
       while (offset < converted.bytes.size()) {
-        co_await cardio::from_fd(fd, cardio::fd_event::write, cancellation);
-        const auto count = ::write(fd, converted.bytes.data() + offset,
-            std::min(operation.chunk_size, converted.bytes.size() - offset));
-        if (count > 0) offset += static_cast<std::size_t>(count);
-        else if (count < 0 && (errno == EIO || errno == EPIPE)) {
-          operation.write_closed = true;
-          connection->wake();
-          co_return;
-        } else if (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
-          throw std::system_error(errno, std::generic_category(), "write PTY");
-        }
+        const auto count = std::min(operation.chunk_size, converted.bytes.size() - offset);
+        co_await operation.transport.write(std::span(converted.bytes).subspan(offset, count), cancellation);
+        offset += count;
       }
     }
   } catch (const cardio::canceled_exception &) {
   } catch (const std::system_error &error) {
-    fail(connection, error.code().value());
+    if (error.code().value() == EIO || error.code().value() == EPIPE) {
+      operation.write_closed = true;
+      connection->wake();
+    } else fail(connection, error.code().value());
   } catch (...) {
     fail(connection, ENOMEM);
   }
+}
+
+static cardio::promise<std::size_t> read_pty(boxrig_posix_pty *pty,
+    std::span<unsigned char> bytes, cardio::cancellation cancellation) {
+  const auto fd = boxrig_posix_pty_descriptor(pty);
+  for (;;) {
+    co_await cardio::from_fd(fd, cardio::fd_event::read, cancellation);
+    const auto count = ::read(fd, bytes.data(), bytes.size());
+    if (count >= 0) co_return static_cast<std::size_t>(count);
+    if (errno == EIO) co_return 0;
+    if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
+      throw std::system_error(errno, std::generic_category(), "read PTY");
+  }
+}
+
+static cardio::promise<void> write_pty(boxrig_posix_pty *pty,
+    std::span<const unsigned char> bytes, cardio::cancellation cancellation) {
+  const auto fd = boxrig_posix_pty_descriptor(pty);
+  std::size_t offset = 0;
+  while (offset < bytes.size()) {
+    co_await cardio::from_fd(fd, cardio::fd_event::write, cancellation);
+    const auto count = ::write(fd, bytes.data() + offset, bytes.size() - offset);
+    if (count > 0) offset += static_cast<std::size_t>(count);
+    else if (count == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
+      throw std::system_error(count == 0 ? EPIPE : errno, std::generic_category(), "write PTY");
+  }
+}
+
+static void create_session(TerminalConnection *connection) {
+  auto &operation = *connection->operation;
+  // All grid changes await the transport explicitly. Registering a synchronous
+  // resize callback here would send the same request twice on remote channels.
+  const boxrig_session_transport transport{connection, receive_connection, send, nullptr, nullptr};
+  auto config = boxrig_session_config_default();
+  config.input_capacity = operation.incoming.storage.size();
+  config.maximum_read_bytes_per_dispatch = operation.incoming.storage.size();
+  if (boxrig_session_create(connection->terminal, &transport, &config, &operation.session) != BOXRIG_SESSION_OK)
+    throw std::bad_alloc();
 }
 
 struct SpawnResult {
@@ -270,6 +295,38 @@ static bool finish_input(TerminalConnection *connection) {
   connection->operation->finishing = false;
   connection->operation->drained.trigger();
   return true;
+}
+
+static cardio::promise<void> finish_stream(TerminalConnection *connection) {
+  auto &operation = *connection->operation;
+  try {
+    if (operation.transport.finish_read) {
+      const auto raw = operation.transport.finish_read();
+      if (!raw.empty()) {
+        auto converted = convert_terminal_text(operation.decoder.get(), raw);
+        if (connection->output) connection->output(raw, converted.bytes);
+        operation.decoded.insert(operation.decoded.end(), converted.bytes.begin(), converted.bytes.end());
+      }
+    }
+    auto tail = finish_decoder(connection);
+    operation.decoded.insert(operation.decoded.end(), tail.begin(), tail.end());
+  } catch (const std::system_error &error) {
+    connection->state.operation_error = error.code().value();
+  }
+  // Cancellation also ends a stream. Its incomplete UTF-8/control syntax
+  // cannot become the prefix of the next connection's input.
+  operation.finishing = true;
+  operation.eof = true;
+  if (operation.session) {
+    connection->wake();
+    while (!operation.peer_closed) co_await operation.drained.wait();
+  }
+  while (!finish_input(connection)) {
+    connection->wake();
+    co_await operation.drained.wait();
+  }
+  boxrig_session_destroy(operation.session);
+  operation.session = nullptr;
 }
 
 static cardio::promise<void> run_local(TerminalConnection *connection, TerminalLocalCommand command) {
@@ -310,14 +367,22 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
       boxrig_terminal_size(connection->terminal, &rows, &columns);
       if (boxrig_posix_pty_resize(operation.pty, rows, columns) != 0)
         throw std::system_error(errno, std::generic_category(), "initial PTY grid");
-      const boxrig_session_transport transport{connection, receive_connection, send, resize_transport, nullptr};
-      auto config = boxrig_session_config_default();
-      config.input_capacity = operation.incoming.storage.size();
-      config.maximum_read_bytes_per_dispatch = operation.incoming.storage.size();
-      if (boxrig_session_create(connection->terminal, &transport, &config, &operation.session) != BOXRIG_SESSION_OK)
-        throw std::bad_alloc();
-      reader.emplace(read_local(connection));
-      writer.emplace(write_local(connection));
+      operation.transport.read = [pty = operation.pty](std::span<unsigned char> bytes, cardio::cancellation stop) {
+        return read_pty(pty, bytes, stop);
+      };
+      operation.transport.write = [pty = operation.pty](std::span<const unsigned char> bytes, cardio::cancellation stop) {
+        return write_pty(pty, bytes, stop);
+      };
+      operation.transport.resize = [pty = operation.pty](std::size_t height, std::size_t width,
+          cardio::cancellation stop) -> cardio::promise<void> {
+        stop.throw_if_cancellation_requested();
+        if (boxrig_posix_pty_resize(pty, height, width) != 0)
+          throw std::system_error(errno, std::generic_category(), "resize PTY");
+        co_return;
+      };
+      create_session(connection);
+      reader.emplace(read_stream(connection));
+      writer.emplace(write_stream(connection));
       if (connection->state.spawn.state == BOXRIG_POSIX_PTY_SPAWN_SUCCEEDED) {
         connection->state.phase = TerminalConnectionPhase::connected;
         connection->wake();
@@ -340,6 +405,7 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
       terminate_child(connection->state.child);
     if (reader) co_await *reader;
     if (writer) co_await *writer;
+    while (operation.pending_operations != 0) co_await operation.drained.wait();
     // One owner, one wait path, including failure to allocate a pidfd. Even
     // that exceptional blocking wait cannot hold the GTK dispatcher.
     const auto reaped = co_await cardio::promises::start_new([pty = operation.pty] {
@@ -354,28 +420,52 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
     boxrig_posix_pty_get_spawn_result(operation.pty, &connection->state.spawn);
   }
   if (process >= 0) ::close(process);
-  try {
-    auto tail = finish_decoder(connection);
-    operation.decoded.insert(operation.decoded.end(), tail.begin(), tail.end());
-  } catch (const std::system_error &error) {
-    connection->state.operation_error = error.code().value();
-  }
-  // Cancellation also ends a stream. Its incomplete UTF-8/control syntax
-  // cannot become the prefix of the next connection's input.
-  operation.finishing = true;
-  operation.eof = true;
-  if (operation.session) {
-    connection->wake();
-    while (!operation.peer_closed) co_await operation.drained.wait();
-  }
-  while (!finish_input(connection)) {
-    connection->wake();
-    co_await operation.drained.wait();
-  }
-  boxrig_session_destroy(operation.session);
-  operation.session = nullptr;
+  co_await finish_stream(connection);
   boxrig_posix_pty_destroy(operation.pty);
   operation.pty = nullptr;
+  operation.transport = {};
+  connection->state.phase = TerminalConnectionPhase::closed;
+  connection->wake();
+}
+
+static cardio::promise<void> run_transport(TerminalConnection *connection, TerminalTransportRequest request) {
+  auto &operation = *connection->operation;
+  const auto cancellation = operation.stop.get_cancellation();
+  std::optional<cardio::promise<void>> reader;
+  std::optional<cardio::promise<void>> writer;
+  try {
+    operation.decoder = create_terminal_text_decoder(request.encoding);
+    operation.encoder = create_terminal_text_encoder(request.encoding);
+    size_t rows = 0, columns = 0;
+    boxrig_terminal_size(connection->terminal, &rows, &columns);
+    operation.transport = co_await request.open(rows, columns, cancellation);
+    if (!operation.transport.read || !operation.transport.write || !operation.transport.resize || !operation.transport.close)
+      throw std::system_error(EINVAL, std::generic_category(), "terminal transport operations");
+    size_t current_rows = 0, current_columns = 0;
+    boxrig_terminal_size(connection->terminal, &current_rows, &current_columns);
+    if (current_rows != rows || current_columns != columns)
+      co_await operation.transport.resize(current_rows, current_columns, cancellation);
+    cancellation.throw_if_cancellation_requested();
+    create_session(connection);
+    reader.emplace(read_stream(connection));
+    writer.emplace(write_stream(connection));
+    connection->state.phase = TerminalConnectionPhase::connected;
+    connection->wake();
+    co_await *reader;
+    while (!operation.peer_closed) co_await operation.drained.wait(cancellation);
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::system_error &error) {
+    connection->state.operation_error = error.code().value();
+  } catch (...) {
+    connection->state.operation_error = EIO;
+  }
+  operation.io_stop.cancel();
+  if (reader) co_await *reader;
+  if (writer) co_await *writer;
+  while (operation.pending_operations != 0) co_await operation.drained.wait();
+  co_await finish_stream(connection);
+  if (operation.transport.close) co_await operation.transport.close();
+  operation.transport = {};
   connection->state.phase = TerminalConnectionPhase::closed;
   connection->wake();
 }
@@ -394,22 +484,34 @@ void destroy_terminal_connection(TerminalConnection *connection) {
   delete connection;
 }
 
-bool terminal_connection_start_local(TerminalConnection *connection, TerminalLocalCommand command) {
+static bool prepare_connection(TerminalConnection *connection, std::size_t queue_capacity, std::size_t io_chunk_size) {
   if ((connection->state.phase != TerminalConnectionPhase::idle &&
        connection->state.phase != TerminalConnectionPhase::closed) ||
       connection->state.generation == std::numeric_limits<std::uint64_t>::max() ||
-      command.queue_capacity == 0 || command.io_chunk_size == 0 || command.queue_capacity > 1024 * 1024) return false;
+      queue_capacity == 0 || io_chunk_size == 0 || queue_capacity > 1024 * 1024) return false;
   const auto generation = connection->state.generation + 1;
   connection->completion.reset();
   connection->operation = std::make_unique<ConnectionOperation>();
-  connection->operation->incoming.storage.resize(command.queue_capacity);
-  connection->operation->outgoing.storage.resize(command.queue_capacity);
-  connection->operation->chunk_size = std::min(command.io_chunk_size, command.queue_capacity);
+  connection->operation->incoming.storage.resize(queue_capacity);
+  connection->operation->outgoing.storage.resize(queue_capacity);
+  connection->operation->chunk_size = std::min(io_chunk_size, queue_capacity);
   connection->state = {};
   connection->state.generation = generation;
   connection->state.phase = TerminalConnectionPhase::starting;
   discard_outgoing(connection->terminal);
+  return true;
+}
+
+bool terminal_connection_start_local(TerminalConnection *connection, TerminalLocalCommand command) {
+  if (!prepare_connection(connection, command.queue_capacity, command.io_chunk_size)) return false;
   connection->completion.emplace(run_local(connection, std::move(command)));
+  connection->wake();
+  return true;
+}
+
+bool terminal_connection_start_transport(TerminalConnection *connection, TerminalTransportRequest request) {
+  if (!request.open || !prepare_connection(connection, request.queue_capacity, request.io_chunk_size)) return false;
+  connection->completion.emplace(run_transport(connection, std::move(request)));
   connection->wake();
   return true;
 }
@@ -462,12 +564,27 @@ bool terminal_connection_dispatch(TerminalConnection *connection) {
       ((interests & BOXRIG_SESSION_INTEREST_READ) && operation.incoming.length != 0);
 }
 
-bool terminal_connection_resize(TerminalConnection *connection, std::size_t rows, std::size_t columns) {
+cardio::promise<bool> terminal_connection_resize(TerminalConnection *connection, std::size_t rows, std::size_t columns) {
   if (!connection->operation || !connection->operation->session || connection->operation->finishing)
-    return boxrig_terminal_resize(connection->terminal, rows, columns) == BOXRIG_STATUS_OK;
-  const bool resized = boxrig_session_resize(connection->operation->session, rows, columns) == BOXRIG_SESSION_OK;
-  if (!resized) fail(connection, EIO);
-  return resized;
+    co_return boxrig_terminal_resize(connection->terminal, rows, columns) == BOXRIG_STATUS_OK;
+  auto &operation = *connection->operation;
+  ++operation.pending_operations;
+  bool resized = false;
+  try {
+    const auto cancellation = operation.io_stop.get_cancellation();
+    co_await operation.transport.resize(rows, columns, cancellation);
+    cancellation.throw_if_cancellation_requested();
+    resized = boxrig_terminal_resize(connection->terminal, rows, columns) == BOXRIG_STATUS_OK;
+    if (!resized) fail(connection, EIO);
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::system_error &error) {
+    fail(connection, error.code().value());
+  } catch (...) {
+    fail(connection, EIO);
+  }
+  --operation.pending_operations;
+  operation.drained.trigger();
+  co_return resized;
 }
 
 TerminalConnectionState terminal_connection_state(const TerminalConnection *connection) { return connection->state; }

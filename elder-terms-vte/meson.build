@@ -48,22 +48,6 @@ libxyzm_static_libraries = custom_target(
 libxyzm_static_library = libxyzm_static_libraries[0]
 libxyzm_async_static_library = libxyzm_static_libraries[1]
 
-boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
-  ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp',
-   'src/terminal-sessions/terminal-text-stream.cpp'],
-  include_directories: elder_terms_shared_include_dir,
-  dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep],
-)
-boxrig_runtime_dep = declare_dependency(
-  link_with: boxrig_runtime_library,
-  include_directories: elder_terms_shared_include_dir,
-  dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep],
-)
-executable('boxrig-driver', 'src/boxrig-driver.cpp',
-  cpp_args: ['-I' + gestament_include_dir],
-  dependencies: [boxrig_runtime_dep],
-)
-
 ssh_transport_library = static_library('elder-terms-ssh-transport',
   ['src/terminal-sessions/ssh-session/ssh-channel-connection.cpp',
    'src/terminal-sessions/ssh-session/ssh-proxy.cpp',
@@ -72,6 +56,23 @@ ssh_transport_library = static_library('elder-terms-ssh-transport',
   dependencies: [cardio_dep, elder_terms_dep, gio_dep, libssh_dep, liburing_dep])
 ssh_transport_dep = declare_dependency(link_with: ssh_transport_library,
   dependencies: [cardio_dep, elder_terms_dep, gio_dep, libssh_dep, liburing_dep])
+
+boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
+  ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp',
+   'src/terminal-sessions/terminal-text-stream.cpp', 'src/terminal-telnet-transport.cpp',
+   'src/terminal-sessions/telnet-session/telnet-protocol.cpp'],
+  include_directories: elder_terms_shared_include_dir,
+  dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep, ssh_transport_dep],
+)
+boxrig_runtime_dep = declare_dependency(
+  link_with: boxrig_runtime_library,
+  include_directories: elder_terms_shared_include_dir,
+  dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep, ssh_transport_dep],
+)
+executable('boxrig-driver', 'src/boxrig-driver.cpp',
+  cpp_args: ['-I' + gestament_include_dir],
+  dependencies: [boxrig_runtime_dep],
+)
 
 telnet_protocol_source = 'src/terminal-sessions/telnet-session/telnet-protocol.cpp'
 elder_terms_sources = [
@@ -197,6 +198,12 @@ boxrig_connection_test = executable('boxrig-connection-test',
   dependencies: [boxrig_runtime_dep],
 )
 test('boxrig-connection-test', boxrig_connection_test, timeout: 60)
+
+boxrig_runtime_test = executable('boxrig-runtime-test',
+  'tests/cpp/boxrig-runtime-test.cpp', dependencies: boxrig_runtime_dep)
+test('boxrig-runtime-test', find_program('xvfb-run'),
+  args: ['-a', boxrig_runtime_test], timeout: 30,
+  env: ['GDK_GL=disable', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
 
 # Compile the unchanged upstream probe with the application's C++20 toolchain.
 boxrig_png_isolation_source = configure_file(

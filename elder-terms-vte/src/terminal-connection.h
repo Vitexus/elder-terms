@@ -7,6 +7,7 @@
 #include <span>
 #include <string>
 #include <vector>
+#include "terminal-transport.h"
 
 namespace elder_terms {
 
@@ -97,6 +98,14 @@ void destroy_terminal_connection(TerminalConnection *connection);
 bool terminal_connection_start_local(TerminalConnection *connection, TerminalLocalCommand command);
 
 /**
+ * Starts a channel factory using the confirmed core grid and bounded queues.
+ * @param connection Inactive communication owner.
+ * @param request Owned factory and stream policy.
+ * @return False if active, the factory is empty, or queue limits are invalid.
+ */
+bool terminal_connection_start_transport(TerminalConnection *connection, TerminalTransportRequest request);
+
+/**
  * Cancels the current generation, including a pending synchronous spawn.
  * @param connection Communication owner.
  * @remarks Completion is reported only after asynchronous I/O and child recovery.
@@ -118,13 +127,13 @@ cardio::promise<void> terminal_connection_wait_stopped(TerminalConnection *conne
 bool terminal_connection_dispatch(TerminalConnection *connection);
 
 /**
- * Applies one confirmed grid to the PTY and then core, or only core when disconnected.
+ * Awaits one grid request at the peer before applying it to the core.
  * @param connection Communication owner.
  * @param rows Nonzero rows.
  * @param columns Nonzero columns.
  * @return False on transport or core failure; the connection then stops.
  */
-bool terminal_connection_resize(TerminalConnection *connection, std::size_t rows, std::size_t columns);
+cardio::promise<bool> terminal_connection_resize(TerminalConnection *connection, std::size_t rows, std::size_t columns);
 
 /**
  * Gets an observable lifecycle snapshot.

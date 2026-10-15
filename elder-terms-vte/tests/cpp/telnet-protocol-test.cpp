@@ -357,6 +357,19 @@ static void terminal_type_response_escapes_iac() {
                   "TERMINAL-TYPE data should escape IAC bytes");
 }
 
+static void oversized_subnegotiation_fails_without_waiting_for_its_end() {
+  for (const bool escaped_iac : {false, true}) {
+    TelnetProtocol protocol("xterm-256color");
+    (void)receive_bytes(&protocol, {255, 250, 99});
+    const TelnetBytes bytes = escaped_iac ? TelnetBytes{255, 255} : TelnetBytes{'x'};
+    bool rejected = false;
+    try {
+      for (std::size_t count = 0; count < 4096; ++count) (void)protocol.receive(bytes);
+    } catch (const std::length_error &) { rejected = true; }
+    if (!rejected) throw std::runtime_error("unfinished TELNET subnegotiation must have a finite byte limit");
+  }
+}
+
 } // namespace elder_terms
 
 int main() {
@@ -386,6 +399,7 @@ int main() {
     elder_terms::terminal_type_negotiation_reports_configured_type();
     elder_terms::terminal_type_send_requires_active_negotiation();
     elder_terms::terminal_type_response_escapes_iac();
+    elder_terms::oversized_subnegotiation_fails_without_waiting_for_its_end();
   } catch (const std::exception &error) {
     std::cerr << "telnet-protocol-test: FAIL: " << error.what() << '\n';
     return 1;

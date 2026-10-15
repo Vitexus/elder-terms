@@ -16,7 +16,7 @@ using TelnetBytes = std::vector<unsigned char>;
  * Result of consuming bytes received from a TELNET server.
  */
 struct TelnetProtocolResult {
-  /** Bytes that should be rendered by VTE. */
+  /** Protocol-decoded bytes for character conversion and terminal parsing. */
   TelnetBytes terminal_data;
   /** Protocol responses that should be sent back to the server. */
   std::vector<TelnetBytes> responses;
@@ -98,13 +98,21 @@ public:
    *
    * @param bytes Raw bytes received from the server.
    * @returns Terminal bytes and protocol responses produced by the parser.
+   * @throws std::length_error When a subnegotiation exceeds 4096 payload bytes.
    */
   TelnetProtocolResult receive(std::span<const unsigned char> bytes);
 
   /**
+   * Finalizes the receive stream, preserving a pending NVT carriage return.
+   * @returns Remaining terminal bytes; incomplete control sequences are discarded.
+   * @remarks Repeated calls return no additional bytes.
+   */
+  TelnetBytes finish_receive();
+
+  /**
    * Encodes user input for TELNET transmission.
    *
-   * @param bytes Raw user input bytes from VTE.
+   * @param bytes Peer-encoded terminal input bytes.
    * @returns Bytes with TELNET IAC escaping applied.
    */
   TelnetBytes encode_user_input(std::span<const unsigned char> bytes) const;

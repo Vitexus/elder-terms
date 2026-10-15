@@ -73,6 +73,23 @@ void terminal_runtime_set_changed_callback(
 bool terminal_runtime_connect_local(TerminalRuntime *runtime, TerminalLocalCommand command);
 
 /**
+ * Starts a remote or serial channel after invalidating old widget input.
+ * @param runtime Live runtime with no active connection.
+ * @param request Reusable channel factory and stream policy.
+ * @return Whether a new connection generation was accepted.
+ */
+bool terminal_runtime_connect_transport(TerminalRuntime *runtime, TerminalTransportRequest request);
+
+/**
+ * Requests a normal-state grid and schedules its layout work.
+ * @param runtime Live runtime with an active widget.
+ * @param rows Preferred nonzero rows.
+ * @param columns Preferred nonzero columns.
+ * @return Status of accepting the preference; peer completion is asynchronous.
+ */
+boxrig_ui_status terminal_runtime_set_preferred_grid(TerminalRuntime *runtime, std::size_t rows, std::size_t columns);
+
+/**
  * Requests disconnection and waits for transport and child recovery.
  * @param runtime Runtime kept alive until completion.
  * @return Completion of all borrowed communication work.
