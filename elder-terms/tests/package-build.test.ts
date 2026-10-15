@@ -398,7 +398,7 @@ exit 0
     expect(invocation).toContain('--libdir=lib');
     expect(invocation).toContain('-Dautostartdir=/etc/xdg/autostart');
     expect(invocation).toContain('-Dbuild_tests=false');
-    expect(invocation).toContain('-Dwerror=false');
+    expect(invocation).toContain('-Dwerror=true');
     expect(invocation).toContain('--buildtype=release');
     expect(invocation).toContain('-Dapplication_version=1.2.3-test');
     expect(invocation).toContain(
@@ -421,6 +421,58 @@ exit 0
       'Missing required pkg-config module: libcurl'
     );
     expect(() => lstatSync(invocationPath)).toThrow();
+  });
+
+  it('rejects compiler warnings before creating a release package', () => {
+    const source = join(temporaryRoot, 'warning-source');
+    const work = join(temporaryRoot, 'warning-work');
+    mkdirSync(source);
+    writeFileSync(
+      join(source, 'meson.build'),
+      "project('package-warning-check', 'cpp', default_options: ['warning_level=3'])\n" +
+        "executable('warning-fixture', 'warning.cpp')\n"
+    );
+    writeFileSync(
+      join(source, 'meson_options.txt'),
+      [
+        "option('autostartdir', type: 'string', value: '')",
+        "option('application_version', type: 'string', value: '')",
+        "option('package_build_tools', type: 'string', value: '')",
+        "option('build_tests', type: 'boolean', value: false)",
+        '',
+      ].join('\n')
+    );
+    writeFileSync(
+      join(source, 'warning.cpp'),
+      'int main() { int unused; return 0; }\n'
+    );
+
+    const result = run(
+      'sh',
+      [
+        '-c',
+        'cd "$1" && exec "$2"',
+        'package-warning-test',
+        source,
+        containerScript,
+      ],
+      {
+        ...process.env,
+        ELDER_TERMS_BUILD_TYPE: 'release',
+        ELDER_TERMS_MAKE_JOBS: '1',
+        ELDER_TERMS_PACKAGE_DESCRIPTION: 'elder-terms warning test',
+        ELDER_TERMS_PACKAGE_MAINTAINER: 'test <test@localhost>',
+        ELDER_TERMS_PACKAGE_NAME: 'elder-terms',
+        ELDER_TERMS_PACKAGE_VERSION: '1.2.3-test',
+        ELDER_TERMS_PACKAGE_TOOLS: join(temporaryRoot, 'warning-tools'),
+        ELDER_TERMS_WORK_DIR: work,
+      }
+    );
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      '-Werror=unused-variable'
+    );
+    expect(() => lstatSync(join(work, 'build', 'warning-fixture'))).toThrow();
   });
 
   it('disables libxyzm debug information for release package builds', () => {

@@ -41,7 +41,8 @@ static cardio::promise<RemoteDirectorySnapshot> load_webdav_directory_async(
     std::shared_ptr<WebdavConnection> connection, std::string path,
     cardio::cancellation cancellation) {
   path = webdav_virtual_path(std::move(path));
-  auto [result, url] = co_await propfind_webdav_async(connection, path, 1, cancellation);
+  const auto response = co_await propfind_webdav_async(connection, path, 1, cancellation);
+  const auto &[result, url] = response;
   if (result.status != 207) throw webdav_http_error(result);
   const auto canonical = webdav_reference_path(connection->endpoint, url, url);
   const auto resources = parse_webdav_multistatus(result.body, connection->endpoint, url);
@@ -67,8 +68,9 @@ static cardio::promise<RemoteDirectorySnapshot> load_webdav_directory_async(
 static cardio::promise<std::optional<RemoteFileAttributes>> inspect_webdav_async(
     std::shared_ptr<WebdavConnection> connection, std::string path,
     cardio::cancellation cancellation) {
-  auto [result, url] = co_await propfind_webdav_async(
+  const auto response = co_await propfind_webdav_async(
       connection, webdav_virtual_path(std::move(path)), 0, cancellation);
+  const auto &[result, url] = response;
   if (result.status == 404) co_return std::nullopt;
   if (result.status != 207) throw webdav_http_error(result);
   const auto canonical = webdav_reference_path(connection->endpoint, url, url);

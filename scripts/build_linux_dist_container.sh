@@ -249,7 +249,7 @@ meson setup "$build_dir" . \
 	-Dapplication_version="$ELDER_TERMS_PACKAGE_VERSION" \
 	-Dpackage_build_tools="$ELDER_TERMS_PACKAGE_TOOLS" \
 	-Dbuild_tests=false \
-	-Dwerror=false
+	-Dwerror=true
 meson compile -C "$build_dir" -j "$ELDER_TERMS_MAKE_JOBS"
 mkdir -p "$stage_dir"
 if [ "$ELDER_TERMS_BUILD_TYPE" = 'release' ]; then

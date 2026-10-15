@@ -102,10 +102,7 @@ Certificate policy tests use real TLS handshakes over memory BIO pairs to check
 hostname matching and the scope of explicit exceptions. GUI tests cover actual
 file operations, certificate decisions, settings persistence, and launcher
 integration. Certificate confirmation and cancellation videos are checked against
-captured frames; `test-results/` contains the evidence. The terminal background
-fixture materializes its first row before clearing the screen, so VTE 0.70 and
-0.76 retain the same history position instead of relying on different empty-ring
-initial states. See the [terminal screen-clear implementation](https://github.com/GNOME/vte/blob/0.70.6/src/vteseq.cc#L248).
+captured frames; `test-results/` contains the evidence.
 
 ## Distribution builds
 
