@@ -831,7 +831,8 @@ void terminal_runtime_set_macro_rules(TerminalRuntime *runtime, std::vector<Macr
       },
       [runtime, error](std::span<const unsigned char> bytes) {
         const auto state = terminal_connection_state(runtime->connection);
-        if (!runtime->input_allowed || state.phase != TerminalConnectionPhase::connected ||
+        // Modal UI inhibits user input; receive-driven replies remain active.
+        if (state.phase != TerminalConnectionPhase::connected ||
             !state.carrier_connected || runtime->pending_service || runtime->service_active ||
             runtime->pending_encoding || runtime->encoding_active || runtime->break_active) return true;
         const auto status = boxrig_terminal_send_text(runtime->terminal,

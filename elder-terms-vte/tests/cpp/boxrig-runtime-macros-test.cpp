@@ -104,6 +104,18 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
       "command receives control bytes and capture expansion");
   expect(fixture->cooked == "READY 記者\r\n\x1b[31mERROR 42\r\n", "each decoded byte is still reported once");
 
+  configure(fixture, {{"modal", "^MODAL$", MacroSendAction{"still-replying\n"}}});
+  terminal_runtime_request_input_enabled(fixture->runtime, false);
+  while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  fixture->outgoing.clear();
+  fixture->incoming = "MODAL\r\n";
+  fixture->received.trigger();
+  while (text(fixture).find("MODAL") == std::string::npos || !terminal_runtime_is_settled(fixture->runtime))
+    co_await fixture->changed.wait();
+  expect(fixture->outgoing == "still-replying\r\n",
+      "automatic receive replies continue while a modal dialog inhibits keyboard input");
+  terminal_runtime_request_input_enabled(fixture->runtime, true);
+
   const std::string payload = std::string(4095, 'x') + "日本語" + std::string(70000, 'y');
   configure(fixture, {{"large", "BIG", MacroSendAction{payload}},
       {"marker", "^MARK$", MacroCommandAction{"marker", {}}}});
