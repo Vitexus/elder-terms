@@ -24,10 +24,11 @@ describe('boxrig GTK3 driver', () => {
     expect(stdout).not.toContain('libvte');
   });
 
-  for (const backend of ['opengl', 'cairo'] as const) {
+  for (const backend of ['opengl', 'cairo', 'context-loss'] as const) {
     it(`displays Japanese and preserves its grid through visual zoom with ${backend}`, async () => {
       const launcher = createGtkAppLauncher({
         appPath: driverPath,
+        args: backend === 'context-loss' ? ['--context-loss'] : [],
         env: {
           LIBGL_ALWAYS_SOFTWARE: '1',
           GTK_IM_MODULE: 'gtk-im-context-simple',
@@ -59,7 +60,9 @@ describe('boxrig GTK3 driver', () => {
         };
         expect((await terminal.info()).interfaces).toContain('Text');
         await toPass(async () => {
-          expect(await status.text()).toContain(`backend=${backend}`);
+          expect(await status.text()).toContain(
+            `backend=${backend === 'cairo' ? 'cairo' : 'opengl'}`
+          );
           expect(await status.text()).toContain(
             backend === 'cairo' ? 'reason=3' : 'reason=1'
           );
@@ -76,6 +79,17 @@ describe('boxrig GTK3 driver', () => {
             Number(/caret_events=(\d+)/.exec(report)?.[1])
           ).toBeGreaterThan(0);
         });
+        if (backend === 'context-loss') {
+          const loseContext = await app.getById('driver_lose_gl_context');
+          if (loseContext.kind !== 'button')
+            throw new Error('Context-loss control is missing');
+          await loseContext.click();
+          await toPass(async () => {
+            expect(await status.text()).toContain('backend=cairo');
+            expect(await status.text()).toContain('reason=3');
+            expect(await visibleText()).toContain('日本語の端末');
+          });
+        }
         const terminalCapture = await terminal.capture();
         const metrics = /cell=(\d+)x(\d+)/.exec((await app.output()).stdout);
         if (!metrics)

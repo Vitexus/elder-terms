@@ -38,6 +38,8 @@ struct Driver {
   bool connection_mode = false;
   bool zmodem_auto = false;
   bool links = false;
+  bool context_loss_control = false;
+  gulong context_loss_hook = 0;
   std::vector<elder_terms::MacroRule> macros;
   bool closing = false;
   bool attachment_failed = false;
@@ -165,6 +167,26 @@ static void copy_selection(GtkButton *, gpointer context) {
   const auto status = boxrig_gtk3_terminal_widget_apply_view_action(elder_terms::terminal_runtime_widget(driver->runtime), &action);
   if (status != BOXRIG_UI_OK && status != BOXRIG_UI_UNAVAILABLE)
     g_warning("boxrig copy failed: %d", status);
+}
+
+static gboolean lose_current_gl_context(GSignalInvocationHint *, guint, const GValue *values, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  auto *area = GTK_WIDGET(g_value_get_object(values));
+  if (!gtk_widget_is_ancestor(area, GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime))))
+    return TRUE;
+  // GTK has made this area's context current before emitting render. Remove
+  // it once so the normal preferred-renderer path observes a lost context.
+  gdk_gl_context_clear_current();
+  driver->context_loss_hook = 0;
+  return FALSE;
+}
+
+static void lose_gl_context(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  if (!driver->context_loss_hook)
+    driver->context_loss_hook = g_signal_add_emission_hook(g_signal_lookup("render", GTK_TYPE_GL_AREA),
+        0, lose_current_gl_context, driver, nullptr);
+  elder_terms::terminal_runtime_feed(driver->runtime, "\033[?25l");
 }
 
 static void paste_clipboard(GtkButton *, gpointer context) {
@@ -425,6 +447,7 @@ int main(int argc, char **argv) {
   for (int index = 1; index < argc; ++index) {
     if (std::string_view(argv[index]) == "--local") driver.connection_mode = true;
     else if (std::string_view(argv[index]) == "--links") driver.links = true;
+    else if (std::string_view(argv[index]) == "--context-loss") driver.context_loss_control = true;
     else if (std::string_view(argv[index]) == "--macro-send" && index + 2 < argc) {
       const std::string pattern = argv[++index];
       driver.macros.push_back({"driver-" + std::to_string(driver.macros.size()), pattern,
@@ -562,6 +585,14 @@ int main(int argc, char **argv) {
   auto *copy = gtk_button_new_with_label("Copy selection");
   gestament_gtk_assign_accessible_id(copy, "driver_copy");
   gtk_box_pack_start(GTK_BOX(controls), copy, FALSE, FALSE, 0);
+  if (driver.context_loss_control) {
+    auto *render_controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(content), render_controls, FALSE, FALSE, 0);
+    auto *button = gtk_button_new_with_label("Lose GL context");
+    gestament_gtk_assign_accessible_id(button, "driver_lose_gl_context");
+    gtk_box_pack_start(GTK_BOX(render_controls), button, FALSE, FALSE, 0);
+    g_signal_connect(button, "clicked", G_CALLBACK(lose_gl_context), &driver);
+  }
   if (driver.links) {
     auto *button = gtk_button_new_with_label("Toggle links");
     gestament_gtk_assign_accessible_id(button, "driver_links_toggle");
@@ -701,6 +732,8 @@ int main(int argc, char **argv) {
   gtk_widget_grab_focus(GTK_WIDGET(widget));
   if (fed) gtk_main();
   g_source_remove(signal_source);
+  if (driver.context_loss_hook)
+    g_signal_remove_emission_hook(g_signal_lookup("render", GTK_TYPE_GL_AREA), driver.context_loss_hook);
   elder_terms::destroy_terminal_runtime(driver.runtime);
   gtk_widget_destroy(window);
   return fed ? 0 : 1;

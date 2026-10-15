@@ -18,8 +18,13 @@ const build = fileURLToPath(
   new URL('../../.build/elder-terms-terminal/', import.meta.url)
 );
 
-for (const route of ['gtk', 'ibus', 'fcitx5'] as const) {
-  it(`uses AUTO ${route} for composition, commit, settings and input inhibition`, async () => {
+for (const [route, backend] of [
+  ['gtk', 'cairo'],
+  ['ibus', 'cairo'],
+  ['fcitx5', 'cairo'],
+  ['ibus', 'context-loss'],
+] as const) {
+  it(`uses AUTO ${route} with ${backend} for composition, commit, settings and input inhibition`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'elder-boxrig-ime-'));
     const config = join(root, 'config');
     await mkdir(join(config, 'gtk-3.0'), { recursive: true });
@@ -32,6 +37,7 @@ for (const route of ['gtk', 'ibus', 'fcitx5'] as const) {
     const launcher = createGtkAppLauncher({
       appPath: join(build, 'boxrig-driver'),
       args: [
+        ...(backend === 'context-loss' ? ['--context-loss'] : []),
         '--local',
         '--',
         '/bin/sh',
@@ -49,7 +55,8 @@ for (const route of ['gtk', 'ibus', 'fcitx5'] as const) {
         IBUS_ADDRESS_FILE: addressFile,
         IBUS_USE_PORTAL: undefined,
         FCITX_DBUS_ADDRESS: undefined,
-        GDK_GL: 'disable',
+        GDK_GL: backend === 'cairo' ? 'disable' : undefined,
+        LIBGL_ALWAYS_SOFTWARE: '1',
       },
     });
     const children: ReturnType<typeof spawn>[] = [];
@@ -156,6 +163,9 @@ for (const route of ['gtk', 'ibus', 'fcitx5'] as const) {
           `ime_policy=0 ime_route=${route === 'gtk' ? 1 : route === 'ibus' ? 2 : 3}`
         );
         expect(await cooked()).toBe('READY');
+        expect(await report()).toContain(
+          `backend=${backend === 'cairo' ? 'cairo' : 'opengl'}`
+        );
         if (route !== 'gtk') {
           expect(await report()).toContain('ime_pending=0 ime_contexts=1');
         }
@@ -178,7 +188,10 @@ for (const route of ['gtk', 'ibus', 'fcitx5'] as const) {
           { env }
         );
       const evidence = fileURLToPath(
-        new URL(`../../test-results/boxrig/ime-${route}/`, import.meta.url)
+        new URL(
+          `../../test-results/boxrig/ime-${route}-${backend}/`,
+          import.meta.url
+        )
       );
       await mkdir(evidence, { recursive: true });
       const screen = PNG.sync.read((await app.capture()).image);
@@ -291,6 +304,18 @@ for (const route of ['gtk', 'ibus', 'fcitx5'] as const) {
         expect(await preedit()).toBe(composition);
         expect(await cooked()).toBe('READY');
       });
+      if (backend === 'context-loss') {
+        const loseContext = await app.getById('driver_lose_gl_context');
+        if (loseContext.kind !== 'button')
+          throw new Error('Context-loss control is missing');
+        await loseContext.click();
+        await toPass(async () => {
+          expect(await report()).toContain('backend=cairo');
+          expect(await report()).toContain('reason=3');
+          expect(await preedit()).toBe(composition);
+          expect(await cooked()).toBe('READY');
+        });
+      }
       const composingPixels = await observeVideo('preedit');
       expect(
         composingPixels.filter(

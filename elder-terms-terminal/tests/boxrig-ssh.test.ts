@@ -1,24 +1,30 @@
 import { execFile, spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createServer, type Socket } from 'node:net';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
+import { createRequire } from 'node:module';
 import { createGtkAppLauncher } from 'gestament';
 import { toPass } from 'gestament/testing';
 import { expect, it } from 'vitest';
 
 const execFileAsync = promisify(execFile);
+const { PNG } = createRequire(import.meta.url)(
+  'pngjs'
+) as typeof import('pngjs');
 const driverPath = fileURLToPath(
   new URL('../../.build/elder-terms-terminal/boxrig-driver', import.meta.url)
 );
 const quote = (text: string): string => `'${text.split("'").join("'\\''")}'`;
 
-it.each(['known', 'unknown', 'proxy'])(
+it.each(['known', 'unknown', 'proxy', 'unknown-context-loss'])(
   'runs an SSH shell (%s), shared SFTP, remote resizes and reconnection',
   async (trust) => {
+    const unknown = trust.startsWith('unknown');
+    const contextLoss = trust === 'unknown-context-loss';
     const directory = await mkdtemp(join(tmpdir(), 'boxrig-ssh-'));
     const hostKey = join(directory, 'host');
     const clientKey = join(directory, 'client');
@@ -124,7 +130,7 @@ printf 'SSH_EOF\\342\\202'
           if (match) resolve(Number(match[1]));
         });
       });
-      if (trust !== 'unknown')
+      if (!unknown)
         await writeFile(
           knownHosts,
           `[127.0.0.1]:${port} ${(await readFile(`${hostKey}.pub`, 'utf8')).trim()}\n`
@@ -132,6 +138,7 @@ printf 'SSH_EOF\\342\\202'
       launcher = createGtkAppLauncher({
         appPath: driverPath,
         args: [
+          ...(contextLoss ? ['--context-loss'] : []),
           '--ssh',
           '127.0.0.1',
           String(port),
@@ -155,6 +162,7 @@ printf 'SSH_EOF\\342\\202'
               ]
             : []),
         ],
+        env: { LIBGL_ALWAYS_SOFTWARE: '1' },
       });
       const app = await launcher.launch();
       const acceptUsername = async (): Promise<void> => {
@@ -170,7 +178,7 @@ printf 'SSH_EOF\\342\\202'
       };
       await acceptUsername();
       if (trust === 'proxy') await acceptUsername();
-      if (trust === 'unknown') {
+      if (unknown) {
         const message = await app.getById(
           'driver_ssh_prompt_monospace_message_label'
         );
@@ -181,6 +189,47 @@ printf 'SSH_EOF\\342\\202'
           expect((await message.info()).states).toContain('showing');
           expect(await message.text()).toContain('SHA256');
         });
+        if (contextLoss) {
+          const status = await app.getById('driver_status');
+          const loseContext = await app.getById('driver_lose_gl_context');
+          if (status.kind !== 'label' || loseContext.kind !== 'button')
+            throw new Error('Context-loss controls are missing');
+          await toPass(async () =>
+            expect(await status.text()).toContain('backend=opengl')
+          );
+          const before = await message.capture();
+          await loseContext.click();
+          await toPass(async () => {
+            expect(await status.text()).toContain('backend=cairo');
+            expect(await status.text()).toContain('reason=3');
+            expect((await message.info()).states).toContain('showing');
+            expect(await message.text()).toContain('SHA256');
+          });
+          const evidence = fileURLToPath(
+            new URL(
+              '../../test-results/boxrig/context-loss-overlay/',
+              import.meta.url
+            )
+          );
+          await mkdir(evidence, { recursive: true });
+          await writeFile(join(evidence, 'before.png'), before.image);
+          const after = await message.capture();
+          await writeFile(join(evidence, 'after.png'), after.image);
+          const beforePixels = PNG.sync.read(before.image);
+          const afterPixels = PNG.sync.read(after.image);
+          expect([afterPixels.width, afterPixels.height]).toEqual([
+            beforePixels.width,
+            beforePixels.height,
+          ]);
+          let maximumDifference = 0;
+          for (let index = 0; index < beforePixels.data.length; index++)
+            maximumDifference = Math.max(
+              maximumDifference,
+              Math.abs(afterPixels.data[index] - beforePixels.data[index])
+            );
+          // GL and Cairo compositing can round the same color by one level.
+          expect(maximumDifference).toBeLessThanOrEqual(2);
+        }
         await accept.click();
       }
       const visible = async (): Promise<string> => {

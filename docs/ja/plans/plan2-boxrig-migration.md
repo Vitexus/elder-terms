@@ -605,6 +605,14 @@ Debian trixie amd64のクリーンビルド、deb生成とインストールに�
 
 残るdpkgの警告は、libc6が管理する`/lib64/ld-linux-x86-64.so.2`のusr-mergeによるdiversion通知である。標準パスと正規化後のパスが同じlibc6へ対応し、生成したDependsに`libc6 (>= 2.38)`を含み、実際にインストールできることを確認した。[dpkg-shlibdepsの依存照会と診断](https://manpages.debian.org/trixie/dpkg-dev/dpkg-shlibdeps.1.en.html)を参照する。警告の表示は抑制していない。
 
+### 段階6の描画検証（2026年10月16日）
+
+実行ドライバーに、描画直前のGLコンテキストを一度だけ解除する試験操作を追加した。[GTKのrender通知](https://docs.gtk.org/gtk3/signal.GLArea.render.html)と[GDKの公開API](https://docs.gtk.org/gdk3/type_func.GLContext.clear_current.html)を使い、外部ソースやboxrigの非公開APIは変更していない。未実装時の試験失敗を確認した後、OpenGLからCairoへの切り替えと`CONTEXT`診断を検証した。描画途中のGPUリセット自体を再現する試験ではない。
+
+切り替え後の日本語、色、選択、コピー、スクロール、ズームとリサイズに成功した。IBusの変換中に切り替えても未確定文字を保持し、確定、取り消し、入力禁止と再開が動いた。動画の各状態も検証している。SSHのホスト鍵確認を表示したまま切り替え、確認画面の画像と、その後の接続・SFTP・リサイズ・再接続を確認した。画像は目視でも確認し、色の差は最大1階調だった。関連するUI試験12件と、OpenGL／CairoのC++描画試験2件はすべて成功した。
+
+実GPUの試験では、専用のWayland環境で起動したアプリ自身が`NVIDIA GeForce RTX 3090/PCIe/SSE2`とOpenGL 3.3を報告し、画面更新と描画完了通知を確認できた。入力機器のないWestonでは、アプリのruntime生成前に`gtk_init()`から`gdk_seat_get_keyboard()`の警告が出る。デバッガーで発生箇所を確認し、警告を残したまま描画試験に成功した。[GDKの入力seat API](https://docs.gtk.org/gdk3/method.Seat.get_keyboard.html)を参照する。通常の入力を含むGPU実機操作の検証とは区別する。
+
 ## 今回の確認結果
 
 ### 以前の検証（8ab9bdf）

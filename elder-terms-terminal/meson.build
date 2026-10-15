@@ -204,7 +204,7 @@ boxrig_links_test = executable('boxrig-links-test',
 test('boxrig-links-test', boxrig_links_test)
 
 boxrig_presentation_test = executable('boxrig-presentation-test',
-  'tests/cpp/boxrig-presentation-test.cpp', dependencies: boxrig_runtime_dep)
+  'tests/cpp/boxrig-presentation-test.cpp', dependencies: [boxrig_runtime_dep, dependency('epoxy')])
 foreach backend : ['opengl', 'cairo']
   test('boxrig-presentation-' + backend + '-test', find_program('xvfb-run'),
     args: ['-a', boxrig_presentation_test, backend], timeout: 30,
