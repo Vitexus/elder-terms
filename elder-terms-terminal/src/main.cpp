@@ -1587,9 +1587,8 @@ static void on_sftp_menu_item_activate(GtkMenuItem *,
 
   if (state->sftp_cancel_source.has_value()) {
     (void)state->sftp_cancel_source->cancel();
-    state->sftp_cancel_source.reset();
   }
-  state->sftp_cancel_source.emplace();
+  state->sftp_cancel_source = cardio::cancellation_source{};
   state->sftp_transport = transport;
   state->sftp_opening = true;
   create_shared_sftp_window(state);

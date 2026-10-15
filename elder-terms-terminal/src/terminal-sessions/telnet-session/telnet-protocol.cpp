@@ -297,7 +297,6 @@ void TelnetProtocol::begin_text_send_encoding() {
 TelnetBytes
 TelnetProtocol::encode_text_send(std::span<const unsigned char> bytes) {
   TelnetBytes result;
-  result.reserve(bytes.size() + 2);
 
   std::size_t index = 0;
   if (text_send_pending_cr) {
@@ -311,6 +310,9 @@ TelnetProtocol::encode_text_send(std::span<const unsigned char> bytes) {
     text_send_pending_cr = false;
   }
 
+  // Reserving after the pending prefix avoids GCC 14's vector growth false positive.
+  // https://gcc.gnu.org/bugzilla/show_bug.cgi?id=115016
+  result.reserve(bytes.size() + 2);
   for (; index < bytes.size(); ++index) {
     const unsigned char byte = bytes[index];
     if (!local_binary_enabled && byte == telnet_cr) {
