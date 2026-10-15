@@ -279,17 +279,17 @@ const beginDirtyConnectionEdit = async (app: GtkApp, value: number) => {
   return { list, width };
 };
 
-interface FakeVteContext {
+interface FakeTerminalContext {
   readonly executable: string;
   readonly capture: string;
   readonly release: () => Promise<void>;
 }
 
-const createFakeVte = async (
+const createFakeTerminal = async (
   hardcodedCapture = false
-): Promise<FakeVteContext> => {
-  const directory = await mkdtemp(join(tmpdir(), 'elder-terms-fake-vte-'));
-  const executable = join(directory, 'fake-vte.mjs');
+): Promise<FakeTerminalContext> => {
+  const directory = await mkdtemp(join(tmpdir(), 'elder-terms-fake-terminal-'));
+  const executable = join(directory, 'fake-terminal.mjs');
   const capture = join(directory, 'capture.json');
   const captureExpression = hardcodedCapture
     ? JSON.stringify(capture)
@@ -312,41 +312,44 @@ await writeFile(${captureExpression}, JSON.stringify({ args, startupContent }));
   };
 };
 
-interface SiblingVteLayout extends FakeVteContext {
+interface SiblingTerminalLayout extends FakeTerminalContext {
   readonly launcher: string;
 }
 
-const createSiblingVteLayout = async (): Promise<SiblingVteLayout> => {
-  const directory = await mkdtemp(join(tmpdir(), 'elder-terms-sibling-vte-'));
-  const launcherDirectory = join(directory, 'elder-terms');
-  const vteDirectory = join(directory, 'elder-terms-vte');
-  await Promise.all([
-    mkdir(launcherDirectory, { recursive: true }),
-    mkdir(vteDirectory, { recursive: true }),
-  ]);
-  await symlink(
-    fileURLToPath(
-      new URL('../../.build/elder-terms/elder-terms', import.meta.url)
-    ),
-    join(launcherDirectory, 'elder-terms')
-  );
-  const executable = join(vteDirectory, 'elder-terms-vte');
-  const capture = join(directory, 'capture.json');
-  await writeFile(
-    executable,
-    `#!/usr/bin/env node
+const createSiblingTerminalLayout =
+  async (): Promise<SiblingTerminalLayout> => {
+    const directory = await mkdtemp(
+      join(tmpdir(), 'elder-terms-sibling-terminal-')
+    );
+    const launcherDirectory = join(directory, 'elder-terms');
+    const terminalDirectory = join(directory, 'elder-terms-terminal');
+    await Promise.all([
+      mkdir(launcherDirectory, { recursive: true }),
+      mkdir(terminalDirectory, { recursive: true }),
+    ]);
+    await symlink(
+      fileURLToPath(
+        new URL('../../.build/elder-terms/elder-terms', import.meta.url)
+      ),
+      join(launcherDirectory, 'elder-terms')
+    );
+    const executable = join(terminalDirectory, 'elder-terms-terminal');
+    const capture = join(directory, 'capture.json');
+    await writeFile(
+      executable,
+      `#!/usr/bin/env node
 import { writeFile } from 'node:fs/promises';
 await writeFile(process.env.ELDER_TERMS_TEST_CAPTURE, JSON.stringify({ args: process.argv.slice(2), startupContent: null }));
 `
-  );
-  await chmod(executable, 0o755);
-  return {
-    launcher: `${launcherDirectory}/./elder-terms`,
-    executable,
-    capture,
-    release: async () => rm(directory, { recursive: true, force: true }),
+    );
+    await chmod(executable, 0o755);
+    return {
+      launcher: `${launcherDirectory}/./elder-terms`,
+      executable,
+      capture,
+      release: async () => rm(directory, { recursive: true, force: true }),
+    };
   };
-};
 
 interface LaunchCapture {
   readonly args: readonly string[];
@@ -2877,7 +2880,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
   });
 
   it('connects a saved profile by double-clicking its row', async (context) => {
-    const fakeVte = await createFakeVte();
+    const fakeTerminal = await createFakeTerminal();
     try {
       await runLauncherGtkTest(
         context,
@@ -2886,7 +2889,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
           const list = await app.getById('connection_list');
           await doubleClickConnectionRow(app, list, 0);
           await waitForResult(async () => {
-            const capture = await readLaunchCapture(fakeVte.capture);
+            const capture = await readLaunchCapture(fakeTerminal.capture);
             expect(capture.args).toEqual([
               '-c',
               join(connections, 'Alpha.ini'),
@@ -2897,19 +2900,19 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
         {
           args: [],
           env: {
-            ELDER_TERMS_TEST_CAPTURE: fakeVte.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TEST_CAPTURE: fakeTerminal.capture,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await fakeVte.release();
+      await fakeTerminal.release();
     }
   });
 
   it('routes an SFTP profile to the file transfer application', async (context) => {
-    const fakeVte = await createFakeVte();
-    const fakeFileTransfer = await createFakeVte(true);
+    const fakeTerminal = await createFakeTerminal();
+    const fakeFileTransfer = await createFakeTerminal(true);
     try {
       await runLauncherGtkTest(
         context,
@@ -2937,19 +2940,21 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             ]);
             expect(capture.startupContent).toBeNull();
           });
-          await expect(readFile(fakeVte.capture, 'utf8')).rejects.toThrow();
+          await expect(
+            readFile(fakeTerminal.capture, 'utf8')
+          ).rejects.toThrow();
         },
         {
           args: [],
           env: {
             ELDER_TERMS_FILE_TRANSFER_PATH: fakeFileTransfer.executable,
             ELDER_TERMS_TEST_CAPTURE: fakeFileTransfer.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await Promise.all([fakeFileTransfer.release(), fakeVte.release()]);
+      await Promise.all([fakeFileTransfer.release(), fakeTerminal.release()]);
     }
   });
 
@@ -3005,7 +3010,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
           server = spawn(
             fileURLToPath(
               new URL(
-                '../../.build/elder-terms-vte/ftp-test-server',
+                '../../.build/elder-terms-terminal/ftp-test-server',
                 import.meta.url
               )
             ),
@@ -3361,7 +3366,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
                   process.env.ELDER_TERMS_TEST_FTP_APP ??
                   fileURLToPath(
                     new URL(
-                      '../../.build/elder-terms-vte/elder-terms-file-transfer',
+                      '../../.build/elder-terms-terminal/elder-terms-file-transfer',
                       import.meta.url
                     )
                   ),
@@ -3386,8 +3391,8 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
     }
 
   it('routes an FTP profile to the file transfer application', async (context) => {
-    const fakeVte = await createFakeVte();
-    const fakeFileTransfer = await createFakeVte(true);
+    const fakeTerminal = await createFakeTerminal();
+    const fakeFileTransfer = await createFakeTerminal(true);
     try {
       await runLauncherGtkTest(
         context,
@@ -3415,24 +3420,26 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             ]);
             expect(capture.startupContent).toBeNull();
           });
-          await expect(readFile(fakeVte.capture, 'utf8')).rejects.toThrow();
+          await expect(
+            readFile(fakeTerminal.capture, 'utf8')
+          ).rejects.toThrow();
         },
         {
           args: [],
           env: {
             ELDER_TERMS_FILE_TRANSFER_PATH: fakeFileTransfer.executable,
             ELDER_TERMS_TEST_CAPTURE: fakeFileTransfer.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await Promise.all([fakeFileTransfer.release(), fakeVte.release()]);
+      await Promise.all([fakeFileTransfer.release(), fakeTerminal.release()]);
     }
   });
 
-  it('finds the sibling VTE when launched through a dot path', async (context) => {
-    const layout = await createSiblingVteLayout();
+  it('finds the sibling terminal when launched through a dot path', async (context) => {
+    const layout = await createSiblingTerminalLayout();
     try {
       await runLauncherGtkTest(
         context,
@@ -3466,7 +3473,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
   });
 
   it('connects with dirty settings without saving the profile', async (context) => {
-    const fakeVte = await createFakeVte();
+    const fakeTerminal = await createFakeTerminal();
     try {
       await runLauncherGtkTest(
         context,
@@ -3488,7 +3495,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
           ).click();
 
           await waitForResult(async () => {
-            const capture = await readLaunchCapture(fakeVte.capture);
+            const capture = await readLaunchCapture(fakeTerminal.capture);
             expect(capture.args[0]).toBe('-c');
             expect(capture.args[1]).toBe(join(connections, 'Alpha.ini'));
             expect(capture.args[2]).toBe('-s');
@@ -3502,18 +3509,18 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
         {
           args: [],
           env: {
-            ELDER_TERMS_TEST_CAPTURE: fakeVte.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TEST_CAPTURE: fakeTerminal.capture,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await fakeVte.release();
+      await fakeTerminal.release();
     }
   });
 
   it('connects a new draft using only a temporary startup profile', async (context) => {
-    const fakeVte = await createFakeVte();
+    const fakeTerminal = await createFakeTerminal();
     try {
       await runLauncherGtkTest(
         context,
@@ -3533,7 +3540,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             'button'
           ).click();
           await waitForResult(async () => {
-            const capture = await readLaunchCapture(fakeVte.capture);
+            const capture = await readLaunchCapture(fakeTerminal.capture);
             expect(capture.args[0]).toBe('-s');
             expect(capture.args).toHaveLength(2);
             expect(capture.startupContent).toContain(
@@ -3545,13 +3552,13 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
         {
           args: [],
           env: {
-            ELDER_TERMS_TEST_CAPTURE: fakeVte.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TEST_CAPTURE: fakeTerminal.capture,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await fakeVte.release();
+      await fakeTerminal.release();
     }
   });
 });

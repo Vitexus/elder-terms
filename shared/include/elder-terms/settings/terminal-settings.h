@@ -41,7 +41,7 @@ struct TerminalFontFamilies {
  * Terminal BEL playback settings.
  */
 struct TerminalBellSettings {
-  /** Custom sound file, or no value to retain VTE's built-in audible bell. */
+  /** Custom sound file, or no value to retain terminal's built-in audible bell. */
   std::optional<std::filesystem::path> sound_file;
 };
 

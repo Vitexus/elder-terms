@@ -156,7 +156,7 @@ struct ApplicationState {
   guint monitor_refresh_source = 0;
   bool monitor_reload_selected = false;
   std::optional<std::filesystem::path> monitor_renamed_path;
-  std::string vte_executable;
+  std::string terminal_executable;
   std::string file_transfer_executable;
   std::string launcher_argv0;
   std::vector<ChildLaunch *> child_launches;
@@ -1569,7 +1569,7 @@ static std::string resolve_child_executable(
         launcher_path.parent_path();
     const std::vector<std::filesystem::path> candidates = {
         launcher_directory / executable_name,
-        launcher_directory.parent_path() / "elder-terms-vte" /
+        launcher_directory.parent_path() / "elder-terms-terminal" /
             executable_name,
     };
     for (const auto &candidate : candidates) {
@@ -1811,9 +1811,9 @@ static void launch_selected_connection(ApplicationState *state) {
       kind == elder_terms::ConnectionKind::webdav;
   const std::string &executable =
       file_transfer ? state->file_transfer_executable
-                    : state->vte_executable;
+                    : state->terminal_executable;
   const char *executable_name =
-      file_transfer ? "elder-terms-file-transfer" : "elder-terms-vte";
+      file_transfer ? "elder-terms-file-transfer" : "elder-terms-terminal";
   const std::string error_summary =
       format_translated_string(_("Failed to start %s"), executable_name);
 
@@ -1862,9 +1862,9 @@ static void launch_saved_connection(
       kind == elder_terms::ConnectionKind::webdav;
   const std::string &executable =
       file_transfer ? state->file_transfer_executable
-                    : state->vte_executable;
+                    : state->terminal_executable;
   const char *executable_name =
-      file_transfer ? "elder-terms-file-transfer" : "elder-terms-vte";
+      file_transfer ? "elder-terms-file-transfer" : "elder-terms-terminal";
   const std::vector<std::string> arguments = {
       executable,
       "-c",
@@ -2801,9 +2801,9 @@ static bool initialize_main_window(ApplicationState *state) {
   g_object_unref(application_accelerators);
 
   populate_profile_rows(state);
-  state->vte_executable = resolve_child_executable(
-      state->launcher_argv0.c_str(), "ELDER_TERMS_VTE_PATH",
-      "elder-terms-vte");
+  state->terminal_executable = resolve_child_executable(
+      state->launcher_argv0.c_str(), "ELDER_TERMS_TERMINAL_PATH",
+      "elder-terms-terminal");
   state->file_transfer_executable = resolve_child_executable(
       state->launcher_argv0.c_str(),
       "ELDER_TERMS_FILE_TRANSFER_PATH",

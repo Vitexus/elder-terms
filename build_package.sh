@@ -11,11 +11,7 @@ PACKAGE_DESCRIPTION="GTK terminal for serial, TELNET, local shell, SSH, SFTP, an
 DEFAULT_MAINTAINER="elder-terms packager <packager@localhost>"
 DEFAULT_PARALLEL_JOB_CAP=14
 
-LINUX_MATRIX='debian bookworm x86_64 linux/amd64
-debian bookworm i686 linux/386
-debian bookworm arm64 linux/arm64
-debian bookworm armv7l linux/arm/v7
-debian trixie x86_64 linux/amd64
+LINUX_MATRIX='debian trixie x86_64 linux/amd64
 debian trixie i686 linux/386
 debian trixie arm64 linux/arm64
 debian trixie armv7l linux/arm/v7
@@ -150,7 +146,7 @@ canonical_release() {
 	value=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
 
 	case $value in
-	bookworm | trixie | 24.04 | 26.04) printf '%s\n' "$value" ;;
+	trixie | 24.04 | 26.04) printf '%s\n' "$value" ;;
 	noble) printf '%s\n' '24.04' ;;
 	resolute) printf '%s\n' '26.04' ;;
 	*) fail "Unsupported release filter: $1" ;;
@@ -400,13 +396,13 @@ validate_deb_package() {
 		usr/lib/elder-terms/libelder-terms.so \
 		usr/lib/elder-terms/launcher/elder-terms \
 		usr/lib/elder-terms/launcher/main-window.ui \
-		usr/lib/elder-terms/elder-terms-vte/elder-terms-vte \
-		usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer \
-		usr/lib/elder-terms/elder-terms-vte/main-window.ui \
-		usr/lib/elder-terms/elder-terms-vte/green-on.png \
-		usr/lib/elder-terms/elder-terms-vte/green-off.png \
+		usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
+		usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer \
+		usr/lib/elder-terms/elder-terms-terminal/main-window.ui \
+		usr/lib/elder-terms/elder-terms-terminal/green-on.png \
+		usr/lib/elder-terms/elder-terms-terminal/green-off.png \
 		usr/share/applications/net.kekyo.elder-terms.desktop \
-		usr/share/applications/net.kekyo.elder-terms-vte.desktop \
+		usr/share/applications/net.kekyo.elder-terms-terminal.desktop \
 		etc/xdg/autostart/net.kekyo.elder-terms.desktop \
 		usr/share/icons/hicolor/256x256/apps/elder-terms.png \
 		usr/share/locale/ja/LC_MESSAGES/elder-terms.mo \
@@ -420,17 +416,17 @@ validate_deb_package() {
 	done
 	assert_symlink "$tmp_dir/usr/bin/elder-terms" \
 		'../lib/elder-terms/launcher/elder-terms'
-	assert_symlink "$tmp_dir/usr/bin/elder-terms-vte" \
-		'../lib/elder-terms/elder-terms-vte/elder-terms-vte'
+	assert_symlink "$tmp_dir/usr/bin/elder-terms-terminal" \
+		'../lib/elder-terms/elder-terms-terminal/elder-terms-terminal'
 	assert_symlink "$tmp_dir/usr/bin/elder-terms-file-transfer" \
-		'../lib/elder-terms/elder-terms-vte/elder-terms-file-transfer'
+		'../lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer'
 
 	for elf_path in \
 		usr/bin/etctl \
 		usr/lib/elder-terms/libelder-terms.so \
 		usr/lib/elder-terms/launcher/elder-terms \
-		usr/lib/elder-terms/elder-terms-vte/elder-terms-vte \
-		usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer; do
+		usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
+		usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer; do
 		elf_name=$(printf '%s' "$elf_path" | tr '/' '-')
 		assert_elf_architecture \
 			"$tmp_dir/$elf_path" "$expected_arch" "$tmp_dir/readelf-$elf_name.txt"

@@ -42,11 +42,17 @@ libcurl4-openssl-dev
 libssl-dev
 openssl
 libgtk-3-dev
-libpcre2-dev
+libcairo2-dev
+libpango1.0-dev
+libfontconfig1-dev
+libepoxy-dev
+libibus-1.0-dev
+libwayland-dev
+libgl-dev
+libegl-dev
 libssh-dev
 libudev-dev
 liburing-dev
-libvte-2.91-dev
 libx11-dev
 libxkbcommon-dev
 libxml2-dev
@@ -84,7 +90,7 @@ WORKDIR /opt/elder-terms-node
 COPY package.json package-lock.json ./
 COPY shared/package.json shared/package.json
 COPY elder-terms/package.json elder-terms/package.json
-COPY elder-terms-vte/package.json elder-terms-vte/package.json
+COPY elder-terms-terminal/package.json elder-terms-terminal/package.json
 RUN npm ci --ignore-scripts
 
 ENV PATH="/opt/elder-terms-node/node_modules/.bin:${PATH}"

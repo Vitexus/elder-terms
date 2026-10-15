@@ -93,7 +93,7 @@ const createPackageStage = (
     'usr/bin',
     'usr/lib/elder-terms',
     'usr/lib/elder-terms/launcher',
-    'usr/lib/elder-terms/elder-terms-vte',
+    'usr/lib/elder-terms/elder-terms-terminal',
     'usr/share/applications',
     'usr/share/doc/elder-terms',
     'usr/share/doc/elder-terms/docs/ja',
@@ -122,8 +122,8 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     'usr/bin/etctl',
     'usr/lib/elder-terms/libelder-terms.so',
     'usr/lib/elder-terms/launcher/elder-terms',
-    'usr/lib/elder-terms/elder-terms-vte/elder-terms-vte',
-    'usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer',
+    'usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal',
+    'usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer',
   ];
   for (const executablePath of executablePaths) {
     if (executablePath !== omittedPath) {
@@ -141,13 +141,16 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
       '[Desktop Entry]\nType=Application\nExec=elder-terms\n',
     ],
     [
-      'usr/share/applications/net.kekyo.elder-terms-vte.desktop',
-      '[Desktop Entry]\nType=Application\nExec=elder-terms-vte\n',
+      'usr/share/applications/net.kekyo.elder-terms-terminal.desktop',
+      '[Desktop Entry]\nType=Application\nExec=elder-terms-terminal\n',
     ],
     ['usr/lib/elder-terms/launcher/main-window.ui', '<interface/>\n'],
-    ['usr/lib/elder-terms/elder-terms-vte/main-window.ui', '<interface/>\n'],
-    ['usr/lib/elder-terms/elder-terms-vte/green-on.png', 'on\n'],
-    ['usr/lib/elder-terms/elder-terms-vte/green-off.png', 'off\n'],
+    [
+      'usr/lib/elder-terms/elder-terms-terminal/main-window.ui',
+      '<interface/>\n',
+    ],
+    ['usr/lib/elder-terms/elder-terms-terminal/green-on.png', 'on\n'],
+    ['usr/lib/elder-terms/elder-terms-terminal/green-off.png', 'off\n'],
     ['usr/share/doc/elder-terms/README.md', '# elder-terms\n'],
     ['usr/share/doc/elder-terms/README_ja.md', '# elder-terms\n'],
     ['usr/share/doc/elder-terms/docs/ja/webdav.md', '# WebDAV\n'],
@@ -171,11 +174,11 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     join(stageRoot, 'usr/bin/elder-terms')
   );
   symlinkSync(
-    '../lib/elder-terms/elder-terms-vte/elder-terms-vte',
-    join(stageRoot, 'usr/bin/elder-terms-vte')
+    '../lib/elder-terms/elder-terms-terminal/elder-terms-terminal',
+    join(stageRoot, 'usr/bin/elder-terms-terminal')
   );
   symlinkSync(
-    '../lib/elder-terms/elder-terms-vte/elder-terms-file-transfer',
+    '../lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer',
     join(stageRoot, 'usr/bin/elder-terms-file-transfer')
   );
 };
@@ -240,7 +243,7 @@ canonical_release noble
 canonical_release resolute
 count_deb_builds
 deb_artifact_path elder-terms ubuntu 24.04 x86_64
-prereq_image_for_target debian bookworm x86_64
+prereq_image_for_target debian trixie x86_64
 container_image_for_target debian trixie riscv64
 `);
     expectSuccess(mappings, 'package target mappings failed');
@@ -251,12 +254,12 @@ container_image_for_target debian trixie riscv64
         'armv7l',
         '24.04',
         '26.04',
-        '13',
+        '9',
         join(
           projectRoot,
           'artifacts/deb/elder-terms-1.2.3-ubuntu-24.04-amd64.deb'
         ),
-        'localhost/elder-terms-pack-deb-debian-bookworm-x86_64:latest',
+        'localhost/elder-terms-pack-deb-debian-trixie-x86_64:latest',
         'docker.io/library/debian:trixie',
         '',
       ].join('\n')
@@ -313,9 +316,9 @@ exit 0
     expect(readFileSync(pkgConfigInvocationPath, 'utf8').split('\n')).toContain(
       '--exists libcanberra'
     );
-    expect(readFileSync(pkgConfigInvocationPath, 'utf8').split('\n')).toContain(
-      '--exists libpcre2-8'
-    );
+    expect(
+      readFileSync(pkgConfigInvocationPath, 'utf8').split('\n')
+    ).not.toContain('--exists libpcre2-8');
 
     rmSync(invocationPath);
     const missingCurl = run(containerScript, [], {
@@ -378,7 +381,7 @@ mkdir -p "$build_dir"
         'compile',
         '-C',
         buildDirectory,
-        'elder-terms-vte/libxyzm-static-libraries',
+        'elder-terms-terminal/libxyzm-static-libraries',
       ],
       environment
     );
@@ -414,7 +417,7 @@ for argument in "$@"; do
   previous=$argument
 done
 case " $* " in *" --validate-package "*) exit 0 ;; esac
-stage="$workspace/artifacts/.tmp/test-run/deb/debian/bookworm/x86_64/work/stage/elder-terms"
+stage="$workspace/artifacts/.tmp/test-run/deb/debian/trixie/x86_64/work/stage/elder-terms"
 mkdir -p "$stage/DEBIAN"
 printf 'Package: elder-terms\\n' >"$stage/DEBIAN/control"
 `
@@ -441,7 +444,7 @@ VERSION=1.2.3-test
 CONTAINER_ENGINE_BIN=$3
 MAKE_JOBS=1
 BUILD_TYPE=release
-build_deb_package debian bookworm x86_64 linux/amd64
+build_deb_package debian trixie x86_64 linux/amd64
 `,
       [fakeProject, containerEngine],
       {
@@ -454,19 +457,19 @@ build_deb_package debian bookworm x86_64 linux/amd64
     expectSuccess(result, 'deb package orchestration failed');
     const records = readFileSync(containerRecords, 'utf8');
     expect(records).toContain(
-      'exists localhost/elder-terms-pack-deb-debian-bookworm-x86_64:latest'
+      'exists localhost/elder-terms-pack-deb-debian-trixie-x86_64:latest'
     );
     expect(
       records.split('\n').filter((line) => line.startsWith('run '))
     ).toHaveLength(2);
     expect(records).toContain('./scripts/build_linux_dist_container.sh');
     expect(records).toContain(
-      '--validate-package /workspace/artifacts/deb/elder-terms-1.2.3-test-debian-bookworm-amd64.deb'
+      '--validate-package /workspace/artifacts/deb/elder-terms-1.2.3-test-debian-trixie-amd64.deb'
     );
     expect(readFileSync(dpkgRecords, 'utf8')).toContain(
       join(
         fakeProject,
-        'artifacts/deb/elder-terms-1.2.3-test-debian-bookworm-amd64.deb'
+        'artifacts/deb/elder-terms-1.2.3-test-debian-trixie-amd64.deb'
       )
     );
   });
@@ -500,7 +503,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         '--distro',
         'debian',
         '--release',
-        'bookworm',
+        'trixie',
         '--arch',
         'amd64',
         '--jobs',
@@ -517,20 +520,26 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     expectSuccess(prerequisite, 'filtered prerequisite image build failed');
     const invocation = readFileSync(recordsPath, 'utf8');
     expect(invocation).toContain('build --no-cache --platform linux/amd64');
-    expect(invocation).toContain('BASE_IMAGE=docker.io/amd64/debian:bookworm');
+    expect(invocation).toContain('BASE_IMAGE=docker.io/amd64/debian:trixie');
     expect(invocation).toContain(
-      'localhost/elder-terms-pack-deb-debian-bookworm-x86_64:latest'
+      'localhost/elder-terms-pack-deb-debian-trixie-x86_64:latest'
     );
     const containerfile = readFileSync(`${recordsPath}.containerfile`, 'utf8');
     for (const dependency of [
       'libcanberra-dev',
       'libcanberra-pulse',
       'libgtk-3-dev',
-      'libpcre2-dev',
+      'libcairo2-dev',
+      'libpango1.0-dev',
+      'libfontconfig1-dev',
+      'libepoxy-dev',
+      'libibus-1.0-dev',
+      'libwayland-dev',
+      'libgl-dev',
+      'libegl-dev',
       'libssh-dev',
       'libudev-dev',
       'liburing-dev',
-      'libvte-2.91-dev',
       'libxkbcommon-dev',
       'meson',
       'npm',
@@ -622,14 +631,14 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     createPackageStage(
       badStage,
       debianArchitecture,
-      'usr/share/applications/net.kekyo.elder-terms-vte.desktop',
+      'usr/share/applications/net.kekyo.elder-terms-terminal.desktop',
       true,
       true
     );
     createPackageStage(
       missingFileTransferStage,
       debianArchitecture,
-      'usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer',
+      'usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer',
       true,
       true
     );
@@ -738,7 +747,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     );
     expect(badValidation.status).not.toBe(0);
     expect(badValidation.stderr).toContain(
-      'usr/share/applications/net.kekyo.elder-terms-vte.desktop'
+      'usr/share/applications/net.kekyo.elder-terms-terminal.desktop'
     );
 
     const missingFileTransferValidation = runSourced(
@@ -747,7 +756,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     );
     expect(missingFileTransferValidation.status).not.toBe(0);
     expect(missingFileTransferValidation.stderr).toContain(
-      'usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer'
+      'usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer'
     );
 
     const missingOpenSshClientValidation = runSourced(
@@ -803,11 +812,11 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         join('..', libraryDirectory, 'elder-terms/launcher/elder-terms'),
       ],
       [
-        'bin/elder-terms-vte',
+        'bin/elder-terms-terminal',
         join(
           '..',
           libraryDirectory,
-          'elder-terms/elder-terms-vte/elder-terms-vte'
+          'elder-terms/elder-terms-terminal/elder-terms-terminal'
         ),
       ],
       [
@@ -815,7 +824,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         join(
           '..',
           libraryDirectory,
-          'elder-terms/elder-terms-vte/elder-terms-file-transfer'
+          'elder-terms/elder-terms-terminal/elder-terms-file-transfer'
         ),
       ],
     ]);
@@ -828,16 +837,19 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       join(libraryDirectory, 'elder-terms/libelder-terms.so'),
       join(libraryDirectory, 'elder-terms/launcher/elder-terms'),
       join(libraryDirectory, 'elder-terms/launcher/main-window.ui'),
-      join(libraryDirectory, 'elder-terms/elder-terms-vte/elder-terms-vte'),
       join(
         libraryDirectory,
-        'elder-terms/elder-terms-vte/elder-terms-file-transfer'
+        'elder-terms/elder-terms-terminal/elder-terms-terminal'
       ),
-      join(libraryDirectory, 'elder-terms/elder-terms-vte/main-window.ui'),
-      join(libraryDirectory, 'elder-terms/elder-terms-vte/green-on.png'),
-      join(libraryDirectory, 'elder-terms/elder-terms-vte/green-off.png'),
+      join(
+        libraryDirectory,
+        'elder-terms/elder-terms-terminal/elder-terms-file-transfer'
+      ),
+      join(libraryDirectory, 'elder-terms/elder-terms-terminal/main-window.ui'),
+      join(libraryDirectory, 'elder-terms/elder-terms-terminal/green-on.png'),
+      join(libraryDirectory, 'elder-terms/elder-terms-terminal/green-off.png'),
       'share/applications/net.kekyo.elder-terms.desktop',
-      'share/applications/net.kekyo.elder-terms-vte.desktop',
+      'share/applications/net.kekyo.elder-terms-terminal.desktop',
     ]) {
       expect(lstatSync(join(installedRoot, relativePath)).isFile()).toBe(true);
     }
@@ -851,7 +863,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     expectSuccess(dynamicSection, 'installed launcher ELF inspection failed');
     expect(dynamicSection.stdout).toContain('[$ORIGIN/..]');
 
-    const terminal = join(installedRoot, 'bin/elder-terms-vte');
+    const terminal = join(installedRoot, 'bin/elder-terms-terminal');
     const environment = { ...process.env };
     delete environment.LD_LIBRARY_PATH;
     delete environment.LD_PRELOAD;

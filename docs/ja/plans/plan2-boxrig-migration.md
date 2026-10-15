@@ -38,7 +38,7 @@ regexは正規表現を指す。コンパイル済みの式をprogram、一つ�
 | Linux共有ライブラリ、C++リンク | 上流の`shared-gtk3`と公開C ABI | B1対応済み。5本の共有ライブラリを親ビルドから生成する |
 | 読み上げ・本文アクセシビリティ | GTK3 widgetのAtkText | A1対応済み。表示本文と通知をアプリのfocus・overlayを含めて検証する |
 
-調査元は[起動処理](../../../elder-terms-vte/src/main.cpp)、[ウィンドウ](../../../elder-terms-vte/src/main-window.cpp)、[レイアウト](../../../elder-terms-vte/src/terminal-layout.cpp)、[TerminalViewIo](../../../elder-terms-vte/src/terminal-sessions/terminal-view-io.cpp)、[共通regex](../../../shared/src/settings/regular-expression.cpp)である。上流は[GTKガイド][gtk-guide]、[GTK3公開ヘッダー][gtk-api]、[core公開ヘッダー][core-api]を基準にする。
+調査元は[起動処理](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/main.cpp)、[ウィンドウ](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/main-window.cpp)、[レイアウト](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-layout.cpp)、[TerminalViewIo](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-sessions/terminal-view-io.cpp)、[共通regex](../../../shared/src/settings/regular-expression.cpp)である。上流は[GTKガイド][gtk-guide]、[GTK3公開ヘッダー][gtk-api]、[core公開ヘッダー][core-api]を基準にする。
 
 ## boxrigを前提とする構造
 
@@ -124,7 +124,7 @@ grid-resize要求は通信先へ反映してからcoreをresizeし、同じrevis
 
 ### 削除する既存コード
 
-以下は[terminal-layout.cpp](../../../elder-terms-vte/src/terminal-layout.cpp)と関連コードから削除する対象である。新しい名前で同じ補正を再実装しない。
+以下は[terminal-layout.cpp](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-layout.cpp)と関連コードから削除する対象である。新しい名前で同じ補正を再実装しない。
 
 | 撤去対象 | boxrigでの扱い |
 | --- | --- |
@@ -322,7 +322,7 @@ Viteの設定と生成コードで出たESM判定の警告は、親と各workspa
 
 ドライバーにローカルPTYの接続、切断、再接続を追加した。`.build/elder-terms-vte/boxrig-driver --local -- /bin/sh`で対話できる。接続先を替えてもcoreと表示を保持し、前の接続の回収が済むまで次の起動を受け付けない。画面には接続状態、起動診断のstageとerrno、終了コードを表示する。
 
-[通信の所有者](../../../elder-terms-vte/src/terminal-connection.cpp)を表示から分離した。同期のPTY準備は既存の共有Cardioの`start_new()`で実行し、診断FDとPTYの読み書き、子の終了は通知を待つ。診断FDを直接読まず、`get_spawn_result()`で結果を得る。子の回収経路は一つにし、起動直後の取消でも準備の終了と回収を待つ。
+[通信の所有者](../../../elder-terms-terminal/src/terminal-connection.cpp)を表示から分離した。同期のPTY準備は既存の共有Cardioの`start_new()`で実行し、診断FDとPTYの読み書き、子の終了は通知を待つ。診断FDを直接読まず、`get_spawn_result()`で結果を得る。子の回収経路は一つにし、起動直後の取消でも準備の終了と回収を待つ。
 
 通常の送受信キューは各64 KiBとし、満杯の受信キューには空きができるまで追加しない。非同期I/Oとsessionの間で借用バッファを保持せず、受理したバイト数だけを返す。UTF-8のraw／cooked通知は受信時に一度行い、sessionの再試行では繰り返さない。任意文字コードの変換と製品のログ機能は段階3で接続する。
 
@@ -588,6 +588,10 @@ SSHのXMODEM送信は、内容が一致しても20秒の判定で失敗した。
 インストール後のRUNPATHに開発SDKの絶対パスが残る問題を配布試験で再現した。boxrigをMesonの共有ライブラリー依存として渡し、ビルド時の検索先をインストール時に除去する。共有5本をアプリ専用ディレクトリへ同梱し、boxrigと組み込みコード・データのライセンス資料を文書ディレクトリへ配置した。
 
 修正後の試験では、ライブラリー検索用の環境変数を外し、5本のSONAMEと相対RUNPATH、インストール先への解決を確認した。公開コマンドのシンボリックリンクから通常の端末を起動し、ローカルPTYからの受信とログ記録、キー入力の送信にも成功した。C++ビルドは警告なしで、TypeScriptの型検査も成功した。依存パッケージの算出、名称変更、旧依存の撤去、対象9件の配布検証は引き続き実施する。
+
+続いてディレクトリ、workspace、実行ファイル、desktop ID、WM class、環境変数と試験名を`elder-terms-terminal`へ変更した。旧コマンドを検索できないこと、VTEと直接のPCRE2開発依存なしで構成できること、bookwormを指定すると拒否することを一時試験で検証した。変更前の失敗と変更後の3件の成功を確認している。既存の配布・desktop entry試験、通常端末のWM class、ランチャーの隣接端末検出も成功した。必要な描画パッケージを追加し、配布対象を9件へ絞った。`dpkg-shlibdeps`の入力へboxrig共有5本とCardioを追加しているが、各対象での実際のパッケージ生成・依存解決は未検証である。
+
+READMEは日本語から英語の順に、文字サイズDIP、特殊キー、正規表現、コマンド名と必要な描画環境を更新した。過去の調査で比較した旧コードへのリンクは、公開済みの移行前コミット`9e71944d`へ固定した。実装済みの通信所有者へのリンクは改名後のファイルを指す。残存監査では、背景色によって既定の端末種別を変えるVTE向け補正が見つかっており、次の撤去対象とする。
 
 ## 今回の確認結果
 

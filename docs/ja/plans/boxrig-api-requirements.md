@@ -35,9 +35,9 @@ regexは正規表現を指す。コンパイル済みの式をprogram、一つ�
 
 | 使用箇所 | 照合する対象と結果の用途 |
 | --- | --- |
-| [main-window.cpp](../../../elder-terms-vte/src/main-window.cpp) | VTEのmatch登録とポインター位置の候補検出。PCRE2のオプション定数も直接使用する |
-| [terminal-hyperlink-resolver.cpp](../../../elder-terms-vte/src/terminal-hyperlink-resolver.cpp) | OSC 8 URIまたは画面で選んだ候補を照合し、ルール順・引数・検証対象パスを決める |
-| [terminal-macro-runner.cpp](../../../elder-terms-vte/src/terminal-macro-runner.cpp) | 文字コード変換後の受信列を行単位で蓄積し、LF到着前にも照合する。最初に一致した一つのルールを行ごとに一度実行する |
+| [main-window.cpp](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/main-window.cpp) | VTEのmatch登録とポインター位置の候補検出。PCRE2のオプション定数も直接使用する |
+| [terminal-hyperlink-resolver.cpp](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-hyperlink-resolver.cpp) | OSC 8 URIまたは画面で選んだ候補を照合し、ルール順・引数・検証対象パスを決める |
+| [terminal-macro-runner.cpp](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-macro-runner.cpp) | 文字コード変換後の受信列を行単位で蓄積し、LF到着前にも照合する。最初に一致した一つのルールを行ごとに一度実行する |
 | [regular-expression.cpp](../../../shared/src/settings/regular-expression.cpp) | PCRE2のコンパイル、文字列検索、番号と名前のキャプチャ、メタデータを共通提供する |
 | [hyperlink-settings.cpp](../../../shared/src/settings/hyperlink-settings.cpp)、[macro-settings.cpp](../../../shared/src/settings/macro-settings.cpp)、[設定UI](../../../shared/src/settings-widget/settings-widget.cpp) | 構文、キャプチャ参照、画面用ルールの空一致を検証する。端末ウィンドウがないランチャーからも利用する |
 | [regex-capture-template.cpp](../../../shared/src/settings/regex-capture-template.cpp) | `${0}`、番号・名前付き参照、`$$`、リンク用の`uri-decode`を展開する。テンプレートの文法とコマンド用途はelder-termsの責任である |
@@ -132,7 +132,7 @@ matcherはprogramを参照保持し、入力をコピーする。生成時のUTF
 
 ### マクロを画面認識へ置き換えない理由
 
-[現行マクロの試験](../../../elder-terms-vte/tests/cpp/terminal-macro-runner-test.cpp)は、LF前の実行、分割受信、制御列の保持、CRLFのCR除外、1 MiBの行上限を確認している。画面ではANSI列が消え、CRによる上書きも起こる。認識器の結果更新は画面の現在値であり、途中に出て消えた入力をすべて通知する契約ではない。literal monitorもregex monitorの代わりにはならない。[監視と認識の契約][boxrig-text]に基づく差分である。
+[現行マクロの試験](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/tests/cpp/terminal-macro-runner-test.cpp)は、LF前の実行、分割受信、制御列の保持、CRLFのCR除外、1 MiBの行上限を確認している。画面ではANSI列が消え、CRによる上書きも起こる。認識器の結果更新は画面の現在値であり、途中に出て消えた入力をすべて通知する契約ではない。literal monitorもregex monitorの代わりにはならない。[監視と認識の契約][boxrig-text]に基づく差分である。
 
 推奨は、elder-termsが接続からのUTF-8受信行と実行済み状態を管理し、照合だけをR1・R2へ渡す構成である。上限、CRLF、LF前のprompt判定、ルール順、接続世代をアプリの仕様として持つ。画面用の擬似端末へ受信列を投入したり、PCRE2をマクロ専用に残したりしない。
 
@@ -150,7 +150,7 @@ GTKの基盤であるGLibにも[正規表現機能](https://docs.gtk.org/glib/st
 
 ### I1 UI入力を禁止し、履歴とコピーを残す
 
-現行は[main-window.cpp](../../../elder-terms-vte/src/main-window.cpp)で`vte_terminal_set_input_enabled()`を切り替える。boxrigの[GTK3公開API][boxrig-gtk]へ`boxrig_gtk3_terminal_widget_set_input_enabled()`と`get_input_state()`が追加された。可逆な入力禁止にはこれらを使う。不可逆なquiesceは終了処理に限る。
+現行は[main-window.cpp](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/main-window.cpp)で`vte_terminal_set_input_enabled()`を切り替える。boxrigの[GTK3公開API][boxrig-gtk]へ`boxrig_gtk3_terminal_widget_set_input_enabled()`と`get_input_state()`が追加された。可逆な入力禁止にはこれらを使う。不可逆なquiesceは終了処理に限る。
 
 禁止はキー、IME確定、貼り付け、端末向けマウス入力などを止める。選択、コピー、履歴移動、描画、受信解析、端末応答とアプリのrouterは継続する。古い世代のIME・clipboard応答は再開後も破棄され、押下中だったキーはreleaseまで抑止される。[GTKガイド][boxrig-gtk-guide]と[入力状態の型][boxrig-ui-input]を参照する。
 
@@ -170,7 +170,7 @@ GTKの基盤であるGLibにも[正規表現機能](https://docs.gtk.org/glib/st
 
 交換は検証とコピーを伴い、失敗時も画面・履歴・選択・端末モードを維持する。設定はRIS／DECSTRによるリセット後も残る。既にキューへ入ったバイトは書き換えないため、アプリは設定変更の完了と受理待ちを区別する。
 
-Autoは通常BackspaceがDEL、Deleteが`ESC[3~`になる。現行の[ローカル端末試験](../../../elder-terms-vte/tests/local-session.test.ts)はAutoでBSを期待しており、この差を操作説明と試験へ反映する。BS／DELの明示指定、delete sequence、TTYから得た消去文字を選ぶbindingもある。Kittyが優先し、1バイトのBS／DELはCtrlで交換、AltでESCを前置する。CSIのDeleteには修飾値が符号化される。旧VTEのAuto出力を再現する補正は作らない。
+Autoは通常BackspaceがDEL、Deleteが`ESC[3~`になる。現行の[ローカル端末試験](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/tests/local-session.test.ts)はAutoでBSを期待しており、この差を操作説明と試験へ反映する。BS／DELの明示指定、delete sequence、TTYから得た消去文字を選ぶbindingもある。Kittyが優先し、1バイトのBS／DELはCtrlで交換、AltでESCを前置する。CSIのDeleteには修飾値が符号化される。旧VTEのAuto出力を再現する補正は作らない。
 
 TTY bindingを使う場合は、ローカルPTYのキー処理直前に`boxrig_posix_get_tty_erase()`を呼び、その成功・失敗のどちらも`boxrig_terminal_set_tty_erase()`へ反映する。これで子の`stty erase`変更に追従できる。NULと無効化値も取得済みの1バイトとして扱い、未取得時だけAutoへ戻る。接続変更時に古い値を消す。現在のAuto設定はboxrig Autoへ対応させ、TTY追従を設定として提供するかは別の製品判断にする。[POSIX API][boxrig-posix]がこの境界を定める。
 
@@ -180,7 +180,7 @@ TRS-80は4方向のkey mappingとして設定する。既存の出力文字列�
 
 ### W1 端末からのサイズ変更要求
 
-現行[resize-windowハンドラー](../../../elder-terms-vte/src/terminal-layout.cpp)が扱う要求に対し、coreへ`BOXRIG_HOST_ITEM_GRID_RESIZE`が追加された。`item.grid_resize`は行と列を別々に保持し、正値は`EXPLICIT`、省略は`KEEP`、0は`DISPLAY`を表す。`14t`・`16t`のpixel問い合わせとは別である。[hostガイド][boxrig-host-guide]と[公開型][boxrig-host-items]を根拠とする。
+現行[resize-windowハンドラー](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-layout.cpp)が扱う要求に対し、coreへ`BOXRIG_HOST_ITEM_GRID_RESIZE`が追加された。`item.grid_resize`は行と列を別々に保持し、正値は`EXPLICIT`、省略は`KEEP`、0は`DISPLAY`を表す。`14t`・`16t`のpixel問い合わせとは別である。[hostガイド][boxrig-host-guide]と[公開型][boxrig-host-items]を根拠とする。
 
 明示値は`1..UINT32_MAX`なので、アプリが許可と資源上限を検証する。`KEEP`は処理時の現在値、`DISPLAY`は使用可能な表示領域と確定セル寸法から解決する。通常ウィンドウでは採用した希望gridを`set_preferred_grid()`へ渡し、最大化・タイル中は現行と同様に要求を適用せず消費する。coreは受信だけでリサイズしない。
 
@@ -200,7 +200,7 @@ boxrig内蔵encodingはUTF-8とWHATWG Shift_JISである。elder-termsは[設定
 
 ### 貼り付けと速度を指定したテキスト送信
 
-boxrigの`queue_paste()`は入力を正規化し、coreのpaste transactionを進める。行間待機、速度、進捗、送信キャンセルはelder-termsの[送信runner](../../../elder-terms-vte/src/terminal-text-send-runner.cpp)の機能であり、直接対応する一つのAPIはない。
+boxrigの`queue_paste()`は入力を正規化し、coreのpaste transactionを進める。行間待機、速度、進捗、送信キャンセルはelder-termsの[送信runner](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-text-send-runner.cpp)の機能であり、直接対応する一つのAPIはない。
 
 現在の「貼り付けも設定済みのテキスト送信として扱う」機能はアプリに残す。key・mouse routerで選んだ操作とメニューを一つの送信サービスへ渡し、CLIPBOARD／PRIMARY取得の世代を管理する。boxrigのネイティブ選択とCOPY actionはそのまま使う。[公開router契約][boxrig-ui-input]と[GTKサンプルの操作接続][boxrig-native-host]が根拠であり、サンプルのpaste shortcutをwidgetに固定された機能と取り違えない。
 
@@ -210,7 +210,7 @@ boxrigの`queue_paste()`は入力を正規化し、coreのpaste transactionを�
 
 boxrigの[session API][boxrig-session]は非ブロッキングread／writeと有限バッファを提供する。Cardioの受信・送信キューをcallbackへ接続すれば、ログやXYZMODEMを迂回せず使える。前版計画の「汎用sessionは使わない」という一律の判断は撤回する。
 
-ただしsessionのresize callbackは同期であり、現行[SSH resize](../../../elder-terms-vte/src/terminal-sessions/ssh-session/ssh-session.cpp)は非同期である。アプリのlayout coordinatorが通信先のresize完了を待ち、その後coreをresizeし、同じrevisionをwidgetへ完了通知する構成にする。非同期系のsessionにはresize callbackを登録せず、この順序で一度だけ反映する。ローカルPTYには同期callbackを使える。これは公開APIで実装でき、新しい端末パーサーや寸法補正を必要としない。
+ただしsessionのresize callbackは同期であり、現行[SSH resize](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-sessions/ssh-session/ssh-session.cpp)は非同期である。アプリのlayout coordinatorが通信先のresize完了を待ち、その後coreをresizeし、同じrevisionをwidgetへ完了通知する構成にする。非同期系のsessionにはresize callbackを登録せず、この順序で一度だけ反映する。ローカルPTYには同期callbackを使える。これは公開APIで実装でき、新しい端末パーサーや寸法補正を必要としない。
 
 SSHは要求の送信処理完了、TelnetはNAWS送信の完了または未交渉時の保存、シリアルは外部resize不要を、それぞれの成功境界とする。相手が確認応答を持たないプロトコルで、応答待ちを作らない。現行のvoid通知や警告だけで済ませる失敗処理は改める。
 

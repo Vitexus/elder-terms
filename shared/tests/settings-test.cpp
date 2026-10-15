@@ -285,7 +285,7 @@ static void test_default_settings() {
   expect_true(terminal_border_width(store) == 4,
               "default terminal window side-border width should be 4 pixels");
   expect_true(!terminal_bell_settings(store).sound_file.has_value(),
-              "the default terminal bell should retain VTE's built-in beep");
+              "the default terminal bell should retain terminal's built-in beep");
   const GeneralColorSettings colors = general_color_settings(store);
   expect_true(!colors.exterior_background.has_value(),
               "default exterior background should remain theme-controlled");
@@ -935,7 +935,7 @@ static void test_terminal_bell_sound_validation_and_round_trip() {
                   elder_terms::SettingValue{std::string("default")}),
               "an explicit built-in terminal bell should be accepted");
   expect_true(!terminal_bell_settings(store).sound_file.has_value(),
-              "an explicit default should restore VTE's built-in beep");
+              "an explicit default should restore terminal's built-in beep");
 
   const std::filesystem::path global_path =
       temporary_config_path("global-terminal-bell");
@@ -1474,7 +1474,7 @@ static void test_terminal_text_defaults_follow_connection_type() {
                   local.backspace_code == TerminalBackspaceCode::automatic &&
                   local.cursor_key_mode == TerminalCursorKeyMode::normal &&
                   local.return_code == TerminalReturnCode::automatic,
-              "local terminal text defaults should preserve VTE Return");
+              "local terminal text defaults should preserve terminal Return");
 
   const TerminalTextSettings telnet =
       default_terminal_text_settings(TerminalConnectionKind::telnet);
@@ -1482,7 +1482,7 @@ static void test_terminal_text_defaults_follow_connection_type() {
                   telnet.backspace_code == TerminalBackspaceCode::automatic &&
                   telnet.cursor_key_mode == TerminalCursorKeyMode::normal &&
                   telnet.return_code == TerminalReturnCode::automatic,
-              "TELNET terminal text defaults should preserve VTE Return");
+              "TELNET terminal text defaults should preserve terminal Return");
 
   const TerminalTextSettings serial =
       default_terminal_text_settings(TerminalConnectionKind::serial);
@@ -1498,7 +1498,7 @@ static void test_terminal_text_defaults_follow_connection_type() {
                   ssh.backspace_code == TerminalBackspaceCode::automatic &&
                   ssh.cursor_key_mode == TerminalCursorKeyMode::normal &&
                   ssh.return_code == TerminalReturnCode::automatic,
-              "SSH terminal text defaults should preserve VTE Return");
+              "SSH terminal text defaults should preserve terminal Return");
 }
 
 static void test_terminal_text_explicit_settings_override_connection_defaults() {
@@ -2116,7 +2116,7 @@ static void test_sftp_profile_uses_ssh_endpoint_without_terminal_profile() {
       elder_terms::general_settings_select_sftp_connection(result.store),
       "SFTP selector should recognize the configured connection");
   expect_true(!terminal_connection_profile(result.store).has_value(),
-              "SFTP should not produce a VTE terminal connection profile");
+              "SFTP should not produce a terminal terminal connection profile");
 
   const elder_terms::SftpConnectionSettings settings =
       elder_terms::sftp_connection_settings(result.store);
@@ -2184,7 +2184,7 @@ static void test_ftp_profile_uses_independent_endpoint_and_active_mode() {
       elder_terms::general_settings_select_ftp_connection(result.store),
       "FTP selector should recognize the configured connection");
   expect_true(!terminal_connection_profile(result.store).has_value(),
-              "FTP should not produce a VTE terminal connection profile");
+              "FTP should not produce a terminal terminal connection profile");
 
   const elder_terms::FtpConnectionSettings settings =
       elder_terms::ftp_connection_settings(result.store);

@@ -21,7 +21,7 @@
 
 ### 機能
 
-- Linux GTK/`libvte` を使用して、飾らない、必要十分なターミナルを実現します。
+- Linux GTK3と[boxrig](https://github.com/kekyo/boxrig)を使用したターミナルです。OpenGL描画を優先し、利用できない場合はCairoで描画します。
 - シリアルやTELNET接続だけではなく、ローカルターミナル、SSH、SFTP、FTPもサポートし、現代で同じ生活を取り戻せます。
 - ランチャーから複数の接続先を管理したり、そこからターミナルの起動を行えます。
 - 接続先の設定は、全てINI形式のファイルに保存されます。
@@ -86,6 +86,8 @@ sudo apt install ./elder-terms-*.deb
 ```bash
 elder-terms
 ```
+
+端末を直接起動するコマンドは`elder-terms-terminal`です。接続設定を指定する場合は`elder-terms-terminal -c 接続設定.ini`を実行します。
 
 ---
 
@@ -325,7 +327,7 @@ sudo apt install coreutils
 
 ## ローカルターミナルの起動プロセス
 
-Local接続では、Localタブの「起動コマンド」で `elder-terms-vte` がターミナル内に起動するプロセスを指定出来ます。
+Local接続では、Localタブの「起動コマンド」で `elder-terms-terminal` がターミナル内に起動するプロセスを指定出来ます。
 この設定は次に接続を開いたときに反映され、起動済みのターミナルでは読み取り専用です。
 
 入力欄が空の場合はグローバル既定値または組み込み既定値を継承します。
@@ -402,18 +404,19 @@ carrier_detect=ignore
 デフォルトはすべての接続で `UTF-8` です。
 
 「Backspaceコード」は、Backspaceキーを押したときに送信する制御コードを選択します。
-「Auto」は `libvte` に選択を委ね、「BS」はASCII BS（`0x08`）、「DEL」はASCII DEL（`0x7f`）を送信します。
+「Auto」は端末の標準動作を使用し、通常はDELを送信します。「BS」はASCII BS（`0x08`）、「DEL」はASCII DEL（`0x7f`）を送信します。
 接続先でBackspaceキーを押しても文字が消えない場合や、`^H` などが表示される場合は、この設定を切り替えて下さい。
-Deleteキーはこの設定にかかわらず `libvte` のAutoバインドを使用します。
+Deleteキーはこの設定とは独立し、通常は`ESC [ 3 ~`を送信します。
 
-「カーソルキーモード」の「通常」は、`libvte` が生成した通常のエスケープシーケンスをそのまま送信します。
+「カーソルキーモード」の「通常」は、接続先が指定した端末モードに従うエスケープシーケンスを送信します。
 「TRS80」は、 TRS-80 Model 100/200, IBM PC GW-BASIC/Quick BASIC, NEC PC-9800シリーズ, MSX で使用される1バイトの制御コードへ変換し、
 上を `0x1e`、下を `0x1f`、右を `0x1c`、左を `0x1d` として送信します。接続先が TRS-80 系のカーソルキーを要求する場合に使用して下さい。
 
 「Enter/Returnコード」は、修飾キーを押していないReturnキーとテンキーEnterが通常の改行を確定したときに送信するコードを選択します。
 「CR」は `0x0d`、「LF」は `0x0a`、「CRLF」は `0x0d 0x0a` を送信します。
-「Auto」はキーボード入力について`libvte`の選択をそのまま使用します。
+「Auto」は端末の改行モードに従い、通常はCRを送信します。
 `Shift`、`Ctrl`、`Alt`、`Super`などで修飾したReturn/Enterや、アプリケーションキーパッドモードで生成された専用シーケンスは置き換えません。
+接続先がKittyキーボードプロトコルを有効にした場合も、そのプロトコルのキー通知を維持します。
 
 接続種別ごとの組み込み既定値は次の通りです。
 
@@ -445,7 +448,7 @@ return_code=crlf
 無効な場合、入力テキストに元から含まれているCR、LF、CRLFの並びを変更しません。
 ただし、TELNET接続では、その後にTELNET NVTで必要なCRのフレーミングとIACのエスケープが適用されます。
 
-ペーストは`libvte`のペースト処理やBracketed Pasteへフォールバックせず、
+ペーストではBracketed Pasteの制御列を加えず、
 テキストファイル送信と同じ送信速度制御・文字コード変換・改行処理を通ります。
 INIファイルでは次のように指定します。
 
@@ -492,7 +495,7 @@ iconv の定義名で `SHIFT_JIS` というわかりやすい対応名があり�
 
 ## スクロールバッファの設定
 
-「端末」タブの「スクロールバッファ行数」では、VTEに保持する通常画面の履歴を1000〜100000行の範囲で指定出来ます。
+「端末」タブの「スクロールバッファ行数」では、通常画面の履歴を1000〜100000行の範囲で指定出来ます。
 組み込み既定値は10000行です。
 
 INIファイルを直接編集する場合は、次のように指定します。
@@ -505,7 +508,7 @@ scrollback_lines=20000
 ## BELサウンドの設定
 
 「端末」タブの「BELサウンド」では、BELを受信したときに再生するサウンドを指定出来ます。
-組み込み既定値の `default` は、従来どおりVTEの単純なbeepを使用します。
+組み込み既定値の `default` は、デスクトップ環境のビープ音を使用します。
 
 カスタムサウンドには、既存ファイルの絶対パスを入力するか、「ファイルを選択」ボタンからファイルを指定します。
 対応する形式はOgg Vorbis（`.oga`、従来の拡張子 `.ogg` も可）とWAV（PCM）です。
@@ -550,6 +553,17 @@ indicator_off_color=#808080
 
 値は `default` または `#RRGGBB` 形式のRGB色です。
 不正な値は警告し、有効な継承値または組み込み既定値を使用します。
+
+## 文字サイズの設定
+
+「端末」タブの「文字サイズ（DIP）」で文字の大きさを指定します。DIPは1/96インチを基準とする単位で、既定値は12 DIPです。
+`Ctrl`+`=`、`Ctrl`+`-`、`Ctrl`を押しながらのマウスホイールでも変更でき、確定した値を接続設定に保存します。
+拡大・縮小中も接続先へ伝える行列数を保ち、ウィンドウを手動でリサイズしたときに新しい行列数を通知します。
+
+```ini
+[terminal]
+font_size_dip=14.5
+```
 
 ## フォントファミリーの設定
 
@@ -842,7 +856,11 @@ arguments=-t;elder-terms;${1};
 - 「OSC 8ターゲット」は、生のターゲット全体に正規表現を適用します。
 - 「表示中の端末テキスト」は、ポインター位置にある一致部分を検索します。空文字列に一致する正規表現は指定出来ません。
 
-正規表現には[PCRE2のパターン構文](https://www.pcre.org/current/doc/html/pcre2pattern.html)を使用します。
+リンクと受信マクロの正規表現には、[boxrigのパターン構文](https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/regex.md)を使用します。
+文字クラス、グループ、選択、反復、番号付き・名前付きキャプチャを使えます。後方参照、先読み・後読み、空文字列に一致する式には対応していません。
+`\d`、`\s`、`\w`はASCIIの範囲です。Unicodeの文字には`\p{L}`、十進数字には`\p{Nd}`などの一般カテゴリを指定します。
+`.`は改行にも一致し、`^`と`$`は照合する入力全体の先頭・末尾を指します。同じ開始位置では最長の一致を選び、大文字・小文字を区別します。
+一致全体は、結合文字を含めた一つの見た目の文字の途中では区切りません。結合符号も含めた文字列には`[\p{L}\p{M}]+`のような式を使います。
 コマンドには固定の実行ファイル名またはパスを指定します。シェルを介さず直接起動されるため、パイプ、リダイレクトなどのシェル構文は解釈されません
 キャプチャテンプレートは、引数と任意の検証対象パスの中でのみ展開されます。
 
@@ -902,13 +920,15 @@ WebDAVにはHTTP/HTTPSと非同期DNSを有効にしたlibcurl 7.88.1以降、�
 FTPクライアントには、FTPと非同期DNSを有効にした[libcurl](https://curl.se/libcurl/) 7.88.1以降が必要です。FTPSには[TLSを有効にしたlibcurl](https://curl.se/libcurl/c/libcurl-tutorial.html)が必要です。Debian／Ubuntuの配布パッケージはOpenSSL版libcurlを使用し、既定の信頼ストアのために `ca-certificates` に依存します。ソースからビルドする場合はOpenSSLのヘッダーとライブラリも必要です。証明書確認ではlibcurlと同じバージョンのOpenSSLが必要で、接続前にアプリケーションが確認します。
 
 UbuntuまたはDebianでビルドする場合は、C++20対応コンパイラ、Meson、Ninja、gettextと、使用するライブラリの開発パッケージをインストールします。
+描画にはGTK3 3.24以降、Pango 1.50以降、Cairo 1.18以降、IBus 1.5.29以降、Wayland client 1.22以降が必要です。[boxrigのビルド要件](https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/building.md)も参照してください。
 
 ```bash
 sudo apt update
 sudo apt install build-essential git meson ninja-build pkg-config gettext \
   libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev \
-  libxkbcommon-dev liburing-dev libudev-dev libpcre2-dev libssh-dev libcurl4-openssl-dev \
-  libvte-2.91-dev libssl-dev libxml2-dev ca-certificates xdg-utils
+  libxkbcommon-dev liburing-dev libudev-dev libssh-dev libcurl4-openssl-dev \
+  libcairo2-dev libpango1.0-dev libfontconfig1-dev libepoxy-dev libibus-1.0-dev \
+  libwayland-dev libgl-dev libegl-dev libssl-dev libxml2-dev ca-certificates xdg-utils
 ```
 
 このほか、  Node.js 20以降が必要です。ディストリビューションが配布する Node.jsが使えるかもしれません:
@@ -923,7 +943,7 @@ node --version
 > GTKプロジェクトでNode.jsを使用するのを、奇妙に感じるかもしれません。
 > これはGTK UIのテストに [gestament](https://github.com/kekyo/gestament/) を使用するからです。
 
-新しくソースコードを取得する場合は、依存する [cardio](https://github.com/kekyo/cardio/) と [libxyzm](https://github.com/kekyo/libxyzm/) も取得するため、サブモジュールを含めてcloneします。
+新しくソースコードを取得する場合は、依存する [cardio](https://github.com/kekyo/cardio/)、[libxyzm](https://github.com/kekyo/libxyzm/)、[boxrig](https://github.com/kekyo/boxrig/) も取得するため、サブモジュールを含めてcloneします。
 
 ```bash
 git clone --recurse-submodules https://github.com/kekyo/elder-terms.git
@@ -968,10 +988,11 @@ npm run test
 
 | ディストリビューション | リリース | アーキテクチャ |
 | :--- | :--- | :--- |
-| Debian | bookworm | amd64, i386, arm64, armhf |
 | Debian | trixie | amd64, i386, arm64, armhf, riscv64 |
 | Ubuntu | 24.04 | amd64, arm64 |
 | Ubuntu | 26.04 | amd64, arm64 |
+
+Debian bookwormは対象外です。標準の[Cairo 1.16](https://packages.debian.org/bookworm/libcairo2-dev)と[IBus 1.5.27](https://packages.debian.org/bookworm/libibus-1.0-dev)が、描画ライブラリの必要なバージョンに届かないためです。
 
 ホストにはPodman、非ネイティブターゲット用のbinfmt/QEMU、`dpkg-deb`、`readelf`、Node.js、`npx`が必要です。リポジトリのルートで、再利用可能な前提イメージを一度生成してから、全組み合わせのパッケージを生成します。
 

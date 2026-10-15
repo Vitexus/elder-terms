@@ -25,14 +25,14 @@ describe('elder-terms shared library', () => {
   it('provides the shared runtime dependency with only public API symbols', async () => {
     const libraryPath = buildArtifactPath('shared/libelder-terms.so');
     const launcherPath = buildArtifactPath('elder-terms/elder-terms');
-    const vtePath = buildArtifactPath('elder-terms-vte/elder-terms-vte');
+    const terminalPath = buildArtifactPath('elder-terms-terminal/elder-terms-terminal');
 
-    const [header, dynamic, launcherDynamic, vteDynamic, symbols] =
+    const [header, dynamic, launcherDynamic, terminalDynamic, symbols] =
       await Promise.all([
         inspectElf('readelf', ['--file-header', libraryPath]),
         inspectElf('readelf', ['--dynamic', libraryPath]),
         inspectElf('readelf', ['--dynamic', launcherPath]),
-        inspectElf('readelf', ['--dynamic', vtePath]),
+        inspectElf('readelf', ['--dynamic', terminalPath]),
         inspectElf('nm', [
           '--dynamic',
           '--defined-only',
@@ -44,7 +44,7 @@ describe('elder-terms shared library', () => {
     expect(header).toMatch(/Type:\s+DYN/);
     expect(dynamic).toContain('Library soname: [libelder-terms.so]');
     expect(launcherDynamic).toContain('Shared library: [libelder-terms.so]');
-    expect(vteDynamic).toContain('Shared library: [libelder-terms.so]');
+    expect(terminalDynamic).toContain('Shared library: [libelder-terms.so]');
     expect(symbols).toContain('elder_terms::create_settings_widget(');
     expect(symbols).toContain('elder_terms::load_settings(');
     expect(symbols).not.toContain('elder_terms::SettingsWidgetState::');

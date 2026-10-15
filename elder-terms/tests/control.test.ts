@@ -62,7 +62,7 @@ it('controls the resident launcher and saved connections without D-Bus or a disp
   await chmod(child, 0o700);
   const env = {
     XDG_RUNTIME_DIR: runtime,
-    ELDER_TERMS_VTE_PATH: child,
+    ELDER_TERMS_TERMINAL_PATH: child,
   };
   const control = async (args: string[]) =>
     await execute(ctl, args, {
@@ -579,7 +579,7 @@ it('accepts requests when the launcher itself cannot connect to D-Bus and recove
       XDG_RUNTIME_DIR: runtime,
       XDG_CONFIG_HOME: config,
       DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent/elder-terms-bus',
-      ELDER_TERMS_VTE_PATH: childPath,
+      ELDER_TERMS_TERMINAL_PATH: childPath,
     };
     for (let attempt = 0; attempt < 2; ++attempt) {
       const launcherProcess = spawn(binary, [], { env, stdio: 'pipe' });

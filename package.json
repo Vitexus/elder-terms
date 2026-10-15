@@ -6,7 +6,7 @@
   "workspaces": [
     "shared",
     "elder-terms",
-    "elder-terms-vte"
+    "elder-terms-terminal"
   ],
   "scripts": {
     "dependencies": "reskill",
