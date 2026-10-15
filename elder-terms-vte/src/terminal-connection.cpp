@@ -412,12 +412,12 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
         co_return;
       };
       create_session(connection);
-      reader.emplace(read_stream(connection));
-      writer.emplace(write_stream(connection));
       if (connection->state.spawn.state == BOXRIG_POSIX_PTY_SPAWN_SUCCEEDED) {
         connection->state.phase = TerminalConnectionPhase::connected;
         connection->wake();
       }
+      reader.emplace(read_stream(connection));
+      writer.emplace(write_stream(connection));
       co_await cardio::from_fd(process, cardio::fd_event::read, cancellation);
       // The child has exited. Keep reading until EOF and let the session drain
       // its parser tail before reporting disconnection.
@@ -479,10 +479,10 @@ static cardio::promise<void> run_transport(TerminalConnection *connection, Termi
       co_await operation.transport.resize(current_rows, current_columns, cancellation);
     cancellation.throw_if_cancellation_requested();
     create_session(connection);
-    reader.emplace(read_stream(connection));
-    writer.emplace(write_stream(connection));
     connection->state.phase = TerminalConnectionPhase::connected;
     connection->wake();
+    reader.emplace(read_stream(connection));
+    writer.emplace(write_stream(connection));
     co_await *reader;
     while (!operation.peer_closed) co_await operation.drained.wait(cancellation);
   } catch (const cardio::canceled_exception &) {

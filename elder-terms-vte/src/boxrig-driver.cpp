@@ -1,6 +1,7 @@
 #include "terminal-runtime.h"
 #include "terminal-transports.h"
 #include "inline-prompt.h"
+#include "terminal-log.h"
 
 #include <gestament/gtk.h>
 #include <glib-unix.h>
@@ -9,6 +10,7 @@
 #include <cstdlib>
 #include <string>
 #include <optional>
+#include <filesystem>
 
 struct Driver {
   elder_terms::TerminalRuntime *runtime = nullptr;
@@ -17,6 +19,8 @@ struct Driver {
   elder_terms::TerminalLocalCommand command;
   std::optional<elder_terms::TerminalTransportRequest> transport;
   std::shared_ptr<elder_terms::InlinePromptController> prompt;
+  std::unique_ptr<elder_terms::TerminalLogState, decltype(&elder_terms::destroy_terminal_log)> log{nullptr, elder_terms::destroy_terminal_log};
+  std::uint64_t log_generation = 0;
   elder_terms::TerminalTextSettings input_settings;
   bool connection_mode = false;
   bool closing = false;
@@ -25,9 +29,20 @@ struct Driver {
   std::string last_encoding_report;
 };
 
+static void observe_log_connection(Driver *driver, const elder_terms::TerminalConnectionState &state) {
+  if (state.phase == elder_terms::TerminalConnectionPhase::connected && state.generation != driver->log_generation) {
+    elder_terms::set_terminal_log_connection_active(driver->log.get(), false);
+    elder_terms::set_terminal_log_connection_active(driver->log.get(), true);
+    driver->log_generation = state.generation;
+  } else if (state.phase == elder_terms::TerminalConnectionPhase::closed) {
+    elder_terms::set_terminal_log_connection_active(driver->log.get(), false);
+  }
+}
+
 static void report_connection(Driver *driver) {
   if (!driver->connection_mode) return;
   const auto state = elder_terms::terminal_runtime_connection_state(driver->runtime);
+  observe_log_connection(driver, state);
   const auto encoding_report = "encoding=" + state.encoding + " pending=" +
       (elder_terms::terminal_runtime_encoding_pending(driver->runtime) ? "1" : "0");
   if (encoding_report != driver->last_encoding_report) {
@@ -124,6 +139,7 @@ static cardio::promise<void> close_driver(Driver *driver) {
   if (driver->closing) co_return;
   driver->closing = true;
   co_await elder_terms::terminal_runtime_disconnect(driver->runtime);
+  co_await elder_terms::stop_terminal_log_async(driver->log.get());
   gtk_main_quit();
 }
 
@@ -217,6 +233,7 @@ int main(int argc, char **argv) {
   cardio::dispatcher_group_glib group;
   cardio::dispatcher_host_glib_auto dispatcher(group);
   Driver driver;
+  elder_terms::TerminalLogSettings log_settings;
   elder_terms::TelnetConnectionSettings telnet{};
   elder_terms::SshConnectionSettings ssh{};
   elder_terms::SerialConnectionSettings serial{
@@ -254,6 +271,13 @@ int main(int argc, char **argv) {
       driver.input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
     else if (std::string_view(argv[index]) == "--encoding" && index + 1 < argc)
       driver.command.encoding = argv[++index];
+    else if ((std::string_view(argv[index]) == "--log-raw" || std::string_view(argv[index]) == "--log-cooked") && index + 1 < argc) {
+      log_settings.enabled = true;
+      log_settings.mode = std::string_view(argv[index]) == "--log-raw" ? elder_terms::TerminalLogMode::raw : elder_terms::TerminalLogMode::cooked;
+      const std::filesystem::path path(argv[++index]);
+      log_settings.base_directory = path.parent_path().string();
+      log_settings.file_name_format = path.filename().string();
+    }
     else if (std::string_view(argv[index]) == "--return" && index + 1 < argc) {
       const std::string_view value = argv[++index];
       driver.input_settings.return_code = value == "cr" ? elder_terms::TerminalReturnCode::cr :
@@ -273,6 +297,8 @@ int main(int argc, char **argv) {
     const auto *shell = std::getenv("SHELL");
     driver.command.arguments.emplace_back(shell && *shell ? shell : "/bin/sh");
   }
+  driver.log.reset(elder_terms::create_terminal_log({std::move(log_settings), {},
+      [](bool active) { std::printf("log_active=%d\n", active); std::fflush(stdout); }, {}}));
   auto *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   gtk_window_set_title(GTK_WINDOW(window), "boxrig driver");
   gestament_gtk_assign_accessible_id(window, "driver_window");
@@ -360,7 +386,11 @@ int main(int argc, char **argv) {
   g_signal_connect(window, "delete-event", G_CALLBACK(close_window), &driver);
   const auto signal_source = g_unix_signal_add(SIGTERM, stop_driver, &driver);
   elder_terms::terminal_runtime_set_output_callback(driver.runtime,
-      [](std::span<const unsigned char> raw, std::span<const unsigned char> cooked) {
+      [&driver](std::span<const unsigned char> raw, std::span<const unsigned char> cooked) {
+        // Immediate peer data can arrive before the next GTK frame observes
+        // connection state. Open this generation's log before its first write.
+        observe_log_connection(&driver, elder_terms::terminal_runtime_connection_state(driver.runtime));
+        elder_terms::write_terminal_log(driver.log.get(), raw, cooked);
         auto *raw_text = g_base64_encode(raw.data(), raw.size());
         auto *cooked_text = g_base64_encode(cooked.data(), cooked.size());
         std::printf("raw=%s\ncooked=%s\n", raw_text, cooked_text);
