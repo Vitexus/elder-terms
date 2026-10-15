@@ -98,6 +98,15 @@ static void copy_selection(GtkButton *, gpointer context) {
     g_warning("boxrig copy failed: %d", status);
 }
 
+static void paste_clipboard(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  const boxrig_ui_view_action action{BOXRIG_UI_VIEW_ACTION_PASTE, BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD};
+  const auto status = boxrig_gtk3_terminal_widget_apply_view_action(elder_terms::terminal_runtime_widget(driver->runtime), &action);
+  if (status != BOXRIG_UI_OK && status != BOXRIG_UI_UNAVAILABLE)
+    g_warning("boxrig paste failed: %d", status);
+  gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
+}
+
 static cardio::promise<void> close_driver(Driver *driver) {
   if (driver->closing) co_return;
   driver->closing = true;
@@ -163,6 +172,8 @@ int main(int argc, char **argv) {
     if (std::string_view(argv[index]) == "--local") driver.local = true;
     else if (std::string_view(argv[index]) == "--trs80")
       driver.input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
+    else if (std::string_view(argv[index]) == "--encoding" && index + 1 < argc)
+      driver.command.encoding = argv[++index];
     else if (std::string_view(argv[index]) == "--return" && index + 1 < argc) {
       const std::string_view value = argv[++index];
       driver.input_settings.return_code = value == "cr" ? elder_terms::TerminalReturnCode::cr :
@@ -224,6 +235,12 @@ int main(int argc, char **argv) {
       g_signal_connect(button, "clicked", index < 2 ? G_CALLBACK(input_settings_changed) :
           G_CALLBACK(input_enabled_changed), &driver);
     }
+    auto *sending = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(content), sending, FALSE, FALSE, 0);
+    auto *paste = gtk_button_new_with_label("Paste");
+    gestament_gtk_assign_accessible_id(paste, "driver_paste");
+    gtk_box_pack_start(GTK_BOX(sending), paste, FALSE, FALSE, 0);
+    g_signal_connect(paste, "clicked", G_CALLBACK(paste_clipboard), &driver);
   }
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }

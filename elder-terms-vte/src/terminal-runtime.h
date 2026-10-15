@@ -91,6 +91,8 @@ TerminalConnectionState terminal_runtime_connection_state(const TerminalRuntime 
  * Installs a receiver for normal output, before session parsing and retries.
  * @param runtime Live runtime.
  * @param callback Borrowed raw and UTF-8 bytes, valid during the call only.
+ * @remarks Either span may be empty for an incomplete character or decoder
+ * finalization; each byte in either stream is reported exactly once.
  */
 void terminal_runtime_set_output_callback(TerminalRuntime *runtime,
     std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> callback);

@@ -92,7 +92,9 @@ describe('boxrig local PTY', () => {
             (match) => Buffer.from(match[1], 'base64')
           )
         );
-      expect(received('raw')).toEqual(received('cooked'));
+      expect(received('cooked')).toEqual(
+        Buffer.from(received('raw').toString('utf8'))
+      );
       expect(received('raw').toString()).toContain('RECEIVED:abc');
       expect(received('raw').toString().split('EOF:').length).toBe(2);
       const pid = Number(/connection=closed .*pid=(\d+)/.exec(output)?.[1]);

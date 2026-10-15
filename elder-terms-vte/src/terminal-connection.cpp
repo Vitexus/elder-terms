@@ -1,4 +1,5 @@
 #include "terminal-connection.h"
+#include "terminal-sessions/terminal-text-stream.h"
 
 #include <algorithm>
 #include <array>
@@ -53,6 +54,11 @@ struct ConnectionOperation {
   bool write_closed = false;
   bool peer_closed = false;
   bool finishing = false;
+  TerminalTextStreamPtr decoder{nullptr, destroy_terminal_text_stream};
+  TerminalTextStreamPtr encoder{nullptr, destroy_terminal_text_stream};
+  std::vector<unsigned char> decoded;
+  std::size_t decoded_offset = 0;
+  bool decoder_finished = false;
   cardio::cancellation_source stop;
   cardio::cancellation_source io_stop;
   cardio::primitives::conditional receive_space;
@@ -84,7 +90,17 @@ static boxrig_transport_status receive(
   auto *operation = static_cast<ConnectionOperation *>(context);
   const auto available = front(operation->incoming);
   *length = std::min(capacity, available.size());
-  if (*length == 0) return operation->eof ? BOXRIG_TRANSPORT_CLOSED : BOXRIG_TRANSPORT_WOULD_BLOCK;
+  if (*length == 0) {
+    // A cancelled reader can retain the remainder of its one converted chunk.
+    // Drain it after the queue, before the finalized stream reports EOF.
+    if (operation->finishing && operation->decoded_offset < operation->decoded.size()) {
+      *length = std::min(capacity, operation->decoded.size() - operation->decoded_offset);
+      std::memcpy(bytes, operation->decoded.data() + operation->decoded_offset, *length);
+      operation->decoded_offset += *length;
+      return BOXRIG_TRANSPORT_OK;
+    }
+    return operation->eof ? BOXRIG_TRANSPORT_CLOSED : BOXRIG_TRANSPORT_WOULD_BLOCK;
+  }
   std::memcpy(bytes, available.data(), *length);
   consume(operation->incoming, *length);
   operation->receive_space.trigger();
@@ -133,6 +149,35 @@ static void fail(TerminalConnection *connection, int error) {
   connection->wake();
 }
 
+static cardio::promise<void> queue_decoded(TerminalConnection *connection,
+    std::vector<unsigned char> bytes, cardio::cancellation cancellation) {
+  auto &operation = *connection->operation;
+  operation.decoded = std::move(bytes);
+  operation.decoded_offset = 0;
+  while (operation.decoded_offset < operation.decoded.size()) {
+    cancellation.throw_if_cancellation_requested();
+    while (operation.incoming.length == operation.incoming.storage.size())
+      co_await operation.receive_space.wait(cancellation);
+    const auto count = std::min(operation.decoded.size() - operation.decoded_offset,
+        operation.incoming.storage.size() - operation.incoming.length);
+    append(operation.incoming, {operation.decoded.data() + operation.decoded_offset, count});
+    operation.decoded_offset += count;
+    connection->state.receive_peak = std::max(connection->state.receive_peak, operation.incoming.length);
+    connection->wake();
+  }
+  operation.decoded.clear();
+  operation.decoded_offset = 0;
+}
+
+static std::vector<unsigned char> finish_decoder(TerminalConnection *connection) {
+  auto &operation = *connection->operation;
+  if (!operation.decoder || operation.decoder_finished) return {};
+  auto result = finish_terminal_text(operation.decoder.get());
+  operation.decoder_finished = true;
+  if (connection->output && !result.bytes.empty()) connection->output({}, result.bytes);
+  return std::move(result.bytes);
+}
+
 static cardio::promise<void> read_local(TerminalConnection *connection) {
   auto &operation = *connection->operation;
   const auto cancellation = operation.io_stop.get_cancellation();
@@ -148,13 +193,13 @@ static cardio::promise<void> read_local(TerminalConnection *connection) {
       const auto count = ::read(fd, buffer.data(), capacity);
       if (count > 0) {
         const std::span<const unsigned char> bytes(buffer.data(), static_cast<std::size_t>(count));
-        // Local UTF-8 is passed through once. Session parser retries operate on
-        // the retained queue, never on this notification or its source bytes.
-        if (connection->output) connection->output(bytes, bytes);
-        append(operation.incoming, bytes);
-        connection->state.receive_peak = std::max(connection->state.receive_peak, operation.incoming.length);
-        connection->wake();
+        auto converted = convert_terminal_text(operation.decoder.get(), bytes);
+        // Conversion and notifications happen once, before bounded queue and
+        // parser retries. The reader retains at most one converted chunk.
+        if (connection->output) connection->output(bytes, converted.bytes);
+        co_await queue_decoded(connection, std::move(converted.bytes), cancellation);
       } else if (count == 0 || errno == EIO) {
+        co_await queue_decoded(connection, finish_decoder(connection), cancellation);
         operation.eof = true;
         connection->wake();
         break;
@@ -178,18 +223,23 @@ static cardio::promise<void> write_local(TerminalConnection *connection) {
     for (;;) {
       cancellation.throw_if_cancellation_requested();
       while (operation.outgoing.length == 0) co_await operation.send_ready.wait(cancellation);
-      co_await cardio::from_fd(fd, cardio::fd_event::write, cancellation);
       const auto bytes = front(operation.outgoing).first(std::min(front(operation.outgoing).size(), operation.chunk_size));
-      const auto count = ::write(fd, bytes.data(), bytes.size());
-      if (count > 0) {
-        consume(operation.outgoing, static_cast<std::size_t>(count));
-        connection->wake();
-      } else if (count < 0 && (errno == EIO || errno == EPIPE)) {
-        operation.write_closed = true;
-        connection->wake();
-        break;
-      } else if (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
-        throw std::system_error(errno, std::generic_category(), "write PTY");
+      auto converted = convert_terminal_text(operation.encoder.get(), bytes);
+      consume(operation.outgoing, bytes.size());
+      connection->wake();
+      std::size_t offset = 0;
+      while (offset < converted.bytes.size()) {
+        co_await cardio::from_fd(fd, cardio::fd_event::write, cancellation);
+        const auto count = ::write(fd, converted.bytes.data() + offset,
+            std::min(operation.chunk_size, converted.bytes.size() - offset));
+        if (count > 0) offset += static_cast<std::size_t>(count);
+        else if (count < 0 && (errno == EIO || errno == EPIPE)) {
+          operation.write_closed = true;
+          connection->wake();
+          co_return;
+        } else if (count < 0 && errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK) {
+          throw std::system_error(errno, std::generic_category(), "write PTY");
+        }
       }
     }
   } catch (const cardio::canceled_exception &) {
@@ -229,6 +279,8 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
   std::optional<cardio::promise<void>> reader;
   std::optional<cardio::promise<void>> writer;
   try {
+    operation.decoder = create_terminal_text_decoder(command.encoding);
+    operation.encoder = create_terminal_text_encoder(command.encoding);
     size_t rows = 0, columns = 0;
     boxrig_terminal_size(connection->terminal, &rows, &columns);
     const auto spawned = co_await cardio::promises::start_new([command = std::move(command), rows, columns]() mutable {
@@ -302,6 +354,12 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
     boxrig_posix_pty_get_spawn_result(operation.pty, &connection->state.spawn);
   }
   if (process >= 0) ::close(process);
+  try {
+    auto tail = finish_decoder(connection);
+    operation.decoded.insert(operation.decoded.end(), tail.begin(), tail.end());
+  } catch (const std::system_error &error) {
+    connection->state.operation_error = error.code().value();
+  }
   // Cancellation also ends a stream. Its incomplete UTF-8/control syntax
   // cannot become the prefix of the next connection's input.
   operation.finishing = true;

@@ -34,6 +34,8 @@ struct TerminalLocalCommand {
   std::size_t queue_capacity = 64 * 1024;
   /** Maximum bytes in one OS read or write, also bounded by queue capacity. */
   std::size_t io_chunk_size = 4096;
+  /** iconv encoding at the peer boundary; the core always receives UTF-8. */
+  std::string encoding = "UTF-8";
 };
 
 /** Snapshot separating spawn diagnostics, process exit, and resource recovery. */
@@ -72,6 +74,8 @@ struct TerminalConnection;
  * @param output Receives each raw/cooked chunk once, before session retries.
  * @return Owned connection.
  * @remarks All functions and callbacks run on the core's Cardio dispatcher.
+ * Cooked bytes may be empty for a partial encoded character; raw bytes may
+ * be empty when finalizing the decoder at EOF or cancellation.
  */
 TerminalConnection *create_terminal_connection(
     boxrig_terminal *terminal, std::function<void()> wake,

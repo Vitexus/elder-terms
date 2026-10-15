@@ -49,7 +49,8 @@ libxyzm_static_library = libxyzm_static_libraries[0]
 libxyzm_async_static_library = libxyzm_static_libraries[1]
 
 boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
-  ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp'],
+  ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp',
+   'src/terminal-sessions/terminal-text-stream.cpp'],
   include_directories: elder_terms_shared_include_dir,
   dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep],
 )
@@ -110,6 +111,7 @@ elder_terms_sources = [
   'src/terminal-sessions/telnet-session/telnet-session.cpp',
   'src/terminal-sessions/terminal-keyboard-protocol.cpp',
   'src/terminal-sessions/terminal-text-codec.cpp',
+  'src/terminal-sessions/terminal-text-stream.cpp',
   'src/terminal-sessions/terminal-view-io.cpp',
   'src/terminal-layout.cpp',
   'src/terminal-session.cpp',
@@ -434,6 +436,7 @@ terminal_text_codec_test = executable(
   [
     'tests/cpp/terminal-text-codec-test.cpp',
     'src/terminal-sessions/terminal-text-codec.cpp',
+    'src/terminal-sessions/terminal-text-stream.cpp',
   ],
   dependencies: [
     elder_terms_dep,
@@ -513,6 +516,7 @@ terminal_text_send_runner_test = executable(
     'src/terminal-text-send.cpp',
     'src/terminal-text-send-runner.cpp',
     'src/terminal-sessions/terminal-text-codec.cpp',
+    'src/terminal-sessions/terminal-text-stream.cpp',
   ],
   dependencies: [
     cardio_dep,

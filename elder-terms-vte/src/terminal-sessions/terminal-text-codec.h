@@ -6,17 +6,9 @@
 
 #include <elder-terms/settings.h>
 
-namespace elder_terms {
+#include "terminal-text-stream.h"
 
-/**
- * Result of converting one terminal text stream chunk.
- */
-struct TerminalTextConversionResult {
-  /** Converted bytes for the destination stream. */
-  std::vector<unsigned char> bytes;
-  /** True when invalid or unrepresentable input required a replacement. */
-  bool used_replacement = false;
-};
+namespace elder_terms {
 
 /**
  * Stateful encoder for a finite UTF-8 text source.

@@ -80,7 +80,9 @@ static cardio::promise<void> scenarios(Test *test) {
   auto state = terminal_connection_state(test->connection);
   expect(state.exit_code == 0 && state.reaped && state.operation_error == 0, "stress peer completes and is reaped");
   expect(state.receive_peak <= 17 && state.send_peak > 0 && state.send_peak <= 17, "both queues remain bounded");
-  expect(test->raw == test->cooked, "raw and cooked chunks are each notified once");
+  expect(test->raw.ends_with("\xe2\x82"), "raw output preserves the incomplete UTF-8 bytes");
+  expect(test->cooked == test->raw.substr(0, test->raw.size() - 2) + "�",
+      "cooked output includes the decoder's one EOF replacement");
   expect(test->titles == 200, "host backpressure does not duplicate or lose title events");
   expect(contents(test).find("STRESS_OK\n�") != std::string::npos, "EOF drains UTF-8 tail after all replies");
   expect(::kill(state.child, 0) == -1 && errno == ESRCH, "no zombie stress child");
@@ -107,6 +109,50 @@ static cardio::promise<void> scenarios(Test *test) {
   wake(test);
   co_await terminal_connection_wait_stopped(test->connection);
   expect(contents(test).find("CANCEL_QUEUE_TAIL") != std::string::npos, "cancellation preserves bytes already received");
+
+  auto encoded = command(
+      "stty raw -echo; printf 'ENCODE_READY'; "
+      "expected=$(printf '\\223\\372\\226\\173\\214\\352\\223\\372\\226\\173\\214\\352'); "
+      "actual=$(dd bs=1 count=12 iflag=fullblock 2>/dev/null); "
+      "if [ \"$actual\" != \"$expected\" ]; then printf BAD_ENCODING; exit 3; fi; "
+      "printf '\\r\\n\\223\\372\\226\\173\\214\\352\\202'");
+  encoded.encoding = "CP932";
+  encoded.queue_capacity = 1;
+  encoded.io_chunk_size = 1;
+  const auto encoded_start = test->cooked.size();
+  expect(terminal_connection_start_local(test->connection, std::move(encoded)), "start encoded stream");
+  while (test->cooked.find("ENCODE_READY", encoded_start) == std::string::npos) co_await test->changed.wait();
+  const std::string text = "日本語日本語";
+  expect(boxrig_terminal_send_text(test->core, text.data(), text.size()) == BOXRIG_STATUS_OK, "queue UTF-8 text");
+  wake(test);
+  co_await terminal_connection_wait_stopped(test->connection);
+  state = terminal_connection_state(test->connection);
+  expect(state.exit_code == 0 && state.reaped, "CP932 peer receives each encoded byte exactly once");
+  expect(test->cooked.substr(encoded_start) == "ENCODE_READY\r\n日本語�", "split CP932 input and EOF are converted exactly once");
+  expect(state.receive_peak == 1 && state.send_peak == 1, "converted characters span single-byte bounded queues");
+
+  test->paused = true;
+  auto cancelled_encoding = command("stty -echo; printf '\\223\\372'; read value");
+  cancelled_encoding.encoding = "CP932";
+  cancelled_encoding.queue_capacity = 1;
+  cancelled_encoding.io_chunk_size = 1;
+  const auto cancelled_start = test->cooked.size();
+  expect(terminal_connection_start_local(test->connection, std::move(cancelled_encoding)), "start converted cancellation peer");
+  while (terminal_connection_state(test->connection).receive_peak != 1) co_await test->changed.wait();
+  terminal_connection_stop(test->connection);
+  test->paused = false;
+  wake(test);
+  co_await terminal_connection_wait_stopped(test->connection);
+  expect(test->cooked.substr(cancelled_start) == "日", "cancellation reports the converted chunk only once");
+  expect(contents(test).find("日", contents(test).find("日本語�") + std::string("日本語�").size()) != std::string::npos,
+      "cancellation preserves the converted remainder beyond queue capacity");
+
+  auto invalid_encoding = command("printf SHOULD_NOT_SPAWN");
+  invalid_encoding.encoding = "ELDER_TERMS_INVALID_ENCODING";
+  expect(terminal_connection_start_local(test->connection, std::move(invalid_encoding)), "accept an observable conversion failure");
+  co_await terminal_connection_wait_stopped(test->connection);
+  state = terminal_connection_state(test->connection);
+  expect(state.operation_error == EINVAL && state.child == 0, "invalid conversion fails before spawning a child");
 
   for (int attempt = 0; attempt < 4; ++attempt) {
     expect(terminal_connection_start_local(test->connection, command("trap '' HUP TERM; read value")), "start cancellable child");
@@ -143,8 +189,9 @@ int main() {
   if (boxrig_terminal_create(&config, &test.core) != BOXRIG_STATUS_OK) return 1;
   test.connection = create_terminal_connection(test.core, [&test] { wake(&test); },
       [&test](std::span<const unsigned char> raw, std::span<const unsigned char> cooked) {
-        test.raw.append(reinterpret_cast<const char *>(raw.data()), raw.size());
-        test.cooked.append(reinterpret_cast<const char *>(cooked.data()), cooked.size());
+        if (!raw.empty()) test.raw.append(reinterpret_cast<const char *>(raw.data()), raw.size());
+        if (!cooked.empty()) test.cooked.append(reinterpret_cast<const char *>(cooked.data()), cooked.size());
+        test.changed.trigger();
       });
   std::exception_ptr failure;
   auto completion = run(&test, &group, &failure);
