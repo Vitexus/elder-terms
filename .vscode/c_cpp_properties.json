@@ -12,14 +12,14 @@
         "CARDIO_WITH_GIO=1"
       ],
       "includePath": [
-        "${workspaceFolder}/elder-terms-vte/src",
+        "${workspaceFolder}/elder-terms-terminal/src",
         "${workspaceFolder}/node_modules/gestament/include",
         "${workspaceFolder}/deps/cardio/include",
         "${workspaceFolder}/deps/libxyzm/include"
       ],
       "browse": {
         "path": [
-          "${workspaceFolder}/elder-terms-vte/src",
+          "${workspaceFolder}/elder-terms-terminal/src",
           "${workspaceFolder}/node_modules/gestament/include",
           "${workspaceFolder}/deps/cardio/include",
           "${workspaceFolder}/deps/libxyzm/include"

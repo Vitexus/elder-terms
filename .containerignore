@@ -5,5 +5,5 @@
 !shared/package.json
 !elder-terms/
 !elder-terms/package.json
-!elder-terms-vte/
-!elder-terms-vte/package.json
+!elder-terms-terminal/
+!elder-terms-terminal/package.json
