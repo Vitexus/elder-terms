@@ -24,6 +24,13 @@ struct TerminalTransferTransport {
   xyzm_async_recv_cb recv;
   /** Returns monotonic milliseconds for libxyzm. */
   xyzm_async_now_ms_cb now_ms;
+  /**
+   * Returns read-ahead bytes before completion, including failure or cancellation.
+   * @remarks Copy these bytes before the callback returns and process them before
+   * reading more transport data. On failure they may still contain protocol data.
+   * An empty callback discards the remainder.
+   */
+  std::function<void(std::span<const std::uint8_t>)> return_received = {};
 };
 
 /**

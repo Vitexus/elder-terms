@@ -1059,20 +1059,22 @@ static cardio::promise<void> receive_transfer_bytes(ConnectionOperation *operati
     }
   }
   if (!operation->transfer_prefetch.empty()) {
-    bytes[0] = static_cast<unsigned char>(operation->transfer_prefetch[operation->transfer_prefetch_offset++]);
-    received = 1;
+    received = std::min(bytes.size(), operation->transfer_prefetch.size() - operation->transfer_prefetch_offset);
+    std::copy_n(operation->transfer_prefetch.data() + operation->transfer_prefetch_offset,
+        received, bytes.begin());
+    operation->transfer_prefetch_offset += received;
     if (operation->transfer_prefetch_offset == operation->transfer_prefetch.size()) {
       operation->transfer_prefetch.clear();
       operation->transfer_prefetch_offset = 0;
     }
     co_return;
   }
-  // libxyzm owns a receive cache without a public remainder-return operation.
-  // Keep OS read-ahead here and give the parser one byte at a time, so a prompt
-  // following its final frame remains available to the normal terminal stream.
-  bytes[0] = front(operation->transfer_incoming)[0];
-  received = 1;
-  consume(operation->transfer_incoming, 1);
+  // libxyzm returns its unconsumed read-ahead before transfer completion. The
+  // parser can therefore receive a chunk without losing a following prompt.
+  const auto available = front(operation->transfer_incoming);
+  received = std::min(bytes.size(), available.size());
+  std::copy_n(available.begin(), received, bytes.begin());
+  consume(operation->transfer_incoming, received);
   operation->receive_space.trigger();
 }
 
@@ -1108,7 +1110,14 @@ cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connectio
           return receive_transfer_bytes(&operation, bytes, timeout, received, token);
         },
         [] { return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now().time_since_epoch()).count()); }};
+            std::chrono::steady_clock::now().time_since_epoch()).count()); },
+        [&operation](std::span<const std::uint8_t> bytes) {
+          // Returned cache bytes precede both unconsumed prefetch and later reads.
+          operation.transfer_prefetch.erase(0, operation.transfer_prefetch_offset);
+          operation.transfer_prefetch_offset = 0;
+          if (!bytes.empty()) operation.transfer_prefetch.insert(0,
+              reinterpret_cast<const char *>(bytes.data()), bytes.size());
+        }};
     co_await run_terminal_transfer_async(request, std::move(transport), stop.get_cancellation());
     succeeded = true;
   } catch (const cardio::canceled_exception &) {

@@ -487,15 +487,19 @@ static void update_progress_delta(TransferProgressState *state,
 }
 
 static xyzm_async_transfer_observer_t
-make_transfer_observer(TransferProgressState *progress) {
+make_transfer_observer(TransferProgressState *progress,
+                       TerminalTransferTransport *transport) {
   xyzm_async_transfer_observer_t observer;
-  observer.notify = [progress](const xyzm_async_transfer_event_t &event) {
+  observer.notify = [progress, transport](const xyzm_async_transfer_event_t &event) {
     if (event.kind == XYZM_TRANSFER_EVENT_FILE_STARTED &&
         event.file_info.has_value()) {
       update_progress_file(progress, event.file_info->get());
     } else if (event.kind == XYZM_TRANSFER_EVENT_PROGRESS &&
                progress != nullptr && event.payload_delta != 0) {
       progress->publish();
+    } else if (event.kind == XYZM_TRANSFER_EVENT_TRANSFER_FINISHED &&
+               event.report.has_value() && transport->return_received) {
+      transport->return_received(event.report->get().unread_bytes);
     }
   };
   return observer;
@@ -973,7 +977,7 @@ run_terminal_transfer_async(TerminalTransferRequest request,
   }
 
   xyzm_async_link_ops_t link = make_link_ops(&transport, &progress);
-  xyzm_async_transfer_observer_t observer = make_transfer_observer(&progress);
+  xyzm_async_transfer_observer_t observer = make_transfer_observer(&progress, &transport);
   xyzm_async_transfer_report_t report{};
 
   if (request.direction == TerminalTransferDirection::send) {
