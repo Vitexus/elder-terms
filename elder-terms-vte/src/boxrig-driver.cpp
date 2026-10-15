@@ -24,6 +24,7 @@ struct Driver {
   elder_terms::TerminalTextSettings input_settings;
   elder_terms::TerminalTextSendSource text_source = elder_terms::TerminalTextSendBufferSource{"Text send from boxrig\n"};
   std::uint64_t text_rate = 1024;
+  elder_terms::TerminalTransferRequest transfer;
   bool connection_mode = false;
   bool closing = false;
   std::string last_report;
@@ -220,8 +221,18 @@ static void send_text(GtkButton *, gpointer context) {
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
-static void cancel_text_send(GtkButton *, gpointer context) {
-  elder_terms::terminal_runtime_cancel_text_send(static_cast<Driver *>(context)->runtime);
+static void cancel_transfer(GtkButton *, gpointer context) {
+  elder_terms::terminal_runtime_cancel_transfer(static_cast<Driver *>(context)->runtime);
+}
+
+static void start_transfer(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  auto request = driver->transfer;
+  request.active = [](bool active) { std::printf("transfer_active=%d\n", active); std::fflush(stdout); };
+  request.finished = [](bool succeeded) { std::printf("transfer_finished=%d\n", succeeded); std::fflush(stdout); };
+  request.status = [](const std::string &status) { std::fprintf(stderr, "Transfer: %s\n", status.c_str()); };
+  elder_terms::terminal_runtime_start_transfer(driver->runtime, std::move(request));
+  gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
 static cardio::promise<elder_terms::SshUserPromptResponse> prompt_ssh(Driver *driver,
@@ -295,6 +306,17 @@ int main(int argc, char **argv) {
       driver.text_source = elder_terms::TerminalTextSendFileSource{argv[++index]};
     else if (std::string_view(argv[index]) == "--rate" && index + 1 < argc)
       driver.text_rate = std::strtoull(argv[++index], nullptr, 10);
+    else if (std::string_view(argv[index]) == "--transfer" && index + 2 < argc) {
+      const std::string_view protocol = argv[++index];
+      driver.transfer.protocol = protocol == "xmodem" ? elder_terms::TerminalTransferProtocol::xmodem :
+          protocol == "ymodem" ? elder_terms::TerminalTransferProtocol::ymodem : elder_terms::TerminalTransferProtocol::zmodem;
+      driver.transfer.direction = std::string_view(argv[++index]) == "receive" ?
+          elder_terms::TerminalTransferDirection::receive : elder_terms::TerminalTransferDirection::send;
+    }
+    else if (std::string_view(argv[index]) == "--transfer-uri" && index + 1 < argc)
+      driver.transfer.source_file_uris.emplace_back(argv[++index]);
+    else if (std::string_view(argv[index]) == "--transfer-directory" && index + 1 < argc)
+      driver.transfer.base_path = argv[++index];
     else if ((std::string_view(argv[index]) == "--log-raw" || std::string_view(argv[index]) == "--log-cooked") && index + 1 < argc) {
       log_settings.enabled = true;
       log_settings.mode = std::string_view(argv[index]) == "--log-raw" ? elder_terms::TerminalLogMode::raw : elder_terms::TerminalLogMode::cooked;
@@ -397,10 +419,14 @@ int main(int argc, char **argv) {
     gestament_gtk_assign_accessible_id(send, "driver_send_text");
     gtk_box_pack_start(GTK_BOX(sending), send, FALSE, FALSE, 0);
     g_signal_connect(send, "clicked", G_CALLBACK(send_text), &driver);
-    auto *cancel = gtk_button_new_with_label("Cancel send");
+    auto *cancel = gtk_button_new_with_label("Cancel");
     gestament_gtk_assign_accessible_id(cancel, "driver_cancel_send");
     gtk_box_pack_start(GTK_BOX(sending), cancel, FALSE, FALSE, 0);
-    g_signal_connect(cancel, "clicked", G_CALLBACK(cancel_text_send), &driver);
+    g_signal_connect(cancel, "clicked", G_CALLBACK(cancel_transfer), &driver);
+    auto *transfer = gtk_button_new_with_label("Start transfer");
+    gestament_gtk_assign_accessible_id(transfer, "driver_transfer");
+    gtk_box_pack_start(GTK_BOX(sending), transfer, FALSE, FALSE, 0);
+    g_signal_connect(transfer, "clicked", G_CALLBACK(start_transfer), &driver);
   }
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }

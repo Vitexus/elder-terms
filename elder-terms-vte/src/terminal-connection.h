@@ -163,6 +163,28 @@ cardio::promise<bool> terminal_connection_send_text(TerminalConnection *connecti
     TerminalTextSendRequest request, cardio::cancellation cancellation);
 
 /**
+ * Reserves binary receive routing before the runtime stops widget input.
+ * @param connection Connected owner without another exclusive operation.
+ * @return True when subsequent peer bytes belong to the bounded transfer queue.
+ * @remarks Complete every accepted reservation with terminal_connection_transfer,
+ * including cancellation. Normal output can drain while input stops.
+ */
+bool terminal_connection_prepare_transfer(TerminalConnection *connection);
+
+/**
+ * Runs a reserved binary transfer after user input is disabled.
+ * @param connection Owner with an accepted transfer reservation.
+ * @param request Protocol, files and presentation callbacks.
+ * @param cancellation Caller cancellation, combined with connection shutdown.
+ * @return True on complete transfer success.
+ * @remarks Binary bytes bypass conversion, logs and the terminal parser.
+ * Successful completion returns prefetched normal output to the same stream.
+ * The runtime owns active/finished callbacks and input resumption.
+ */
+cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connection,
+    TerminalTransferRequest request, cardio::cancellation cancellation);
+
+/**
  * Gets an observable lifecycle snapshot.
  * @param connection Communication owner.
  * @return Current or most recently completed generation's status.

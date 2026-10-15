@@ -11,6 +11,8 @@
 
 namespace elder_terms {
 
+using TerminalServiceRequest = std::variant<TerminalTextSendRequest, TerminalTransferRequest>;
+
 struct TerminalRuntime {
   boxrig_terminal *terminal = nullptr;
   boxrig_ui_model *model = nullptr;
@@ -21,10 +23,10 @@ struct TerminalRuntime {
   std::optional<std::string> pending_encoding;
   std::optional<cardio::promise<void>> encoding_completion;
   bool encoding_active = false;
-  std::optional<TerminalTextSendRequest> pending_text_send;
-  std::optional<cardio::promise<void>> text_send_completion;
-  cardio::cancellation_source text_send_stop;
-  bool text_send_active = false;
+  std::optional<TerminalServiceRequest> pending_service;
+  std::optional<cardio::promise<void>> service_completion;
+  cardio::cancellation_source service_stop;
+  bool service_active = false;
   TerminalTextSettings applied_input;
   bool input_allowed = true;
   BoxrigGtk3TerminalWidget *widget = nullptr;
@@ -127,7 +129,7 @@ static void fail_ui(TerminalRuntime *runtime) {
   runtime->ui_failed = true;
   runtime->pending_connection.reset();
   runtime->pending_encoding.reset();
-  terminal_runtime_cancel_text_send(runtime);
+  terminal_runtime_cancel_transfer(runtime);
   terminal_connection_stop(runtime->connection);
   boxrig_gtk3_terminal_widget_quiesce(runtime->widget);
   request_frame(runtime);
@@ -139,17 +141,22 @@ static cardio::promise<void> change_encoding(TerminalRuntime *runtime, std::stri
   request_frame(runtime);
 }
 
-static void finish_text_send(TerminalRuntime *runtime, const TerminalTextSendRequest &request, bool succeeded) {
-  runtime->text_send_active = false;
+static void finish_service(TerminalRuntime *runtime, const TerminalServiceRequest &request, bool succeeded) {
+  runtime->service_active = false;
   request_frame(runtime);
-  if (request.active) request.active(false);
-  if (request.finished) request.finished(succeeded);
+  std::visit([succeeded](const auto &value) {
+    if (value.active) value.active(false);
+    if (value.finished) value.finished(succeeded);
+  }, request);
 }
 
-static cardio::promise<void> send_text(TerminalRuntime *runtime, TerminalTextSendRequest request) {
-  const auto succeeded = co_await terminal_connection_send_text(runtime->connection, request,
-      runtime->text_send_stop.get_cancellation());
-  finish_text_send(runtime, request, succeeded);
+static cardio::promise<void> run_service(TerminalRuntime *runtime, TerminalServiceRequest request) {
+  const auto succeeded = co_await std::visit([runtime](auto value) {
+    if constexpr (std::is_same_v<decltype(value), TerminalTextSendRequest>)
+      return terminal_connection_send_text(runtime->connection, std::move(value), runtime->service_stop.get_cancellation());
+    else return terminal_connection_transfer(runtime->connection, std::move(value), runtime->service_stop.get_cancellation());
+  }, request);
+  finish_service(runtime, request, succeeded);
 }
 
 static bool process_input_policy(TerminalRuntime *runtime) {
@@ -179,7 +186,7 @@ static bool process_input_policy(TerminalRuntime *runtime) {
   const auto connection = terminal_connection_state(runtime->connection);
   const bool enabled = runtime->input_allowed && !runtime->pending_connection &&
       !runtime->pending_encoding && !runtime->encoding_active &&
-      !runtime->pending_text_send && !runtime->text_send_active &&
+      !runtime->pending_service && !runtime->service_active &&
       (connection.generation == 0 ||
       connection.phase == TerminalConnectionPhase::connected);
   boxrig_ui_input_state input{};
@@ -205,11 +212,11 @@ static bool process_input_policy(TerminalRuntime *runtime) {
     runtime->encoding_active = true;
     runtime->encoding_completion.emplace(change_encoding(runtime, std::move(encoding)));
   }
-  if (runtime->pending_text_send && input.phase == BOXRIG_UI_INPUT_DISABLED) {
-    auto request = std::move(*runtime->pending_text_send);
-    runtime->pending_text_send.reset();
-    runtime->text_send_active = true;
-    runtime->text_send_completion.emplace(send_text(runtime, std::move(request)));
+  if (runtime->pending_service && input.phase == BOXRIG_UI_INPUT_DISABLED) {
+    auto request = std::move(*runtime->pending_service);
+    runtime->pending_service.reset();
+    runtime->service_active = true;
+    runtime->service_completion.emplace(run_service(runtime, std::move(request)));
   }
   return true;
 }
@@ -525,7 +532,7 @@ bool terminal_runtime_is_settled(const TerminalRuntime *runtime) {
 
 bool terminal_runtime_connect_local(TerminalRuntime *runtime, TerminalLocalCommand command) {
   const auto phase = terminal_connection_state(runtime->connection).phase;
-  if (runtime->stopped || runtime->pending_connection ||
+  if (runtime->stopped || runtime->pending_connection || runtime->pending_service || runtime->service_active ||
       (phase != TerminalConnectionPhase::idle && phase != TerminalConnectionPhase::closed)) return false;
   if (runtime->ui_failed && !attach_widget(runtime)) return false;
   runtime->pending_connection = std::move(command);
@@ -536,7 +543,7 @@ bool terminal_runtime_connect_local(TerminalRuntime *runtime, TerminalLocalComma
 
 bool terminal_runtime_connect_transport(TerminalRuntime *runtime, TerminalTransportRequest request) {
   const auto phase = terminal_connection_state(runtime->connection).phase;
-  if (runtime->stopped || runtime->pending_connection ||
+  if (runtime->stopped || runtime->pending_connection || runtime->pending_service || runtime->service_active ||
       (phase != TerminalConnectionPhase::idle && phase != TerminalConnectionPhase::closed)) return false;
   if (runtime->ui_failed && !attach_widget(runtime)) return false;
   runtime->pending_connection = std::move(request);
@@ -548,7 +555,7 @@ bool terminal_runtime_connect_transport(TerminalRuntime *runtime, TerminalTransp
 cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
   runtime->pending_connection.reset();
   runtime->pending_encoding.reset();
-  terminal_runtime_cancel_text_send(runtime);
+  terminal_runtime_cancel_transfer(runtime);
   runtime->input_allowed = false;
   if (!runtime->ui_failed) {
     const auto status = boxrig_gtk3_terminal_widget_set_input_enabled(runtime->widget, false);
@@ -558,7 +565,7 @@ cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
   request_frame(runtime);
   co_await terminal_connection_wait_stopped(runtime->connection);
   if (runtime->encoding_completion) co_await *runtime->encoding_completion;
-  if (runtime->text_send_completion) co_await *runtime->text_send_completion;
+  if (runtime->service_completion) co_await *runtime->service_completion;
   if (runtime->grid_completion) co_await *runtime->grid_completion;
 }
 
@@ -580,7 +587,7 @@ bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime) { r
 
 bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string encoding) {
   if (runtime->stopped || runtime->ui_failed || runtime->encoding_active ||
-      runtime->pending_text_send || runtime->text_send_active ||
+      runtime->pending_service || runtime->service_active ||
       terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected) return false;
   runtime->pending_encoding = std::move(encoding);
   request_frame(runtime);
@@ -593,27 +600,46 @@ bool terminal_runtime_encoding_pending(const TerminalRuntime *runtime) {
 
 bool terminal_runtime_start_text_send(TerminalRuntime *runtime, TerminalTextSendRequest request) {
   if (runtime->stopped || runtime->ui_failed || runtime->pending_encoding || runtime->encoding_active ||
-      runtime->pending_text_send || runtime->text_send_active ||
+      runtime->pending_service || runtime->service_active ||
       terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected ||
       request.bytes_per_second == 0 || !terminal_text_send_source_is_valid(request.source)) return false;
   request.text_settings = runtime->applied_input;
   request.text_settings.encoding = terminal_connection_state(runtime->connection).encoding;
-  runtime->text_send_stop = {};
-  runtime->pending_text_send = std::move(request);
-  if (runtime->pending_text_send->active) runtime->pending_text_send->active(true);
+  runtime->service_stop = {};
+  runtime->pending_service = std::move(request);
+  const auto &sending = std::get<TerminalTextSendRequest>(*runtime->pending_service);
+  if (sending.active) sending.active(true);
   request_frame(runtime);
   return true;
 }
 
-bool terminal_runtime_cancel_text_send(TerminalRuntime *runtime) {
-  if (runtime->pending_text_send) {
-    auto request = std::move(*runtime->pending_text_send);
-    runtime->pending_text_send.reset();
-    finish_text_send(runtime, request, false);
+bool terminal_runtime_cancel_transfer(TerminalRuntime *runtime) {
+  runtime->service_stop.cancel();
+  if (runtime->pending_service) {
+    auto request = std::move(*runtime->pending_service);
+    runtime->pending_service.reset();
+    if (std::holds_alternative<TerminalTransferRequest>(request)) {
+      // Even a cancelled reservation must join its binary read boundary.
+      // The cancelled token prevents it from starting any protocol operation.
+      runtime->service_active = true;
+      runtime->service_completion.emplace(run_service(runtime, std::move(request)));
+    } else finish_service(runtime, request, false);
     return true;
   }
-  if (!runtime->text_send_active) return false;
-  runtime->text_send_stop.cancel();
+  if (!runtime->service_active) return false;
+  return true;
+}
+
+bool terminal_runtime_start_transfer(TerminalRuntime *runtime, TerminalTransferRequest request) {
+  if (runtime->stopped || runtime->ui_failed || runtime->pending_encoding || runtime->encoding_active ||
+      runtime->pending_service || runtime->service_active ||
+      (request.direction == TerminalTransferDirection::send && request.source_file_uris.empty()) ||
+      !terminal_connection_prepare_transfer(runtime->connection)) return false;
+  runtime->service_stop = {};
+  runtime->pending_service = std::move(request);
+  const auto &transfer = std::get<TerminalTransferRequest>(*runtime->pending_service);
+  if (transfer.active) transfer.active(true);
+  request_frame(runtime);
   return true;
 }
 

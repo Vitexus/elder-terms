@@ -158,11 +158,21 @@ bool terminal_runtime_encoding_pending(const TerminalRuntime *runtime);
 bool terminal_runtime_start_text_send(TerminalRuntime *runtime, TerminalTextSendRequest request);
 
 /**
- * Cancels a pending or active text send and resumes normal input afterwards.
+ * Cancels a pending or active text send or binary transfer, then resumes input.
  * @param runtime Live runtime.
  * @return True when there was an operation to cancel.
  */
-bool terminal_runtime_cancel_text_send(TerminalRuntime *runtime);
+bool terminal_runtime_cancel_transfer(TerminalRuntime *runtime);
+
+/**
+ * Reserves binary receive routing, stops widget input, and runs X/Y/ZMODEM.
+ * @param runtime Connected runtime without another exclusive operation.
+ * @param request Protocol, local files and presentation callbacks.
+ * @return True when the transfer reservation is accepted.
+ * @remarks Accepted bytes remain in bounded queues while input stops and old
+ * normal output drains. Display and selection remain available throughout.
+ */
+bool terminal_runtime_start_transfer(TerminalRuntime *runtime, TerminalTransferRequest request);
 
 /**
  * Requests input inhibition or resumption while preserving selection and display.

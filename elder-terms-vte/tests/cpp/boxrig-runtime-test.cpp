@@ -4,6 +4,7 @@
 #include <cerrno>
 #include <cstring>
 #include <exception>
+#include <filesystem>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -18,6 +19,10 @@ struct Fixture {
   cardio::primitives::conditional write_ready;
   std::string incoming;
   std::string outgoing;
+  std::string normal_output;
+  std::string transfer_directory;
+  int services_finished = 0;
+  bool service_succeeded = false;
   bool resize_pending = false;
   bool fail_resize = false;
   bool hold_resize = true;
@@ -46,6 +51,7 @@ static cardio::promise<std::size_t> read_peer(Fixture *fixture, std::span<unsign
   const auto count = std::min(bytes.size(), fixture->incoming.size());
   std::memcpy(bytes.data(), fixture->incoming.data(), count);
   fixture->incoming.erase(0, count);
+  fixture->changed.trigger();
   co_return count;
 }
 
@@ -140,12 +146,16 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   fixture->received.trigger();
   while (!fixture->write_pending) co_await fixture->changed.wait();
   expect(fixture->outgoing == "\033[1;1R", "normal reply is held in the peer writer");
-  int finished = 0;
-  bool succeeded = false;
+  auto &finished = fixture->services_finished;
+  auto &succeeded = fixture->service_succeeded;
   TerminalTextSendRequest sending;
   sending.source = TerminalTextSendBufferSource{"TEXT"};
   sending.bytes_per_second = 1000000;
-  sending.finished = [&](bool success) { ++finished; succeeded = success; fixture->changed.trigger(); };
+  sending.finished = [fixture](bool success) {
+    ++fixture->services_finished;
+    fixture->service_succeeded = success;
+    fixture->changed.trigger();
+  };
   expect(terminal_runtime_start_text_send(fixture->runtime, sending), "accept text send while normal output drains");
   boxrig_ui_input_state input{};
   do {
@@ -169,7 +179,7 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   fixture->hold_write = true;
   expect(terminal_runtime_start_text_send(fixture->runtime, sending), "start cancellable text send");
   while (!fixture->write_pending) co_await fixture->changed.wait();
-  expect(terminal_runtime_cancel_text_send(fixture->runtime), "cancel active text send");
+  expect(terminal_runtime_cancel_transfer(fixture->runtime), "cancel active text send");
   while (finished != 2) co_await fixture->changed.wait();
   expect(!succeeded && !fixture->closed, "text cancellation retains the connection");
   do {
@@ -180,6 +190,46 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   while (!fixture->write_pending) co_await fixture->changed.wait();
   co_await terminal_runtime_disconnect(fixture->runtime);
   expect(finished == 3 && !succeeded && fixture->closed, "disconnect joins an active text send before closing the channel");
+
+  fixture->hold_write = false;
+  fixture->outgoing.clear();
+  auto binary_request = request(fixture);
+  binary_request.queue_capacity = 17;
+  binary_request.io_chunk_size = 3;
+  expect(terminal_runtime_connect_transport(fixture->runtime, std::move(binary_request)), "connect for bounded binary routing");
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  TerminalTransferRequest transfer;
+  transfer.protocol = TerminalTransferProtocol::xmodem;
+  transfer.direction = TerminalTransferDirection::receive;
+  transfer.base_path = fixture->transfer_directory;
+  transfer.finished = sending.finished;
+  expect(terminal_runtime_start_transfer(fixture->runtime, transfer), "reserve binary input before stopping widget input");
+  while (fixture->outgoing.empty()) co_await fixture->changed.wait();
+  expect(fixture->outgoing == "C", "binary receiver requests CRC after normal output drains");
+  boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  expect(input.phase == BOXRIG_UI_INPUT_DISABLED, "binary transfer starts only after widget input is disabled");
+  const auto normal_size = fixture->normal_output.size();
+  fixture->incoming = "\x01\x01\xfe" "BINARY_PAYLOAD_NOT_TEXT";
+  fixture->received.trigger();
+  while (!fixture->incoming.empty()) co_await fixture->changed.wait();
+  expect(terminal_runtime_feed(fixture->runtime, "\033[H\033[6n"), "generate a late normal terminal reply");
+  while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  expect(fixture->outgoing == "C", "normal terminal replies remain blocked during a binary transfer");
+  expect(fixture->normal_output.size() == normal_size, "binary input is excluded from normal output notifications");
+  expect(terminal_runtime_cancel_transfer(fixture->runtime), "cancel binary transfer");
+  while (finished != 4 || !fixture->outgoing.ends_with("\033[1;1R")) co_await fixture->changed.wait();
+  expect(!succeeded && !fixture->closed, "binary cancellation resumes normal output on the same connection");
+
+  const auto before_pending_cancel = fixture->outgoing;
+  expect(terminal_runtime_start_transfer(fixture->runtime, transfer), "reserve a second binary transfer");
+  expect(terminal_runtime_cancel_transfer(fixture->runtime), "cancel before protocol startup");
+  while (finished != 5) co_await fixture->changed.wait();
+  expect(fixture->outgoing == before_pending_cancel, "cancelled reservation cannot write a protocol handshake");
+  expect(terminal_runtime_start_transfer(fixture->runtime, transfer), "start binary transfer before disconnect");
+  while (fixture->outgoing == before_pending_cancel) co_await fixture->changed.wait();
+  co_await terminal_runtime_disconnect(fixture->runtime);
+  expect(finished == 6 && !succeeded && fixture->closed, "disconnect recovers binary receive and transfer work before closing");
 }
 
 static cardio::promise<void> run(Fixture *fixture, std::exception_ptr *failure) {
@@ -197,8 +247,16 @@ int main(int argc, char **argv) {
   auto *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_container_add(GTK_CONTAINER(window), content);
   Fixture fixture;
+  auto *directory = g_dir_make_tmp("boxrig-runtime-transfer-XXXXXX", nullptr);
+  if (!directory) return 1;
+  fixture.transfer_directory = directory;
+  g_free(directory);
   fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
-  if (!fixture.runtime) return 1;
+  if (!fixture.runtime) { std::filesystem::remove_all(fixture.transfer_directory); return 1; }
+  terminal_runtime_set_output_callback(fixture.runtime,
+      [&fixture](std::span<const unsigned char>, std::span<const unsigned char> cooked) {
+        fixture.normal_output.append(reinterpret_cast<const char *>(cooked.data()), cooked.size());
+      });
   terminal_runtime_set_changed_callback(fixture.runtime, [](void *context) {
     static_cast<Fixture *>(context)->changed.trigger();
   }, &fixture);
@@ -208,6 +266,7 @@ int main(int argc, char **argv) {
   gtk_main();
   destroy_terminal_runtime(fixture.runtime);
   gtk_widget_destroy(window);
+  std::filesystem::remove_all(fixture.transfer_directory);
   if (failure) {
     try { std::rethrow_exception(failure); }
     catch (const std::exception &error) { g_printerr("%s\n", error.what()); }

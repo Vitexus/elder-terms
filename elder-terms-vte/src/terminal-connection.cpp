@@ -1,6 +1,7 @@
 #include "terminal-connection.h"
 #include "terminal-sessions/terminal-text-stream.h"
 #include "terminal-text-send-runner.h"
+#include "terminal-transfer-runner.h"
 
 #include <algorithm>
 #include <array>
@@ -52,6 +53,7 @@ struct ConnectionOperation {
   boxrig_session *session = nullptr;
   ByteQueue incoming;
   ByteQueue outgoing;
+  ByteQueue transfer_incoming;
   std::size_t chunk_size = 0;
   bool eof = false;
   bool write_closed = false;
@@ -64,6 +66,9 @@ struct ConnectionOperation {
   bool decoder_finished = false;
   bool changing_encoding = false;
   bool service_active = false;
+  bool transfer_prepared = false;
+  bool transport_eof = false;
+  cardio::primitives::conditional transfer_ready;
   bool read_paused = false;
   bool read_active = false;
   bool write_active = false;
@@ -185,6 +190,24 @@ static std::vector<unsigned char> finish_decoder(TerminalConnection *connection)
   return std::move(result.bytes);
 }
 
+static std::vector<unsigned char> decode_received(TerminalConnection *connection,
+    std::span<const unsigned char> bytes) {
+  auto converted = convert_terminal_text(connection->operation->decoder.get(), bytes);
+  if (connection->output) connection->output(bytes, converted.bytes);
+  return std::move(converted.bytes);
+}
+
+static cardio::promise<void> queue_pending_raw(TerminalConnection *connection, cardio::cancellation cancellation) {
+  auto &operation = *connection->operation;
+  while (operation.transfer_incoming.length != 0) {
+    const auto bytes = front(operation.transfer_incoming).first(
+        std::min(front(operation.transfer_incoming).size(), operation.chunk_size));
+    auto converted = decode_received(connection, bytes);
+    consume(operation.transfer_incoming, bytes.size());
+    co_await queue_decoded(connection, std::move(converted), cancellation);
+  }
+}
+
 static cardio::promise<void> read_stream(TerminalConnection *connection) {
   auto &operation = *connection->operation;
   const auto cancellation = operation.io_stop.get_cancellation();
@@ -195,11 +218,19 @@ static cardio::promise<void> read_stream(TerminalConnection *connection) {
       operation.read_active = false;
       operation.stream_changed.trigger();
       while (operation.read_paused) co_await operation.read_resumed.wait(cancellation);
-      while (operation.incoming.length == operation.incoming.storage.size())
+      if (!operation.transfer_prepared && operation.transfer_incoming.length != 0) {
+        operation.read_active = true;
+        co_await queue_pending_raw(connection, cancellation);
+        continue;
+      }
+      auto *target = operation.transfer_prepared ? &operation.transfer_incoming : &operation.incoming;
+      while (target->length == target->storage.size() && !operation.read_paused) {
         co_await operation.receive_space.wait(cancellation);
+        target = operation.transfer_prepared ? &operation.transfer_incoming : &operation.incoming;
+      }
       // A settings request can arrive while queue space is unavailable.
       if (operation.read_paused) continue;
-      const auto capacity = std::min(buffer.size(), operation.incoming.storage.size() - operation.incoming.length);
+      const auto capacity = std::min(buffer.size(), target->storage.size() - target->length);
       operation.read_interrupt = cardio::cancellations::any(cancellation);
       operation.read_active = true;
       std::size_t count = 0;
@@ -212,12 +243,22 @@ static cardio::promise<void> read_stream(TerminalConnection *connection) {
       }
       if (count > 0) {
         const std::span<const unsigned char> bytes(buffer.data(), static_cast<std::size_t>(count));
-        auto converted = convert_terminal_text(operation.decoder.get(), bytes);
+        if (operation.transfer_prepared) {
+          append(operation.transfer_incoming, bytes);
+          operation.transfer_ready.trigger();
+          continue;
+        }
         // Conversion and notifications happen once, before bounded queue and
         // parser retries. The reader retains at most one converted chunk.
-        if (connection->output) connection->output(bytes, converted.bytes);
-        co_await queue_decoded(connection, std::move(converted.bytes), cancellation);
+        co_await queue_decoded(connection, decode_received(connection, bytes), cancellation);
       } else {
+        operation.transport_eof = true;
+        operation.read_active = false;
+        operation.transfer_ready.trigger();
+        operation.stream_changed.trigger();
+        while (operation.transfer_prepared || operation.read_paused)
+          co_await operation.read_resumed.wait(cancellation);
+        co_await queue_pending_raw(connection, cancellation);
         co_await queue_decoded(connection, finish_decoder(connection), cancellation);
         operation.eof = true;
         connection->wake();
@@ -234,6 +275,7 @@ static cardio::promise<void> read_stream(TerminalConnection *connection) {
   }
   operation.read_active = false;
   operation.stream_changed.trigger();
+  operation.transfer_ready.trigger();
 }
 
 static cardio::promise<void> write_stream(TerminalConnection *connection) {
@@ -333,12 +375,21 @@ static bool finish_input(TerminalConnection *connection) {
 static cardio::promise<void> finish_stream(TerminalConnection *connection) {
   auto &operation = *connection->operation;
   try {
+    // A successful binary transfer may have prefetched ordinary text. Keep
+    // that accepted suffix even if shutdown cancelled the resumed reader.
+    if (!operation.transfer_prepared) {
+      while (operation.transfer_incoming.length != 0) {
+        const auto bytes = front(operation.transfer_incoming);
+        const auto converted = decode_received(connection, bytes);
+        consume(operation.transfer_incoming, bytes.size());
+        operation.decoded.insert(operation.decoded.end(), converted.begin(), converted.end());
+      }
+    }
     if (operation.transport.finish_read) {
       const auto raw = operation.transport.finish_read();
       if (!raw.empty()) {
-        auto converted = convert_terminal_text(operation.decoder.get(), raw);
-        if (connection->output) connection->output(raw, converted.bytes);
-        operation.decoded.insert(operation.decoded.end(), converted.bytes.begin(), converted.bytes.end());
+        const auto converted = decode_received(connection, raw);
+        operation.decoded.insert(operation.decoded.end(), converted.begin(), converted.end());
       }
     }
     auto tail = finish_decoder(connection);
@@ -529,6 +580,7 @@ static bool prepare_connection(TerminalConnection *connection, std::size_t queue
   connection->operation = std::make_unique<ConnectionOperation>();
   connection->operation->incoming.storage.resize(queue_capacity);
   connection->operation->outgoing.storage.resize(queue_capacity);
+  connection->operation->transfer_incoming.storage.resize(queue_capacity);
   connection->operation->chunk_size = std::min(io_chunk_size, queue_capacity);
   connection->state = {};
   connection->state.generation = generation;
@@ -649,6 +701,7 @@ cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *co
     while (operation.read_active) co_await operation.stream_changed.wait(cancellation);
     cancellation.throw_if_cancellation_requested();
     if (operation.eof) throw cardio::canceled_exception();
+    co_await queue_pending_raw(connection, cancellation);
     co_await queue_decoded(connection, finish_decoder(connection), cancellation);
     connection->wake();
     while (operation.write_active || operation.outgoing.length != 0 ||
@@ -730,6 +783,116 @@ cardio::promise<bool> terminal_connection_send_text(TerminalConnection *connecti
   }
   operation.write_paused = false;
   operation.service_active = false;
+  --operation.pending_operations;
+  operation.drained.trigger();
+  connection->wake();
+  co_return succeeded;
+}
+
+bool terminal_connection_prepare_transfer(TerminalConnection *connection) {
+  if (connection->state.phase != TerminalConnectionPhase::connected ||
+      connection->operation->changing_encoding || connection->operation->service_active ||
+      connection->operation->transfer_incoming.length != 0) return false;
+  auto &operation = *connection->operation;
+  operation.service_active = true;
+  operation.transfer_prepared = true;
+  operation.receive_space.trigger();
+  return true;
+}
+
+static cardio::promise<void> send_transfer_bytes(ConnectionOperation *operation,
+    std::span<const std::uint8_t> bytes, std::uint32_t timeout_ms,
+    std::size_t &written, cardio::cancellation cancellation) {
+  written = 0;
+  if (bytes.empty()) co_return;
+  auto deadline = cardio::cancellations::timeout(timeout_ms);
+  auto stop = cardio::cancellations::any(cancellation, operation->io_stop.get_cancellation(), deadline.get_cancellation());
+  try {
+    const auto chunk = bytes.first(std::min(bytes.size(), operation->chunk_size));
+    co_await operation->transport.write(chunk, stop.get_cancellation());
+    written = chunk.size();
+  } catch (const cardio::canceled_exception &) {
+    if (cancellation.is_cancellation_requested() || operation->io_stop.get_cancellation().is_cancellation_requested())
+      throw xyzm_async_cancelled_error("transfer send cancelled");
+    throw xyzm_async_timeout_error("transfer send timeout");
+  }
+}
+
+static cardio::promise<void> receive_transfer_bytes(ConnectionOperation *operation,
+    std::span<std::uint8_t> bytes, std::uint32_t timeout_ms,
+    std::size_t &received, cardio::cancellation cancellation) {
+  received = 0;
+  if (bytes.empty()) co_return;
+  cancellation.throw_if_cancellation_requested();
+  operation->io_stop.get_cancellation().throw_if_cancellation_requested();
+  if (operation->transfer_incoming.length == 0) {
+    if (operation->transport_eof) throw xyzm_async_io_error("transfer peer closed");
+    if (timeout_ms == 0) throw xyzm_async_timeout_error("transfer receive is not ready");
+    auto deadline = cardio::cancellations::timeout(timeout_ms);
+    auto stop = cardio::cancellations::any(cancellation, operation->io_stop.get_cancellation(), deadline.get_cancellation());
+    try {
+      while (operation->transfer_incoming.length == 0) {
+        if (operation->transport_eof) throw xyzm_async_io_error("transfer peer closed");
+        co_await operation->transfer_ready.wait(stop.get_cancellation());
+      }
+    } catch (const cardio::canceled_exception &) {
+      if (cancellation.is_cancellation_requested() || operation->io_stop.get_cancellation().is_cancellation_requested())
+        throw xyzm_async_cancelled_error("transfer receive cancelled");
+      throw xyzm_async_timeout_error("transfer receive timeout");
+    }
+  }
+  // libxyzm owns a receive cache without a public remainder-return operation.
+  // Keep OS read-ahead here and give the parser one byte at a time, so a prompt
+  // following its final frame remains available to the normal terminal stream.
+  bytes[0] = front(operation->transfer_incoming)[0];
+  received = 1;
+  consume(operation->transfer_incoming, 1);
+  operation->receive_space.trigger();
+}
+
+cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connection,
+    TerminalTransferRequest request, cardio::cancellation cancellation) {
+  if (!connection->operation || !connection->operation->transfer_prepared) co_return false;
+  auto &operation = *connection->operation;
+  ++operation.pending_operations;
+  auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation());
+  bool succeeded = false;
+  try {
+    stop.get_cancellation().throw_if_cancellation_requested();
+    if (connection->state.phase != TerminalConnectionPhase::connected)
+      throw xyzm_async_io_error("transfer is not connected");
+    co_await drain_output(connection, stop.get_cancellation());
+    operation.write_paused = true;
+    TerminalTransferTransport transport{
+        [&operation](std::span<const std::uint8_t> bytes, std::uint32_t timeout,
+            std::size_t &written, cardio::cancellation token) {
+          return send_transfer_bytes(&operation, bytes, timeout, written, token);
+        },
+        [&operation](std::span<std::uint8_t> bytes, std::uint32_t timeout,
+            std::size_t &received, cardio::cancellation token) {
+          return receive_transfer_bytes(&operation, bytes, timeout, received, token);
+        },
+        [] { return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count()); }};
+    co_await run_terminal_transfer_async(request, std::move(transport), stop.get_cancellation());
+    succeeded = true;
+  } catch (const cardio::canceled_exception &) {
+  } catch (const xyzm_async_cancelled_error &) {
+  } catch (const std::exception &error) {
+    if (request.status) request.status(error.what());
+  }
+  // Join the old read boundary before returning its unconsumed bytes to text
+  // decoding. Cancellation of this transfer does not cancel the connection.
+  operation.read_paused = true;
+  operation.read_interrupt.cancel();
+  operation.receive_space.trigger();
+  while (operation.read_active) co_await operation.stream_changed.wait();
+  if (!succeeded) consume(operation.transfer_incoming, operation.transfer_incoming.length);
+  operation.transfer_prepared = false;
+  operation.service_active = false;
+  operation.write_paused = false;
+  operation.read_paused = false;
+  operation.read_resumed.trigger();
   --operation.pending_operations;
   operation.drained.trigger();
   connection->wake();
