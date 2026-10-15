@@ -1,5 +1,6 @@
 #include "terminal-runtime.h"
 #include "terminal-transports.h"
+#include "inline-prompt.h"
 
 #include <gestament/gtk.h>
 #include <glib-unix.h>
@@ -7,13 +8,15 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <optional>
 
 struct Driver {
   elder_terms::TerminalRuntime *runtime = nullptr;
   GtkWidget *status = nullptr;
   GtkWidget *connection_status = nullptr;
   elder_terms::TerminalLocalCommand command;
-  elder_terms::TelnetConnectionSettings telnet;
+  std::optional<elder_terms::TerminalTransportRequest> transport;
+  std::shared_ptr<elder_terms::InlinePromptController> prompt;
   elder_terms::TerminalTextSettings input_settings;
   bool connection_mode = false;
   bool closing = false;
@@ -131,12 +134,14 @@ static void disconnect(GtkButton *, gpointer context) {
   cardio::fire_and_forget(elder_terms::terminal_runtime_disconnect(driver->runtime));
 }
 
+static bool connect_driver(Driver *driver) {
+  return driver->transport ? elder_terms::terminal_runtime_connect_transport(driver->runtime, *driver->transport) :
+      elder_terms::terminal_runtime_connect_local(driver->runtime, driver->command);
+}
+
 static void reconnect(GtkButton *, gpointer context) {
   auto *driver = static_cast<Driver *>(context);
-  if (driver->telnet.address.empty())
-    elder_terms::terminal_runtime_connect_local(driver->runtime, driver->command);
-  else elder_terms::terminal_runtime_connect_transport(driver->runtime,
-      elder_terms::make_telnet_transport_request(driver->telnet, driver->command.encoding, {}, {}));
+  connect_driver(driver);
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
@@ -167,20 +172,56 @@ static void input_enabled_changed(GtkButton *button, gpointer context) {
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
+static cardio::promise<elder_terms::SshUserPromptResponse> prompt_ssh(Driver *driver,
+    const elder_terms::SshUserPrompt &prompt, cardio::cancellation cancellation) {
+  elder_terms::InlinePromptRequest request{
+      .title = prompt.title,
+      .message = prompt.message,
+      .monospace_message = prompt.monospace_message,
+      .accept_label = prompt.kind == elder_terms::SshUserPromptKind::host_key ? "Accept" : "Connect",
+      .cancel_label = "Cancel",
+      .initial_text = prompt.initial_text,
+      .input_required = prompt.input_required,
+      .echo = prompt.echo,
+      .cancel_visible = true,
+      .accept_visible = prompt.accept_visible,
+      .alternative_label = "Reset and Connect",
+      .alternative_visible = prompt.host_key_reset_available,
+  };
+  const auto response = co_await elder_terms::prompt_inline_async(driver->prompt, std::move(request), cancellation);
+  if (!driver->closing) gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
+  co_return elder_terms::SshUserPromptResponse{response.accepted, response.text, response.alternative};
+}
+
 int main(int argc, char **argv) {
   // Arguments after -- belong to the child; GTK must not consume their flags.
   gtk_init(nullptr, nullptr);
   cardio::dispatcher_group_glib group;
   cardio::dispatcher_host_glib_auto dispatcher(group);
   Driver driver;
+  elder_terms::TelnetConnectionSettings telnet{};
+  elder_terms::SshConnectionSettings ssh{};
+  elder_terms::AuthenticatedSshTransportOptions options;
   for (int index = 1; index < argc; ++index) {
     if (std::string_view(argv[index]) == "--local") driver.connection_mode = true;
     else if (std::string_view(argv[index]) == "--telnet" && index + 2 < argc) {
       driver.connection_mode = true;
-      driver.telnet.address = argv[++index];
-      driver.telnet.port = std::strtol(argv[++index], nullptr, 10);
-      driver.telnet.terminal_type = "xterm-256color";
+      telnet.address = argv[++index];
+      telnet.port = std::strtol(argv[++index], nullptr, 10);
+      telnet.terminal_type = "xterm-256color";
+    } else if (std::string_view(argv[index]) == "--ssh" && index + 3 < argc) {
+      driver.connection_mode = true;
+      ssh.endpoint.address = argv[++index];
+      ssh.endpoint.port = std::strtol(argv[++index], nullptr, 10);
+      ssh.endpoint.username = argv[++index];
+      ssh.terminal_type = "xterm-256color";
     }
+    else if (std::string_view(argv[index]) == "--identity" && index + 1 < argc)
+      ssh.endpoint.identity_file = argv[++index];
+    else if (std::string_view(argv[index]) == "--known-hosts" && index + 1 < argc)
+      options.known_hosts_file = argv[++index];
+    else if (std::string_view(argv[index]) == "--ssh-config" && index + 1 < argc)
+      options.config_file = argv[++index];
     else if (std::string_view(argv[index]) == "--trs80")
       driver.input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
     else if (std::string_view(argv[index]) == "--encoding" && index + 1 < argc)
@@ -208,7 +249,20 @@ int main(int argc, char **argv) {
   gtk_window_set_title(GTK_WINDOW(window), "boxrig driver");
   gestament_gtk_assign_accessible_id(window, "driver_window");
   auto *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  gtk_container_add(GTK_CONTAINER(window), content);
+  auto *overlay = gtk_overlay_new();
+  gtk_container_add(GTK_CONTAINER(window), overlay);
+  gtk_container_add(GTK_CONTAINER(overlay), content);
+  auto prompt_widgets = elder_terms::create_inline_prompt_widgets("driver_ssh_prompt");
+  gtk_overlay_add_overlay(GTK_OVERLAY(overlay), prompt_widgets.panel);
+  driver.prompt = elder_terms::create_inline_prompt_controller(prompt_widgets);
+  elder_terms::TerminalSessionCallbacks callbacks;
+  callbacks.ssh_prompt = [&driver](const elder_terms::SshUserPrompt &prompt, cardio::cancellation cancellation) {
+    return prompt_ssh(&driver, prompt, cancellation);
+  };
+  if (!ssh.endpoint.address.empty())
+    driver.transport = elder_terms::make_ssh_transport_request(ssh, driver.command.encoding, callbacks, options);
+  else if (!telnet.address.empty())
+    driver.transport = elder_terms::make_telnet_transport_request(telnet, driver.command.encoding, callbacks, options);
   auto *controls = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   gtk_box_pack_start(GTK_BOX(content), controls, FALSE, FALSE, 0);
   auto *zoom = gtk_button_new_with_label("Zoom in");
@@ -281,9 +335,7 @@ int main(int argc, char **argv) {
   for (unsigned int line = 1; line <= 120; ++line) output += "History line " + std::to_string(line) + "\r\n";
   output += "\033[2J\033[H日本語の端末 — boxrig\r\n\033[1;32mBold green text\033[0m\r\nSelect and copy this text.\r\n";
   const bool fed = !driver.connection_mode ? elder_terms::terminal_runtime_feed(driver.runtime, output) :
-      driver.telnet.address.empty() ? elder_terms::terminal_runtime_connect_local(driver.runtime, driver.command) :
-      elder_terms::terminal_runtime_connect_transport(driver.runtime,
-          elder_terms::make_telnet_transport_request(driver.telnet, driver.command.encoding, {}, {}));
+      connect_driver(&driver);
   gtk_widget_show_all(window);
   gtk_widget_grab_focus(GTK_WIDGET(widget));
   if (fed) gtk_main();

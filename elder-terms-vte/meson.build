@@ -59,7 +59,7 @@ ssh_transport_dep = declare_dependency(link_with: ssh_transport_library,
 
 boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
   ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp',
-   'src/terminal-sessions/terminal-text-stream.cpp', 'src/terminal-telnet-transport.cpp',
+   'src/terminal-sessions/terminal-text-stream.cpp', 'src/terminal-telnet-transport.cpp', 'src/terminal-ssh-transport.cpp',
    'src/terminal-sessions/telnet-session/telnet-protocol.cpp'],
   include_directories: elder_terms_shared_include_dir,
   dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep, ssh_transport_dep],
@@ -69,7 +69,7 @@ boxrig_runtime_dep = declare_dependency(
   include_directories: elder_terms_shared_include_dir,
   dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep, ssh_transport_dep],
 )
-executable('boxrig-driver', 'src/boxrig-driver.cpp',
+executable('boxrig-driver', ['src/boxrig-driver.cpp', 'src/inline-prompt.cpp'],
   cpp_args: ['-I' + gestament_include_dir],
   dependencies: [boxrig_runtime_dep],
 )
