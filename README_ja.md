@@ -928,7 +928,7 @@ sudo apt install build-essential git meson ninja-build pkg-config gettext \
   libwayland-dev libgl-dev libegl-dev libssl-dev libxml2-dev ca-certificates xdg-utils
 ```
 
-このほか、  Node.js 20以降が必要です。ディストリビューションが配布する Node.jsが使えるかもしれません:
+このほか、Node.js 22.18以降が必要です。[TypeScriptを直接実行できる版](https://nodejs.org/docs/latest-v22.x/api/typescript.html)を使用します。ディストリビューションのパッケージを使う場合は、インストール後にバージョンを確認してください。
 
 ```bash
 sudo apt install nodejs
@@ -991,7 +991,7 @@ npm run test
 
 Debian bookwormは対象外です。標準の[Cairo 1.16](https://packages.debian.org/bookworm/libcairo2-dev)と[IBus 1.5.27](https://packages.debian.org/bookworm/libibus-1.0-dev)が、描画ライブラリの必要なバージョンに届かないためです。
 
-ホストにはPodman、非ネイティブターゲット用のbinfmt/QEMU、`dpkg-deb`、`readelf`、Node.js、`npx`が必要です。リポジトリのルートで、再利用可能な前提イメージを一度生成してから、全組み合わせのパッケージを生成します。
+ホストにはPodman、非ネイティブターゲット用のbinfmt/QEMU、GNU Make、`dpkg-deb`、`readelf`、Node.js 22.18以降、npmと`npx`が必要です。先に`npm ci`を実行してください。リポジトリのルートで、再利用可能な前提イメージを一度生成してから、全組み合わせのパッケージを生成します。
 
 ```sh
 ./prereq.sh

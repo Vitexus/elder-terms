@@ -192,7 +192,7 @@ stage_dir="$work_dir/stage/$ELDER_TERMS_PACKAGE_NAME"
 
 require_command dpkg-architecture
 require_command dpkg-shlibdeps
-require_command gestament-config
+require_env ELDER_TERMS_PACKAGE_TOOLS
 require_command make
 require_command meson
 require_command pkg-config
@@ -230,6 +230,7 @@ meson setup "$build_dir" . \
 	--libdir=lib \
 	-Dautostartdir=/etc/xdg/autostart \
 	-Dapplication_version="$ELDER_TERMS_PACKAGE_VERSION" \
+	-Dpackage_build_tools="$ELDER_TERMS_PACKAGE_TOOLS" \
 	-Dbuild_tests=false \
 	-Dwerror=false
 meson compile -C "$build_dir" -j "$ELDER_TERMS_MAKE_JOBS"

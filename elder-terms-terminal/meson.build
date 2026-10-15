@@ -8,12 +8,6 @@ libcurl_dep = dependency('libcurl', version: '>=7.88.1')
 libxml2_dep = dependency('libxml-2.0', version: '>=2.9.14')
 openssl_dep = dependency('openssl')
 
-gestament_config = find_program(meson.project_source_root() / 'node_modules/.bin/gestament-config')
-gestament_include_dir = run_command(
-  gestament_config,
-  ['--includedir'],
-  check: true,
-).stdout().strip()
 make_program = find_program('make')
 libxyzm_root_dir = meson.project_source_root() / 'deps/libxyzm'
 libxyzm_include_dir = libxyzm_root_dir / 'include'

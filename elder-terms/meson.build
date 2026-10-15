@@ -4,12 +4,6 @@ elder_terms_launcher_gio_dep = dependency('gio-2.0')
 elder_terms_launcher_gdk_pixbuf_dep = dependency('gdk-pixbuf-2.0')
 elder_terms_launcher_x11_dep = dependency('x11')
 elder_terms_launcher_xml_dep = dependency('libxml-2.0')
-elder_terms_launcher_gestament_config = find_program(meson.project_source_root() / 'node_modules/.bin/gestament-config')
-elder_terms_launcher_gestament_include_dir = run_command(
-  elder_terms_launcher_gestament_config,
-  ['--includedir'],
-  check: true,
-).stdout().strip()
 
 elder_terms_launcher_configuration = configuration_data()
 elder_terms_launcher_configuration.set_quoted(
@@ -39,7 +33,7 @@ elder_terms_launcher = executable(
     'src/tray-backend.cpp',
   ],
   cpp_args: [
-    '-I' + elder_terms_launcher_gestament_include_dir,
+    '-I' + gestament_include_dir,
   ],
   include_directories: elder_terms_launcher_include_dir,
   dependencies: [

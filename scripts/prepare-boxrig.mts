@@ -14,11 +14,15 @@ import {
 } from 'node:fs/promises';
 import { availableParallelism } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const root = fileURLToPath(new URL('..', import.meta.url));
+const [rootArgument, buildArgument, toolsArgument] = process.argv.slice(2);
+if (rootArgument === undefined || buildArgument === undefined)
+  throw new Error(
+    'Usage: prepare-boxrig <source-directory> <build-directory> [prepared-tools]'
+  );
+const root = resolve(rootArgument);
 const upstream = join(root, 'deps/boxrig');
-const build = resolve(process.argv[2] ?? join(root, '.build'), 'boxrig');
+const build = resolve(buildArgument, 'boxrig');
+const prepared = toolsArgument ? resolve(toolsArgument, 'boxrig') : undefined;
 const sdk = join(build, 'sdk');
 const stamp = join(dirname(build), 'boxrig-sdk.stamp');
 
@@ -91,17 +95,27 @@ for (const required of [
   }
 }
 await mkdir(build, { recursive: true });
-const lock = await readFile(join(upstream, 'tools/codegen/package-lock.json'));
-const lockStamp = join(build, 'codegen-lock.json');
-if (
-  !(await exists(
-    join(upstream, 'tools/codegen/node_modules/.package-lock.json')
-  )) ||
-  !(await exists(lockStamp)) ||
-  !lock.equals(await readFile(lockStamp))
-) {
-  await run('npm', ['ci', '--prefix', 'tools/codegen']);
-  await writeFile(lockStamp, lock);
+if (prepared === undefined) {
+  const lock = await readFile(
+    join(upstream, 'tools/codegen/package-lock.json')
+  );
+  const lockStamp = join(build, 'codegen-lock.json');
+  if (
+    !(await exists(
+      join(upstream, 'tools/codegen/node_modules/.package-lock.json')
+    )) ||
+    !(await exists(lockStamp)) ||
+    !lock.equals(await readFile(lockStamp))
+  ) {
+    await run('npm', ['ci', '--prefix', 'tools/codegen']);
+    await writeFile(lockStamp, lock);
+  }
+} else {
+  await mkdir(join(build, 'generated/licenses'), { recursive: true });
+  await copyChanged(
+    join(prepared, 'generated/licenses/Wayland-protocols-NOTICES.md'),
+    join(build, 'generated/licenses/Wayland-protocols-NOTICES.md')
+  );
 }
 
 // The gitlink records the exact source; pkg-config carries its release version.
@@ -111,12 +125,22 @@ const makeArgs = [
   'GTK_OPENGL=1',
   'BOXRIG_VERSION=0.1.0',
   `PREFIX=${sdk}`,
+  ...(prepared === undefined
+    ? []
+    : [
+        `CODEGEN_DIR=${join(prepared, 'tools/codegen')}`,
+        `BOXRIG_PREGENERATED_PKGCONFIG=${join(prepared, 'generated/pkgconfig')}`,
+      ]),
 ];
 await run('make', [...makeArgs, 'shared-gtk3']);
 const inputs = [
   ...(await files(join(upstream, 'include'))),
   ...(await files(join(upstream, 'packaging/licenses'))),
-  ...(await files(join(build, 'shared/pkgconfig'))),
+  ...(await files(
+    prepared === undefined
+      ? join(build, 'shared/pkgconfig')
+      : join(prepared, 'generated/pkgconfig')
+  )),
   ...[
     'boxrig',
     'boxrig-ui',

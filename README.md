@@ -1070,8 +1070,9 @@ sudo apt install build-essential git meson ninja-build pkg-config gettext \
   libwayland-dev libgl-dev libegl-dev libssl-dev libxml2-dev ca-certificates xdg-utils
 ```
 
-Node.js 20 or later is also required. The Node.js package provided by your
-distribution may be suitable:
+Node.js 22.18 or later is also required for
+[direct TypeScript execution](https://nodejs.org/docs/latest-v22.x/api/typescript.html).
+Check the installed version when using your distribution's package:
 
 ```bash
 sudo apt install nodejs
@@ -1146,7 +1147,8 @@ The following package combinations are supported:
 Debian bookworm is excluded because its standard [Cairo 1.16](https://packages.debian.org/bookworm/libcairo2-dev) and [IBus 1.5.27](https://packages.debian.org/bookworm/libibus-1.0-dev) are below the rendering library's required versions.
 
 The host requires Podman, binfmt/QEMU for non-native targets, `dpkg-deb`,
-`readelf`, Node.js, and `npx`. From the repository root, first generate the
+`readelf`, GNU Make, Node.js 22.18 or later, npm, and `npx`. Run `npm ci` first.
+From the repository root, generate the
 reusable prerequisite images once, then build packages for every combination:
 
 ```sh

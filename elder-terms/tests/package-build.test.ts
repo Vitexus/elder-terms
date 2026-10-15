@@ -8,6 +8,7 @@ import {
   readFileSync,
   readlinkSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -266,6 +267,69 @@ container_image_for_target debian trixie riscv64
     );
   });
 
+  it('builds a usable SDK from relocated host-prepared tools without target npm', () => {
+    const prepared = join(temporaryRoot, 'prepared-tools');
+    expectSuccess(
+      run(process.execPath, [
+        join(projectRoot, 'scripts/prepare-package-tools.mts'),
+        prepared,
+      ]),
+      'host build-tool preparation failed'
+    );
+    const relocated = join(temporaryRoot, 'relocated-tools');
+    renameSync(prepared, relocated);
+    const commands = join(temporaryRoot, 'target-commands');
+    mkdirSync(commands);
+    writeExecutable(
+      join(commands, 'npm'),
+      '#!/bin/sh\necho "Target must use host-prepared tools" >&2\nexit 97\n'
+    );
+    const build = join(temporaryRoot, 'prepared-sdk-build');
+    expectSuccess(
+      run(
+        process.execPath,
+        [
+          '--no-experimental-strip-types',
+          join(relocated, 'prepare-boxrig.mjs'),
+          projectRoot,
+          build,
+          relocated,
+        ],
+        { ...process.env, PATH: `${commands}:${process.env.PATH}` }
+      ),
+      'SDK build with host-prepared tools failed'
+    );
+    const sdk = join(build, 'boxrig/sdk');
+    const flags = run(
+      'pkg-config',
+      ['--cflags', '--libs', 'boxrig-ui', 'boxrig-posix'],
+      {
+        ...process.env,
+        PKG_CONFIG_PATH: join(sdk, 'lib/pkgconfig'),
+      }
+    );
+    expectSuccess(flags, 'prepared SDK metadata lookup failed');
+    const consumer = join(temporaryRoot, 'prepared-sdk-consumer');
+    expectSuccess(
+      run('cc', [
+        '-std=c99',
+        '-Wall',
+        '-Wextra',
+        '-Werror',
+        join(projectRoot, 'deps/boxrig/tests/shared/consumer.c'),
+        ...flags.stdout.trim().split(/\s+/),
+        '-ldl',
+        '-o',
+        consumer,
+      ]),
+      'prepared SDK consumer compilation failed'
+    );
+    expectSuccess(
+      run(consumer, [], { ...process.env, LD_LIBRARY_PATH: join(sdk, 'lib') }),
+      'prepared SDK public API execution failed'
+    );
+  }, 180_000);
+
   it('configures Meson for a relocatable package installation', () => {
     const binDirectory = join(temporaryRoot, 'container-bin');
     const invocationPath = join(temporaryRoot, 'meson-invocation.txt');
@@ -299,6 +363,7 @@ exit 0
       ELDER_TERMS_PACKAGE_MAINTAINER: 'test <test@localhost>',
       ELDER_TERMS_PACKAGE_NAME: 'elder-terms',
       ELDER_TERMS_PACKAGE_VERSION: '1.2.3-test',
+      ELDER_TERMS_PACKAGE_TOOLS: join(temporaryRoot, 'container-tools'),
       ELDER_TERMS_TEST_MESON_INVOCATION: invocationPath,
       ELDER_TERMS_TEST_PKG_CONFIG_INVOCATION: pkgConfigInvocationPath,
       ELDER_TERMS_WORK_DIR: join(temporaryRoot, 'container-work'),
@@ -313,6 +378,9 @@ exit 0
     expect(invocation).toContain('-Dwerror=false');
     expect(invocation).toContain('--buildtype=release');
     expect(invocation).toContain('-Dapplication_version=1.2.3-test');
+    expect(invocation).toContain(
+      `-Dpackage_build_tools=${environment.ELDER_TERMS_PACKAGE_TOOLS}`
+    );
     expect(readFileSync(pkgConfigInvocationPath, 'utf8').split('\n')).toContain(
       '--exists libcanberra'
     );
@@ -542,13 +610,12 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       'liburing-dev',
       'libxkbcommon-dev',
       'meson',
-      'npm',
+      'nodejs',
       'openssh-client',
       'xdg-utils',
     ]) {
       expect(containerfile).toContain(dependency);
     }
-    expect(containerfile).toContain('npm ci --ignore-scripts');
     expect(prerequisite.stdout).toContain('Prerequisite images are ready.');
 
     const wrapperCapture = join(temporaryRoot, 'wrapper-arguments.txt');

@@ -335,6 +335,7 @@ build_deb_package() {
 		-e ELDER_TERMS_PACKAGE_MAINTAINER="${DEB_MAINTAINER:-$DEFAULT_MAINTAINER}" \
 		-e ELDER_TERMS_BUILD_TYPE="$BUILD_TYPE" \
 		-e ELDER_TERMS_MAKE_JOBS="$MAKE_JOBS" \
+		-e ELDER_TERMS_PACKAGE_TOOLS="/workspace/artifacts/.tmp/$RUN_ID/tools" \
 		"$image" \
 		./scripts/build_linux_dist_container.sh
 
@@ -582,7 +583,9 @@ main() {
 	printf '%s\n' "Using up to $PARALLEL_JOBS package jobs with meson compile -j $MAKE_JOBS"
 	require_command dpkg-deb
 	require_command readelf
+	require_command node
 	CONTAINER_ENGINE_BIN=$(choose_container_engine)
+	node "$PROJECT_ROOT/scripts/prepare-package-tools.mts" "$TMP_ROOT/tools"
 	schedule_deb_builds
 	wait_for_all_jobs
 	validate_deb_artifacts

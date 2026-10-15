@@ -12,13 +12,23 @@ project(
 elder_terms_private_install_dir = get_option('libdir') / 'elder-terms'
 elder_terms_private_install_rpath = '$ORIGIN/..'
 
-boxrig_prepare = files('scripts/prepare-boxrig.mts')
 boxrig_node = find_program('node')
-run_command(boxrig_node, boxrig_prepare, meson.project_build_root(), check: true)
+package_build_tools = get_option('package_build_tools')
+if package_build_tools == ''
+  boxrig_prepare = files('scripts/prepare-boxrig.mts')
+  gestament_config = find_program(meson.project_source_root() / 'node_modules/.bin/gestament-config')
+  gestament_include_dir = run_command(gestament_config, '--includedir', check: true).stdout().strip()
+else
+  boxrig_prepare = package_build_tools / 'prepare-boxrig.mjs'
+  gestament_include_dir = package_build_tools / 'include'
+endif
+boxrig_prepare_args = [boxrig_node, boxrig_prepare,
+  meson.project_source_root(), meson.project_build_root(), package_build_tools]
+run_command(boxrig_prepare_args, check: true)
 boxrig_sdk_target = custom_target(
   'boxrig-shared-sdk',
   output: 'boxrig-sdk.stamp',
-  command: [boxrig_node, boxrig_prepare, meson.project_build_root()],
+  command: boxrig_prepare_args,
   build_by_default: true,
   build_always_stale: true,
 )
