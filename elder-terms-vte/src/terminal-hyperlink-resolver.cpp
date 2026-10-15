@@ -65,10 +65,10 @@ static bool match_covers_target(const RegularExpressionMatch &match,
 }
 
 static std::optional<std::string> expand_hyperlink_template(
-    const std::string &value, const RegularExpressionMatch *match,
+    const std::string &value, const RegexCaptureLookup &capture,
     std::string *reason) {
   return expand_regex_capture_template(
-      value, match,
+      value, capture,
       RegexCaptureTemplateOptions{.allow_uri_decode = true}, reason);
 }
 
@@ -109,18 +109,26 @@ static bool validate_hyperlink_path(const std::string &value,
   return true;
 }
 
-static std::optional<TerminalHyperlinkAction> expand_hyperlink_action(
-    const HyperlinkActionRule &rule, const RegularExpressionMatch *match,
+std::optional<TerminalHyperlinkAction> expand_terminal_hyperlink_action(
+    const HyperlinkActionRule &rule, const RegexCaptureLookup &capture,
     std::string *reason) {
   TerminalHyperlinkAction action{
       .command = rule.command,
       .arguments = {},
   };
+  if (rule.command.empty() || rule.command.find('\0') != std::string::npos) {
+    *reason = "command must be nonempty and must not contain a NUL byte";
+    return std::nullopt;
+  }
   action.arguments.reserve(rule.arguments.size());
   for (const std::string &argument : rule.arguments) {
     const std::optional<std::string> expanded =
-        expand_hyperlink_template(argument, match, reason);
+        expand_hyperlink_template(argument, capture, reason);
     if (!expanded.has_value()) {
+      return std::nullopt;
+    }
+    if (expanded->find('\0') != std::string::npos) {
+      *reason = "expanded argument contains a NUL byte";
       return std::nullopt;
     }
     action.arguments.push_back(*expanded);
@@ -129,7 +137,7 @@ static std::optional<TerminalHyperlinkAction> expand_hyperlink_action(
   if (rule.path_validation ==
       HyperlinkPathValidation::existing_local_path) {
     const std::optional<std::string> path =
-        expand_hyperlink_template(rule.path_template, match, reason);
+        expand_hyperlink_template(rule.path_template, capture, reason);
     if (!path.has_value() || !validate_hyperlink_path(*path, reason)) {
       return std::nullopt;
     }
@@ -184,7 +192,8 @@ resolve_terminal_hyperlink(TerminalHyperlinkResolverState *state,
 
     std::string rejection;
     const std::optional<TerminalHyperlinkAction> action =
-        expand_hyperlink_action(rule.rule, &*match, &rejection);
+        expand_terminal_hyperlink_action(rule.rule,
+            [&match](const std::string &capture) { return regular_expression_capture(*match, capture); }, &rejection);
     if (action.has_value()) {
       return TerminalHyperlinkResolution{
           .action = action,

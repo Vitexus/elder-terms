@@ -36,6 +36,7 @@ struct Driver {
   elder_terms::TerminalTransferRequest transfer;
   bool connection_mode = false;
   bool zmodem_auto = false;
+  bool links = false;
   bool closing = false;
   std::string last_report;
   std::string last_connection_report;
@@ -129,6 +130,7 @@ static void report_state(void *context) {
       " input_pending=" + (elder_terms::terminal_runtime_input_settings_pending(driver->runtime) ? "1" : "0") +
       " input_generation=" + std::to_string(input.generation) +
       " size_command=" + std::to_string(size_state) +
+      " link_hover=" + (elder_terms::terminal_runtime_has_link_hover(driver->runtime) ? "1" : "0") +
       " ime_policy=" + std::to_string(ime.requested_policy) + " ime_route=" + std::to_string(ime.active_route) +
       " ime_reason=" + std::to_string(ime.reason) + " ime_state=" + std::to_string(ime.direct.state) +
       " ime_pending=" + std::to_string(ime.direct.pending) + " ime_contexts=" + std::to_string(ime.direct.contexts) +
@@ -341,6 +343,31 @@ static cardio::promise<elder_terms::SshUserPromptResponse> prompt_ssh(Driver *dr
   co_return elder_terms::SshUserPromptResponse{response.accepted, response.text, response.alternative};
 }
 
+static void configure_links(Driver *driver) {
+  elder_terms::terminal_runtime_set_hyperlink_rules(driver->runtime,
+      driver->links ? elder_terms::default_hyperlink_action_rules() : std::vector<elder_terms::HyperlinkActionRule>{}, [](elder_terms::TerminalHyperlinkResolution resolved) {
+        if (resolved.action) {
+          std::string value = resolved.action->command;
+          for (const auto &argument : resolved.action->arguments) {
+            value.push_back('\0');
+            value += argument;
+          }
+          auto *encoded = g_base64_encode(reinterpret_cast<const guchar *>(value.data()), value.size());
+          std::printf("link=%s\n", encoded);
+          g_free(encoded);
+        } else {
+          std::fprintf(stderr, "Link rejected: %s\n", resolved.error.c_str());
+        }
+        std::fflush(stdout);
+      });
+}
+
+static void toggle_links(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  driver->links = !driver->links;
+  configure_links(driver);
+}
+
 int main(int argc, char **argv) {
   // Arguments after -- belong to the child; GTK must not consume their flags.
   gtk_init(nullptr, nullptr);
@@ -357,6 +384,7 @@ int main(int argc, char **argv) {
   elder_terms::AuthenticatedSshTransportOptions options;
   for (int index = 1; index < argc; ++index) {
     if (std::string_view(argv[index]) == "--local") driver.connection_mode = true;
+    else if (std::string_view(argv[index]) == "--links") driver.links = true;
     else if (std::string_view(argv[index]) == "--serial" && index + 1 < argc) {
       driver.connection_mode = true;
       serial.device = argv[++index];
@@ -475,6 +503,12 @@ int main(int argc, char **argv) {
   auto *copy = gtk_button_new_with_label("Copy selection");
   gestament_gtk_assign_accessible_id(copy, "driver_copy");
   gtk_box_pack_start(GTK_BOX(controls), copy, FALSE, FALSE, 0);
+  if (driver.links) {
+    auto *button = gtk_button_new_with_label("Toggle links");
+    gestament_gtk_assign_accessible_id(button, "driver_links_toggle");
+    gtk_box_pack_start(GTK_BOX(controls), button, FALSE, FALSE, 0);
+    g_signal_connect(button, "clicked", G_CALLBACK(toggle_links), &driver);
+  }
   driver.status = gtk_label_new("Starting boxrig");
   gestament_gtk_assign_accessible_id(driver.status, "driver_status");
   gtk_box_pack_start(GTK_BOX(controls), driver.status, FALSE, FALSE, 0);
@@ -542,6 +576,7 @@ int main(int argc, char **argv) {
   }
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }
+  if (driver.links) configure_links(&driver);
   if (driver.zmodem_auto) elder_terms::terminal_runtime_set_zmodem_auto_start(driver.runtime,
       [&driver](elder_terms::TerminalTransferDirection, cardio::cancellation cancellation)
           -> cardio::promise<std::optional<elder_terms::TerminalTransferRequest>> {

@@ -5,6 +5,7 @@
 #include <optional>
 #include <elder-terms/settings.h>
 #include "terminal-connection.h"
+#include "terminal-hyperlink-resolver.h"
 
 namespace elder_terms {
 
@@ -42,6 +43,23 @@ void destroy_terminal_runtime(TerminalRuntime *runtime);
  * @return Borrowed widget; owned by the runtime and its GTK container.
  */
 BoxrigGtk3TerminalWidget *terminal_runtime_widget(TerminalRuntime *runtime);
+
+/**
+ * Replaces ordered link rules and the application action handler.
+ * @param runtime Live runtime; current recognition is invalidated atomically.
+ * @param rules Screen and OSC 8 rules, or an empty list to disable links.
+ * @param activate Called on Ctrl+click with the resolved action or rejection.
+ * @remarks The callback decides how to launch commands or display errors.
+ */
+void terminal_runtime_set_hyperlink_rules(TerminalRuntime *runtime,
+    std::vector<HyperlinkActionRule> rules, std::function<void(TerminalHyperlinkResolution)> activate);
+
+/**
+ * Reports whether the pointer currently resolves to an executable link.
+ * @param runtime Live runtime.
+ * @return True when the current pointer and recognition revisions are valid.
+ */
+bool terminal_runtime_has_link_hover(const TerminalRuntime *runtime);
 
 /**
  * Feeds fixed UTF-8 driver output and schedules presentation.

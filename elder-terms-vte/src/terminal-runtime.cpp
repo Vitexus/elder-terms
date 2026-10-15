@@ -1,4 +1,5 @@
 #include "terminal-runtime.h"
+#include "terminal-links.h"
 
 #include <cstdint>
 #include <limits>
@@ -18,6 +19,12 @@ struct TerminalRuntime {
   boxrig_terminal *terminal = nullptr;
   boxrig_ui_model *model = nullptr;
   TerminalConnection *connection = nullptr;
+  std::unique_ptr<TerminalLinks, decltype(&destroy_terminal_links)> links{nullptr, destroy_terminal_links};
+  std::function<void(TerminalHyperlinkResolution)> activate_link;
+  std::optional<std::pair<boxrig_ui_fixed, boxrig_ui_fixed>> pointer_position;
+  bool link_hover = false;
+  bool osc8_hover = false;
+  bool links_pending = false;
   std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> output;
   std::optional<std::variant<TerminalLocalCommand, TerminalTransportRequest>> pending_connection;
   std::optional<TerminalTransportRequest> recovery_request;
@@ -47,10 +54,11 @@ struct TerminalRuntime {
   GtkWindow *window = nullptr;
   GtkBox *content = nullptr;
   guint frame_source = 0;
+  guint presentation_source = 0;
   bool stopped = false;
   bool ui_failed = false;
   bool widget_allocated = false;
-  bool frame_pending = true;
+  bool notified_settled = false;
   bool selection_drag_active = false;
   std::uint64_t allocation_generation = 0;
   std::uint64_t command_allocation = 0;
@@ -66,11 +74,66 @@ struct TerminalRuntime {
 
 static void request_frame(void *context);
 
+static void notify_changed(TerminalRuntime *runtime) {
+  runtime->notified_settled = terminal_runtime_is_settled(runtime);
+  if (runtime->changed) runtime->changed(runtime->changed_context);
+}
+
+static gboolean observe_presentation(gpointer context) {
+  auto *runtime = static_cast<TerminalRuntime *>(context);
+  runtime->presentation_source = 0;
+  if (!runtime->stopped && runtime->notified_settled != terminal_runtime_is_settled(runtime))
+    notify_changed(runtime);
+  return G_SOURCE_REMOVE;
+}
+
+static gboolean drawn(GtkWidget *, cairo_t *, gpointer context) {
+  auto *runtime = static_cast<TerminalRuntime *>(context);
+  // OpenGL may finish in GTK's draw handler without another boxrig frame
+  // request. Observe that native completion once, outside the draw stack;
+  // this does not render again, poll, or fabricate a layout completion.
+  if (!runtime->stopped && !runtime->presentation_source)
+    runtime->presentation_source = g_idle_add(observe_presentation, runtime);
+  return FALSE;
+}
+
+static void update_link_cursor(TerminalRuntime *runtime, const boxrig_ui_hit_test_result &hit) {
+  const auto resolved = runtime->links ? terminal_links_resolve(runtime->links.get(), hit) : std::nullopt;
+  const bool active = resolved && resolved->action.has_value();
+  auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  if (active && hit.hyperlink_handle) {
+    runtime->osc8_hover = boxrig_ui_view_update_hyperlink_hover(view, &hit) == BOXRIG_UI_OK;
+  } else if (runtime->osc8_hover) {
+    boxrig_ui_view_clear_hyperlink_hover(view);
+    runtime->osc8_hover = false;
+  }
+  if (active != runtime->link_hover) {
+    runtime->link_hover = active;
+    if (auto *window = gtk_widget_get_window(GTK_WIDGET(runtime->widget))) {
+      auto *cursor = gdk_cursor_new_from_name(gdk_window_get_display(window), active ? "pointer" : "text");
+      gdk_window_set_cursor(window, cursor);
+      if (cursor) g_object_unref(cursor);
+    }
+    request_frame(runtime);
+  }
+}
+
+static gboolean pointer_left(GtkWidget *, GdkEventCrossing *, gpointer context) {
+  auto *runtime = static_cast<TerminalRuntime *>(context);
+  runtime->pointer_position.reset();
+  update_link_cursor(runtime, {});
+  return FALSE;
+}
+
 static boxrig_input_mouse_route route_mouse(
     const boxrig_mouse_event *event, const boxrig_ui_hit_test_result *hit,
     void *context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  if (runtime->links) {
+    runtime->pointer_position = {hit->x, hit->y};
+    update_link_cursor(runtime, *hit);
+  }
   const bool release = event->action == BOXRIG_MOUSE_RELEASE &&
                        event->button == BOXRIG_MOUSE_BUTTON_LEFT;
   if (runtime->selection_drag_active) {
@@ -93,6 +156,14 @@ static boxrig_input_mouse_route route_mouse(
   }
   if (event->action != BOXRIG_MOUSE_PRESS || !hit->inside_grid)
     return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
+  if (runtime->links && event->button == BOXRIG_MOUSE_BUTTON_LEFT &&
+      (event->modifiers & BOXRIG_MODIFIER_CONTROL)) {
+    const auto resolved = terminal_links_resolve(runtime->links.get(), *hit);
+    if (resolved) {
+      if (runtime->activate_link) runtime->activate_link(*resolved);
+      return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
+    }
+  }
   const bool override = (event->modifiers & (BOXRIG_MODIFIER_SHIFT | BOXRIG_MODIFIER_CONTROL)) != 0;
   if (boxrig_terminal_mouse_reporting_enabled(runtime->terminal) && !override)
     return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
@@ -480,13 +551,15 @@ static gboolean dispatch_frame(gpointer context) {
   // A failed presentation still owns live communication work. Continue its
   // session and host dispatch until cancellation has drained and joined it.
   if (runtime->ui_failed) {
-    if (runtime->changed) runtime->changed(runtime->changed_context);
+    notify_changed(runtime);
     return G_SOURCE_REMOVE;
   }
   if (!process_input_policy(runtime)) {
     fail_ui(runtime);
     return G_SOURCE_REMOVE;
   }
+  runtime->links_pending = runtime->links && terminal_links_dispatch(runtime->links.get(), 4096);
+  if (runtime->links_pending) request_frame(runtime);
   // Communication and stream finalization continue while the window is hidden.
   if (!runtime->widget_allocated || !gtk_widget_get_mapped(GTK_WIDGET(runtime->widget))) return G_SOURCE_REMOVE;
   boxrig_ui_component_frame_result result{};
@@ -500,8 +573,12 @@ static gboolean dispatch_frame(gpointer context) {
   // A pending presentation may be waiting for GTK allocation or paint. Only
   // additional_dispatch requests another immediate pass through the main loop.
   if (result.additional_dispatch) request_frame(runtime);
-  runtime->frame_pending = result.frame_pending;
-  if (runtime->changed) runtime->changed(runtime->changed_context);
+  if (runtime->links && runtime->pointer_position) {
+    boxrig_ui_hit_test_result hit{};
+    if (boxrig_gtk3_terminal_widget_hit_test(runtime->widget, runtime->pointer_position->first,
+        runtime->pointer_position->second, &hit) == BOXRIG_UI_OK) update_link_cursor(runtime, hit);
+  }
+  notify_changed(runtime);
   return G_SOURCE_REMOVE;
 }
 
@@ -559,6 +636,7 @@ static bool attach_widget(TerminalRuntime *runtime) {
   }
   g_object_ref_sink(scroll);
   if (previous_widget) {
+    if (runtime->links) terminal_links_attach_view(runtime->links.get(), nullptr);
     boxrig_font_specification font{};
     boxrig_font_effective_metrics metrics{};
     if (boxrig_gtk3_terminal_widget_get_font_specification(previous_widget, &font) == BOXRIG_UI_OK &&
@@ -573,14 +651,20 @@ static bool attach_widget(TerminalRuntime *runtime) {
     g_object_unref(previous_scroll);
   }
   runtime->widget = widget;
+  if (runtime->links) terminal_links_attach_view(runtime->links.get(), boxrig_gtk3_terminal_widget_view(widget));
+  runtime->pointer_position.reset();
+  runtime->link_hover = false;
+  runtime->osc8_hover = false;
   runtime->scroll = scroll;
   runtime->size_command = {};
   runtime->selection_drag_active = false;
-  runtime->frame_pending = true;
   runtime->widget_allocated = false;
   runtime->pending_input = runtime->applied_input;
   gtk_box_pack_start(runtime->content, scroll, TRUE, TRUE, 0);
   g_signal_connect(widget, "map", G_CALLBACK(mapped), runtime);
+  g_signal_connect_after(widget, "draw", G_CALLBACK(drawn), runtime);
+  gtk_widget_add_events(GTK_WIDGET(widget), GDK_LEAVE_NOTIFY_MASK);
+  g_signal_connect(widget, "leave-notify-event", G_CALLBACK(pointer_left), runtime);
   g_signal_connect(widget, "size-allocate", G_CALLBACK(terminal_allocated), runtime);
   size_t rows = 0, columns = 0;
   boxrig_terminal_size(runtime->terminal, &rows, &columns);
@@ -620,7 +704,9 @@ TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content) {
 void destroy_terminal_runtime(TerminalRuntime *runtime) {
   if (!runtime) return;
   runtime->stopped = true;
+  runtime->links.reset();
   if (runtime->frame_source) g_source_remove(runtime->frame_source);
+  if (runtime->presentation_source) g_source_remove(runtime->presentation_source);
   g_signal_handlers_disconnect_by_data(runtime->window, runtime);
   if (runtime->widget) {
     g_signal_handlers_disconnect_by_data(runtime->widget, runtime);
@@ -639,6 +725,18 @@ void destroy_terminal_runtime(TerminalRuntime *runtime) {
 }
 
 BoxrigGtk3TerminalWidget *terminal_runtime_widget(TerminalRuntime *runtime) { return runtime->widget; }
+
+void terminal_runtime_set_hyperlink_rules(TerminalRuntime *runtime,
+    std::vector<HyperlinkActionRule> rules, std::function<void(TerminalHyperlinkResolution)> activate) {
+  runtime->links.reset();
+  update_link_cursor(runtime, {});
+  if (!rules.empty()) runtime->links.reset(create_terminal_links(
+      boxrig_gtk3_terminal_widget_view(runtime->widget), std::move(rules)));
+  runtime->activate_link = std::move(activate);
+  request_frame(runtime);
+}
+
+bool terminal_runtime_has_link_hover(const TerminalRuntime *runtime) { return runtime->link_hover; }
 
 bool terminal_runtime_feed(TerminalRuntime *runtime, std::string_view text) {
   size_t consumed = 0;
@@ -669,8 +767,12 @@ boxrig_ui_status terminal_runtime_set_preferred_grid(TerminalRuntime *runtime, s
 
 bool terminal_runtime_is_settled(const TerminalRuntime *runtime) {
   boxrig_ui_size_command_state state{};
-  return !runtime->stopped && !runtime->ui_failed && !runtime->grid_pending && !runtime->frame_pending && runtime->frame_source == 0 &&
+  boxrig_gtk_render_state render{};
+  return !runtime->stopped && !runtime->ui_failed && !runtime->links_pending && !runtime->grid_pending && runtime->frame_source == 0 &&
       runtime->size_command.revision == 0 &&
+      boxrig_gtk3_terminal_widget_has_presentation(runtime->widget) &&
+      !boxrig_ui_view_frame_requested(boxrig_gtk3_terminal_widget_view(runtime->widget)) &&
+      boxrig_gtk3_terminal_widget_get_render_state(runtime->widget, &render) == BOXRIG_UI_OK && !render.pending &&
       boxrig_gtk3_terminal_widget_get_size_command_state(runtime->widget, &state) == BOXRIG_UI_OK &&
       state == BOXRIG_UI_SIZE_COMMAND_IDLE;
 }

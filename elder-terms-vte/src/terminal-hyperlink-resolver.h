@@ -5,6 +5,7 @@
 #include <vector>
 
 #include <elder-terms/settings/hyperlink-settings.h>
+#include <elder-terms/settings/regex-capture-template.h>
 
 namespace elder_terms {
 
@@ -40,6 +41,16 @@ struct TerminalHyperlinkResolution {
   /** Human-readable rejection reason when action has no value. */
   std::string error;
 };
+
+/**
+ * Expands and validates an action using already matched captures.
+ * @param rule Rule whose command and path policy are applied.
+ * @param capture Borrowed lookup into an immutable match.
+ * @param reason Receives a template or path rejection reason.
+ * @return Safe command and arguments, or no value on rejection.
+ */
+std::optional<TerminalHyperlinkAction> expand_terminal_hyperlink_action(
+    const HyperlinkActionRule &rule, const RegexCaptureLookup &capture, std::string *reason);
 
 /**
  * Opaque compiled terminal link action resolver.
