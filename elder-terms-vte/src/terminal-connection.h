@@ -9,6 +9,7 @@
 #include <vector>
 #include "terminal-transport.h"
 #include "terminal-text-send.h"
+#include "terminal-break.h"
 
 namespace elder_terms {
 
@@ -183,6 +184,22 @@ bool terminal_connection_prepare_transfer(TerminalConnection *connection);
  */
 cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connection,
     TerminalTransferRequest request, cardio::cancellation cancellation);
+
+/**
+ * Reports whether the connected transport can accept a BREAK operation.
+ * @param connection Communication owner.
+ * @return False for unsupported, inactive or busy transports.
+ */
+bool terminal_connection_can_send_break(const TerminalConnection *connection);
+
+/**
+ * Drains accepted output, sends BREAK, and resumes normal sending.
+ * @param connection Connected owner, retained until completion.
+ * @param request Status callback; the runtime owns the finished callback.
+ * @return True after transport BREAK completion and cleanup.
+ * @remarks Disconnect cancels and joins this operation before closing the channel.
+ */
+cardio::promise<bool> terminal_connection_send_break(TerminalConnection *connection, TerminalBreakRequest request);
 
 /**
  * Gets an observable lifecycle snapshot.

@@ -747,6 +747,36 @@ static cardio::promise<void> drain_output(TerminalConnection *connection, cardio
   cancellation.throw_if_cancellation_requested();
 }
 
+bool terminal_connection_can_send_break(const TerminalConnection *connection) {
+  return connection->state.phase == TerminalConnectionPhase::connected &&
+      !connection->operation->changing_encoding && !connection->operation->service_active &&
+      static_cast<bool>(connection->operation->transport.send_break);
+}
+
+cardio::promise<bool> terminal_connection_send_break(TerminalConnection *connection, TerminalBreakRequest request) {
+  if (!terminal_connection_can_send_break(connection)) co_return false;
+  auto &operation = *connection->operation;
+  ++operation.pending_operations;
+  operation.service_active = true;
+  const auto cancellation = operation.io_stop.get_cancellation();
+  bool succeeded = false;
+  try {
+    co_await drain_output(connection, cancellation);
+    operation.write_paused = true;
+    co_await operation.transport.send_break(cancellation);
+    succeeded = true;
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::exception &error) {
+    if (request.status) request.status(error.what());
+  }
+  operation.write_paused = false;
+  operation.service_active = false;
+  --operation.pending_operations;
+  operation.drained.trigger();
+  connection->wake();
+  co_return succeeded;
+}
+
 cardio::promise<bool> terminal_connection_send_text(TerminalConnection *connection,
     TerminalTextSendRequest request, cardio::cancellation cancellation) {
   if (connection->state.phase != TerminalConnectionPhase::connected ||

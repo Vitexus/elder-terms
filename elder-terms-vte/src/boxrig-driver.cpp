@@ -16,6 +16,7 @@ struct Driver {
   elder_terms::TerminalRuntime *runtime = nullptr;
   GtkWidget *status = nullptr;
   GtkWidget *connection_status = nullptr;
+  GtkWidget *break_button = nullptr;
   elder_terms::TerminalLocalCommand command;
   std::optional<elder_terms::TerminalTransportRequest> transport;
   std::shared_ptr<elder_terms::InlinePromptController> prompt;
@@ -78,6 +79,8 @@ static void report_connection(Driver *driver) {
 static void report_state(void *context) {
   auto *driver = static_cast<Driver *>(context);
   report_connection(driver);
+  if (driver->break_button) gtk_widget_set_sensitive(driver->break_button,
+      elder_terms::terminal_runtime_can_send_break(driver->runtime));
   auto *widget = elder_terms::terminal_runtime_widget(driver->runtime);
   boxrig_gtk_render_state render{};
   boxrig_font_effective_metrics metrics{};
@@ -223,6 +226,14 @@ static void send_text(GtkButton *, gpointer context) {
 
 static void cancel_transfer(GtkButton *, gpointer context) {
   elder_terms::terminal_runtime_cancel_transfer(static_cast<Driver *>(context)->runtime);
+}
+
+static void send_break(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  elder_terms::TerminalBreakRequest request;
+  request.status = [](const std::string &status) { std::fprintf(stderr, "BREAK: %s\n", status.c_str()); };
+  request.finished = [](bool succeeded) { std::printf("break_finished=%d\n", succeeded); std::fflush(stdout); };
+  elder_terms::terminal_runtime_send_break(driver->runtime, std::move(request));
 }
 
 static void start_transfer(GtkButton *, gpointer context) {
@@ -389,6 +400,10 @@ int main(int argc, char **argv) {
     gtk_box_pack_start(GTK_BOX(connections), driver.connection_status, FALSE, FALSE, 0);
     g_signal_connect(stop, "clicked", G_CALLBACK(disconnect), &driver);
     g_signal_connect(start, "clicked", G_CALLBACK(reconnect), &driver);
+    driver.break_button = gtk_button_new_with_label("BREAK");
+    gestament_gtk_assign_accessible_id(driver.break_button, "driver_break");
+    gtk_box_pack_start(GTK_BOX(connections), driver.break_button, FALSE, FALSE, 0);
+    g_signal_connect(driver.break_button, "clicked", G_CALLBACK(send_break), &driver);
     auto *inputs = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_pack_start(GTK_BOX(content), inputs, FALSE, FALSE, 0);
     const char *input_labels[] = {"Use TRS-80 (Ctrl+F12)", "Use default keys", "Pause input", "Resume input"};

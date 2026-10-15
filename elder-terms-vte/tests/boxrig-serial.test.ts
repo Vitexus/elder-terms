@@ -60,6 +60,13 @@ it('exchanges serial bytes, reconnects without clearing the display, and finaliz
       expect(await visible()).toContain('SERIAL:日本語');
       expect(received().toString()).toBe('\x1b[1;1R');
     });
+    const sendBreak = await app.getById('driver_break');
+    if (sendBreak.kind !== 'button') throw new Error('Missing BREAK control');
+    await sendBreak.click();
+    await toPass(async () =>
+      expect((await app.output()).stdout).toContain('break_finished=1')
+    );
+    expect(received().toString()).toBe('\x1b[1;1R');
     const window = await app.getById('driver_window');
     if (window.kind !== 'window') throw new Error('Missing driver window');
     await window.activate();

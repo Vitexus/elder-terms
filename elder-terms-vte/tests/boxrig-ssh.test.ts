@@ -180,6 +180,12 @@ printf 'SSH_EOF\\342\\202'
         ).toContain('SSH_READY:日本語');
         expect(await readFile(reply, 'utf8')).toBe('\x1b[1;1R');
       });
+      const sendBreak = await app.getById('driver_break');
+      if (sendBreak.kind !== 'button') throw new Error('Missing BREAK control');
+      await sendBreak.click();
+      await toPass(async () =>
+        expect((await app.output()).stdout).toContain('break_finished=1')
+      );
       const window = await app.getById('driver_window');
       const status = await app.getById('driver_status');
       if (window.kind !== 'window' || status.kind !== 'label')

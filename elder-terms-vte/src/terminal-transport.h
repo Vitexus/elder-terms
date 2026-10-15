@@ -25,6 +25,8 @@ struct TerminalTransport {
   std::function<cardio::promise<void>()> close;
   /** Returns retained protocol-decoded input after joining read, before close. */
   std::function<std::vector<unsigned char>()> finish_read = {};
+  /** Sends BREAK and restores the line on cancellation; empty when unsupported. */
+  std::function<cardio::promise<void>(cardio::cancellation)> send_break = {};
 };
 
 /** A reusable channel factory and bounded stream-conversion policy. */

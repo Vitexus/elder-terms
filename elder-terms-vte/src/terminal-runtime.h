@@ -175,6 +175,21 @@ bool terminal_runtime_cancel_transfer(TerminalRuntime *runtime);
 bool terminal_runtime_start_transfer(TerminalRuntime *runtime, TerminalTransferRequest request);
 
 /**
+ * Reports whether BREAK can be started on the current connection.
+ * @param runtime Live runtime.
+ * @return False while another exclusive operation is pending or active.
+ */
+bool terminal_runtime_can_send_break(const TerminalRuntime *runtime);
+
+/**
+ * Sends BREAK after accepted output drains, retaining received output and display.
+ * @param runtime Connected runtime with BREAK support.
+ * @param request Status and completion callbacks.
+ * @return True when accepted; completion follows transport cleanup.
+ */
+bool terminal_runtime_send_break(TerminalRuntime *runtime, TerminalBreakRequest request);
+
+/**
  * Requests input inhibition or resumption while preserving selection and display.
  * @param runtime Live runtime.
  * @param enabled Whether application policy permits terminal input.

@@ -53,6 +53,18 @@ static cardio::promise<void> close_serial(SerialChannel *channel) {
     co_await cardio::io_urings::close(channel->io, std::exchange(channel->descriptor, -1));
 }
 
+static cardio::promise<void> break_serial(SerialChannel *channel, cardio::cancellation cancellation) {
+  cancellation.throw_if_cancellation_requested();
+  set_serial_break_state(channel->descriptor, true);
+  std::exception_ptr failure;
+  try { co_await cardio::promises::delay(500, cancellation); }
+  catch (...) { failure = std::current_exception(); }
+  // The connection joins this operation before closing the descriptor, even
+  // when disconnect interrupts the asserted interval.
+  set_serial_break_state(channel->descriptor, false);
+  if (failure) std::rethrow_exception(failure);
+}
+
 static cardio::promise<TerminalTransport> open_serial(SerialConnectionSettings settings,
     TerminalSessionCallbacks callbacks, cardio::cancellation cancellation) {
   auto resolving = cardio::promises::start_new([settings] {
@@ -73,7 +85,8 @@ static cardio::promise<TerminalTransport> open_serial(SerialConnectionSettings s
       [channel](std::span<unsigned char> bytes, cardio::cancellation stop) { return read_serial(channel.get(), bytes, stop); },
       [channel](std::span<const unsigned char> bytes, cardio::cancellation stop) { return write_serial(channel.get(), bytes, stop); },
       [](std::size_t, std::size_t, cardio::cancellation stop) -> cardio::promise<void> { stop.throw_if_cancellation_requested(); co_return; },
-      [channel] { return close_serial(channel.get()); }};
+      [channel] { return close_serial(channel.get()); }, {},
+      [channel](cardio::cancellation stop) { return break_serial(channel.get(), stop); }};
 }
 
 TerminalTransportRequest make_serial_transport_request(SerialConnectionSettings settings,

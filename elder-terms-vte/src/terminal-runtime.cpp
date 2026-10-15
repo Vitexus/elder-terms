@@ -27,6 +27,8 @@ struct TerminalRuntime {
   std::optional<cardio::promise<void>> service_completion;
   cardio::cancellation_source service_stop;
   bool service_active = false;
+  std::optional<cardio::promise<void>> break_completion;
+  bool break_active = false;
   TerminalTextSettings applied_input;
   bool input_allowed = true;
   BoxrigGtk3TerminalWidget *widget = nullptr;
@@ -157,6 +159,13 @@ static cardio::promise<void> run_service(TerminalRuntime *runtime, TerminalServi
     else return terminal_connection_transfer(runtime->connection, std::move(value), runtime->service_stop.get_cancellation());
   }, request);
   finish_service(runtime, request, succeeded);
+}
+
+static cardio::promise<void> send_break(TerminalRuntime *runtime, TerminalBreakRequest request) {
+  const auto succeeded = co_await terminal_connection_send_break(runtime->connection, request);
+  runtime->break_active = false;
+  request_frame(runtime);
+  if (request.finished) request.finished(succeeded);
 }
 
 static bool process_input_policy(TerminalRuntime *runtime) {
@@ -566,6 +575,7 @@ cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
   co_await terminal_connection_wait_stopped(runtime->connection);
   if (runtime->encoding_completion) co_await *runtime->encoding_completion;
   if (runtime->service_completion) co_await *runtime->service_completion;
+  if (runtime->break_completion) co_await *runtime->break_completion;
   if (runtime->grid_completion) co_await *runtime->grid_completion;
 }
 
@@ -587,7 +597,7 @@ bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime) { r
 
 bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string encoding) {
   if (runtime->stopped || runtime->ui_failed || runtime->encoding_active ||
-      runtime->pending_service || runtime->service_active ||
+      runtime->pending_service || runtime->service_active || runtime->break_active ||
       terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected) return false;
   runtime->pending_encoding = std::move(encoding);
   request_frame(runtime);
@@ -600,7 +610,7 @@ bool terminal_runtime_encoding_pending(const TerminalRuntime *runtime) {
 
 bool terminal_runtime_start_text_send(TerminalRuntime *runtime, TerminalTextSendRequest request) {
   if (runtime->stopped || runtime->ui_failed || runtime->pending_encoding || runtime->encoding_active ||
-      runtime->pending_service || runtime->service_active ||
+      runtime->pending_service || runtime->service_active || runtime->break_active ||
       terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected ||
       request.bytes_per_second == 0 || !terminal_text_send_source_is_valid(request.source)) return false;
   request.text_settings = runtime->applied_input;
@@ -632,13 +642,27 @@ bool terminal_runtime_cancel_transfer(TerminalRuntime *runtime) {
 
 bool terminal_runtime_start_transfer(TerminalRuntime *runtime, TerminalTransferRequest request) {
   if (runtime->stopped || runtime->ui_failed || runtime->pending_encoding || runtime->encoding_active ||
-      runtime->pending_service || runtime->service_active ||
+      runtime->pending_service || runtime->service_active || runtime->break_active ||
       (request.direction == TerminalTransferDirection::send && request.source_file_uris.empty()) ||
       !terminal_connection_prepare_transfer(runtime->connection)) return false;
   runtime->service_stop = {};
   runtime->pending_service = std::move(request);
   const auto &transfer = std::get<TerminalTransferRequest>(*runtime->pending_service);
   if (transfer.active) transfer.active(true);
+  request_frame(runtime);
+  return true;
+}
+
+bool terminal_runtime_can_send_break(const TerminalRuntime *runtime) {
+  return !runtime->stopped && !runtime->ui_failed && !runtime->pending_encoding && !runtime->encoding_active &&
+      !runtime->pending_service && !runtime->service_active && !runtime->break_active &&
+      terminal_connection_can_send_break(runtime->connection);
+}
+
+bool terminal_runtime_send_break(TerminalRuntime *runtime, TerminalBreakRequest request) {
+  if (!terminal_runtime_can_send_break(runtime)) return false;
+  runtime->break_active = true;
+  runtime->break_completion.emplace(send_break(runtime, std::move(request)));
   request_frame(runtime);
   return true;
 }

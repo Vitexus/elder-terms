@@ -17,6 +17,7 @@ struct Fixture {
   cardio::primitives::conditional received;
   cardio::primitives::conditional resize_ready;
   cardio::primitives::conditional write_ready;
+  cardio::primitives::conditional break_ready;
   std::string incoming;
   std::string outgoing;
   std::string normal_output;
@@ -29,6 +30,8 @@ struct Fixture {
   bool closed = false;
   bool hold_write = false;
   bool write_pending = false;
+  bool break_asserted = false;
+  bool closed_during_break = false;
   std::size_t requested_rows = 0;
   std::size_t requested_columns = 0;
 };
@@ -90,7 +93,18 @@ static TerminalTransportRequest request(Fixture *fixture) {
           co_return;
         },
         [fixture](std::size_t rows, std::size_t columns, cardio::cancellation stop) { return resize_peer(fixture, rows, columns, stop); },
-        [fixture]() -> cardio::promise<void> { fixture->closed = true; co_return; }};
+        [fixture]() -> cardio::promise<void> {
+          fixture->closed_during_break = fixture->break_asserted;
+          fixture->closed = true;
+          co_return;
+        }, {},
+        [fixture](cardio::cancellation stop) -> cardio::promise<void> {
+          fixture->break_asserted = true;
+          fixture->changed.trigger();
+          try { co_await fixture->break_ready.wait(stop); }
+          catch (...) { fixture->break_asserted = false; throw; }
+          fixture->break_asserted = false;
+        }};
   };
   return request;
 }
@@ -230,6 +244,35 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   while (fixture->outgoing == before_pending_cancel) co_await fixture->changed.wait();
   co_await terminal_runtime_disconnect(fixture->runtime);
   expect(finished == 6 && !succeeded && fixture->closed, "disconnect recovers binary receive and transfer work before closing");
+
+  fixture->outgoing.clear();
+  fixture->hold_write = true;
+  expect(terminal_runtime_connect_transport(fixture->runtime, request(fixture)), "connect for BREAK ordering");
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  fixture->incoming = "\033[H\033[6n";
+  fixture->received.trigger();
+  while (!fixture->write_pending) co_await fixture->changed.wait();
+  TerminalBreakRequest breaking;
+  breaking.finished = sending.finished;
+  expect(terminal_runtime_send_break(fixture->runtime, breaking), "accept BREAK after pending normal output");
+  expect(!fixture->break_asserted, "BREAK cannot overtake an accepted normal write");
+  fixture->hold_write = false;
+  fixture->write_ready.trigger();
+  while (!fixture->break_asserted) co_await fixture->changed.wait();
+  expect(!terminal_runtime_start_text_send(fixture->runtime, sending), "text send waits until BREAK finishes");
+  expect(!terminal_runtime_request_encoding(fixture->runtime, "CP932"), "encoding exchange waits until BREAK finishes");
+  expect(terminal_runtime_feed(fixture->runtime, "\033[H\033[6n"), "generate a reply during BREAK");
+  while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  expect(fixture->outgoing == "\033[1;1R", "normal output remains queued while BREAK is asserted");
+  fixture->break_ready.trigger();
+  while (finished != 7 || fixture->outgoing != "\033[1;1R\033[1;1R") co_await fixture->changed.wait();
+  expect(succeeded, "BREAK completion resumes normal output");
+  expect(terminal_runtime_send_break(fixture->runtime, breaking), "start BREAK before disconnect");
+  while (!fixture->break_asserted) co_await fixture->changed.wait();
+  co_await terminal_runtime_disconnect(fixture->runtime);
+  expect(finished == 8 && !succeeded && fixture->closed && !fixture->closed_during_break,
+      "disconnect cancels and deasserts BREAK before closing the channel");
 }
 
 static cardio::promise<void> run(Fixture *fixture, std::exception_ptr *failure) {

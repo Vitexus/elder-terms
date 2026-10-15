@@ -8,6 +8,15 @@
 
 namespace elder_terms {
 
+void set_serial_break_state(int fd, bool active) {
+  const unsigned long request = active ? TIOCSBRK : TIOCCBRK;
+  while (::ioctl(fd, request) < 0) {
+    if (errno == EINTR) continue;
+    throw std::system_error(errno, std::generic_category(),
+        active ? "serial TIOCSBRK failed" : "serial TIOCCBRK failed");
+  }
+}
+
 #ifndef BOTHER
 static constexpr tcflag_t BOTHER = 0010000;
 #endif

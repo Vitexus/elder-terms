@@ -47,4 +47,12 @@ serial_termios_configuration(SerialConnectionSettings settings);
  */
 void configure_serial_port(int fd, SerialConnectionSettings settings);
 
+/**
+ * Asserts or releases a serial BREAK without blocking for its duration.
+ * @param fd Open serial descriptor, retained until BREAK is released.
+ * @param active True to assert BREAK; false to release it.
+ * @throws std::system_error when the line operation fails.
+ */
+void set_serial_break_state(int fd, bool active);
+
 } // namespace elder_terms

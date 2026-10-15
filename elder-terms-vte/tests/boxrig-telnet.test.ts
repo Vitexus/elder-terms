@@ -122,6 +122,15 @@ it('runs TELNET negotiation, terminal replies, resize and reconnect through boxr
         )
       ).toBe(true);
     });
+    const sendBreak = await app.getById('driver_break');
+    if (sendBreak.kind !== 'button') throw new Error('Missing BREAK control');
+    await sendBreak.click();
+    await toPass(async () => {
+      expect((await app.output()).stdout).toContain('break_finished=1');
+      expect(Buffer.concat(received[0]).includes(Buffer.from([255, 243]))).toBe(
+        true
+      );
+    });
     const window = await app.getById('driver_window');
     const status = await app.getById('driver_status');
     if (window.kind !== 'window' || status.kind !== 'label')

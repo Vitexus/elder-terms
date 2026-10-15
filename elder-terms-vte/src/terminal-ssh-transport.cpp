@@ -15,7 +15,8 @@ static cardio::promise<TerminalTransport> open_ssh(SshConnectionSettings setting
       [channel](std::size_t height, std::size_t width, cardio::cancellation stop) {
         return channel->resize_async(static_cast<glong>(width), static_cast<glong>(height), stop);
       },
-      [channel]() -> cardio::promise<void> { channel->close(); co_return; }};
+      [channel]() -> cardio::promise<void> { channel->close(); co_return; }, {},
+      [channel](cardio::cancellation stop) { return channel->send_break_async(500, stop); }};
 }
 
 TerminalTransportRequest make_ssh_transport_request(SshConnectionSettings settings,
