@@ -335,6 +335,11 @@ exit 0
       join(binDirectory, 'make'),
       `#!/bin/sh
 set -eu
+# Only intercept the libxyzm invocation; Meson also prepares the boxrig SDK.
+case " $* " in
+  *" LIBXYZM_EXTRA_CXXFLAGS="*) ;;
+  *) exec /usr/bin/make "$@" ;;
+esac
 printf '%s\n' "$@" >"$ELDER_TERMS_TEST_LIBXYZM_MAKE_INVOCATION"
 build_dir=''
 for argument in "$@"; do
