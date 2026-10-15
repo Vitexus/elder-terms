@@ -32,6 +32,12 @@ struct TerminalTransport {
   std::function<cardio::promise<void>(cardio::cancellation)> send_break = {};
   /** Shares the current shell's authenticated SSH route; empty for other transports. */
   std::function<std::shared_ptr<AuthenticatedSshTransport>()> authenticated_ssh = {};
+  /**
+   * Optional carrier observer; false suspends sending without closing receive.
+   * The first argument publishes changes; cancellation ends observation.
+   * Release callbacks before returning. The connection joins this before close.
+   */
+  std::function<cardio::promise<void>(std::function<void(bool)>, cardio::cancellation)> watch_carrier = {};
 };
 
 /** A reusable channel factory and bounded stream-conversion policy. */

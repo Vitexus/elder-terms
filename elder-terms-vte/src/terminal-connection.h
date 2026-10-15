@@ -19,7 +19,7 @@ enum class TerminalConnectionPhase {
   idle,
   /** Parent preparation or child startup is pending. */
   starting,
-  /** The child has successfully executed and the channel accepts input. */
+  /** The channel is open; carrier_connected determines whether it accepts input. */
   connected,
   /** Cancellation or failure is recovering the old channel. */
   stopping,
@@ -63,6 +63,10 @@ struct TerminalConnectionState {
   bool reaped = false;
   /** Whether the peer reader has ended, before buffered input and services finish. */
   bool receive_ended = false;
+  /** Whether the optional carrier permits sending on the open channel. */
+  bool carrier_connected = true;
+  /** Carrier drops in this generation, including drops restored before a frame. */
+  std::uint64_t carrier_losses = 0;
   /** Largest observed application receive queue occupancy. */
   std::size_t receive_peak = 0;
   /** Largest observed application send queue occupancy. */

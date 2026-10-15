@@ -24,6 +24,10 @@ struct Fixture {
   std::function<void()> notify_available;
   bool monitoring = false;
   bool device_available = false;
+  cardio::primitives::conditional carrier;
+  std::function<void(bool)> notify_carrier;
+  bool carrier_monitoring = false;
+  bool closed_during_carrier_monitor = false;
   std::string incoming;
   std::string outgoing;
   std::string normal_output;
@@ -105,6 +109,7 @@ static TerminalTransportRequest request(Fixture *fixture) {
         [fixture](std::size_t rows, std::size_t columns, cardio::cancellation stop) { return resize_peer(fixture, rows, columns, stop); },
         [fixture]() -> cardio::promise<void> {
           fixture->closed_during_break = fixture->break_asserted;
+          fixture->closed_during_carrier_monitor = fixture->carrier_monitoring;
           fixture->closed = true;
           co_return;
         }, {},
@@ -114,6 +119,16 @@ static TerminalTransportRequest request(Fixture *fixture) {
           try { co_await fixture->break_ready.wait(stop); }
           catch (...) { fixture->break_asserted = false; throw; }
           fixture->break_asserted = false;
+        }, {},
+        [fixture](std::function<void(bool)> notify, cardio::cancellation stop) -> cardio::promise<void> {
+          fixture->carrier_monitoring = true;
+          fixture->notify_carrier = std::move(notify);
+          fixture->changed.trigger();
+          try { co_await fixture->carrier.wait(stop); }
+          catch (const cardio::canceled_exception &) {}
+          fixture->carrier_monitoring = false;
+          fixture->notify_carrier = {};
+          fixture->changed.trigger();
         }};
   };
   return request;
@@ -401,6 +416,103 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::closed)
     co_await fixture->changed.wait();
   expect(fixture->normal_output == before_eof + "**\x18" "B0000", "EOF releases an incomplete header as ordinary data exactly once");
+
+  terminal_runtime_set_zmodem_auto_start(fixture->runtime, {});
+  fixture->outgoing.clear();
+  fixture->hold_write = true;
+  expect(terminal_runtime_connect_transport(fixture->runtime, request(fixture)), "connect with carrier observation");
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  expect(fixture->carrier_monitoring && fixture->notify_carrier, "connected transport observes carrier changes");
+  const auto carrier_generation = terminal_runtime_connection_state(fixture->runtime).generation;
+  fixture->incoming = "\033[H\033[6n\033[6n";
+  fixture->received.trigger();
+  while (!fixture->write_pending) co_await fixture->changed.wait();
+  fixture->notify_carrier(false);
+  do {
+    co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  } while (input.phase != BOXRIG_UI_INPUT_DISABLED || fixture->write_pending);
+  expect(!fixture->closed, "carrier loss joins pending writes while retaining the physical channel");
+  expect(!terminal_runtime_start_text_send(fixture->runtime, sending) &&
+      !terminal_runtime_start_transfer(fixture->runtime, transfer) &&
+      !terminal_runtime_send_break(fixture->runtime, breaking), "carrier loss rejects new sending operations");
+  const auto discarded_output = fixture->outgoing;
+  fixture->incoming = "\033[2J\033[HCARRIER_DOWN\033[6n";
+  fixture->received.trigger();
+  while (text(fixture).find("CARRIER_DOWN") == std::string::npos) co_await fixture->changed.wait();
+  expect(fixture->outgoing == discarded_output, "receive and display continue while generated replies are discarded");
+  fixture->hold_write = false;
+  fixture->notify_carrier(true);
+  do {
+    co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  } while (input.phase != BOXRIG_UI_INPUT_ENABLED);
+  expect(fixture->outgoing == discarded_output, "restored carrier cannot replay queued output");
+  expect(terminal_runtime_connection_state(fixture->runtime).generation == carrier_generation,
+      "carrier restoration retains the physical connection generation");
+  fixture->incoming = "\033[H\033[6n";
+  fixture->received.trigger();
+  while (fixture->outgoing == discarded_output) co_await fixture->changed.wait();
+  expect(fixture->outgoing == discarded_output + "\033[1;1R", "fresh replies resume after carrier restoration");
+
+  const auto before_bounce = finished;
+  const auto before_bounce_output = fixture->outgoing;
+  expect(terminal_runtime_start_text_send(fixture->runtime, sending), "queue text immediately before carrier bounce");
+  fixture->notify_carrier(false);
+  fixture->notify_carrier(true);
+  while (finished == before_bounce) co_await fixture->changed.wait();
+  expect(!succeeded && fixture->outgoing == before_bounce_output,
+      "a carrier bounce before the next frame cancels pending old input");
+
+  fixture->hold_write = true;
+  fixture->incoming = "\033[H\033[6n";
+  fixture->received.trigger();
+  while (!fixture->write_pending) co_await fixture->changed.wait();
+  expect(terminal_runtime_request_encoding(fixture->runtime, "CP932"), "exchange encoding while output drains");
+  do {
+    co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  } while (input.phase != BOXRIG_UI_INPUT_DISABLED);
+  fixture->notify_carrier(false);
+  while (terminal_runtime_encoding_pending(fixture->runtime)) co_await fixture->changed.wait();
+  expect(terminal_runtime_connection_state(fixture->runtime).encoding == "UTF-8",
+      "carrier loss cancels an encoding exchange before it can send the old encoder tail");
+  fixture->hold_write = false;
+  fixture->notify_carrier(true);
+  do {
+    co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  } while (input.phase != BOXRIG_UI_INPUT_ENABLED);
+
+  for (const auto operation : {0, 1, 2}) {
+    const auto before_finished = finished;
+    fixture->hold_write = operation == 0;
+    if (operation == 0) {
+      expect(terminal_runtime_start_text_send(fixture->runtime, sending), "send text before carrier loss");
+      while (!fixture->write_pending) co_await fixture->changed.wait();
+    } else if (operation == 1) {
+      const auto before_transfer = fixture->outgoing;
+      expect(terminal_runtime_start_transfer(fixture->runtime, transfer), "transfer before carrier loss");
+      while (fixture->outgoing == before_transfer) co_await fixture->changed.wait();
+    } else {
+      expect(terminal_runtime_send_break(fixture->runtime, breaking), "assert BREAK before carrier loss");
+      while (!fixture->break_asserted) co_await fixture->changed.wait();
+    }
+    fixture->notify_carrier(false);
+    while (finished == before_finished) co_await fixture->changed.wait();
+    expect(!succeeded && !fixture->break_asserted && !fixture->write_pending && !fixture->closed,
+        "carrier loss cancels and joins text, binary and BREAK operations without closing receive");
+    fixture->hold_write = false;
+    fixture->notify_carrier(true);
+    do {
+      co_await fixture->changed.wait();
+      boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+    } while (input.phase != BOXRIG_UI_INPUT_ENABLED);
+  }
+  co_await terminal_runtime_disconnect(fixture->runtime);
+  expect(!fixture->closed_during_carrier_monitor && !fixture->carrier_monitoring && !fixture->notify_carrier,
+      "shutdown joins carrier observation before closing the physical channel");
 
   const auto retained_display = text(fixture);
   auto recovering = request(fixture);

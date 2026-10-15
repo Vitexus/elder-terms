@@ -72,6 +72,7 @@ struct ConnectionOperation {
   bool changing_encoding = false;
   bool service_active = false;
   bool transfer_prepared = false;
+  cardio::cancellation transfer_carrier;
   bool transport_eof = false;
   cardio::primitives::conditional transfer_ready;
   bool read_paused = false;
@@ -84,6 +85,7 @@ struct ConnectionOperation {
   std::size_t pending_operations = 0;
   cardio::cancellation_source stop;
   cardio::cancellation_source io_stop;
+  cardio::cancellation_source carrier_stop;
   cardio::primitives::conditional receive_space;
   cardio::primitives::conditional send_ready;
   cardio::primitives::conditional drained;
@@ -136,9 +138,9 @@ static boxrig_transport_status send(
   auto *connection = static_cast<TerminalConnection *>(context);
   auto &operation = *connection->operation;
   *written = 0;
-  if (operation.finishing) {
-    // The old channel is gone. Drain core replies without forwarding them to
-    // any later connection, so retained receive data can still be parsed.
+  if (operation.finishing || !connection->state.carrier_connected) {
+    // Sending has ended or its carrier is down. Drain core replies without
+    // forwarding them later, so retained receive data can still be parsed.
     *written = length;
     return BOXRIG_TRANSPORT_OK;
   }
@@ -336,17 +338,23 @@ static cardio::promise<void> write_stream(TerminalConnection *connection) {
   try {
     for (;;) {
       cancellation.throw_if_cancellation_requested();
-      while (operation.outgoing.length == 0) co_await operation.send_ready.wait(cancellation);
+      while (operation.outgoing.length == 0 || !connection->state.carrier_connected)
+        co_await operation.send_ready.wait(cancellation);
       operation.write_active = true;
       const auto bytes = front(operation.outgoing).first(std::min(front(operation.outgoing).size(), operation.chunk_size));
       auto converted = convert_terminal_text(operation.encoder.get(), bytes);
       consume(operation.outgoing, bytes.size());
       connection->wake();
-      std::size_t offset = 0;
-      while (offset < converted.bytes.size()) {
-        const auto count = std::min(operation.chunk_size, converted.bytes.size() - offset);
-        co_await operation.transport.write(std::span(converted.bytes).subspan(offset, count), cancellation);
-        offset += count;
+      auto writing = cardio::cancellations::any(cancellation, operation.carrier_stop.get_cancellation());
+      try {
+        std::size_t offset = 0;
+        while (offset < converted.bytes.size()) {
+          const auto count = std::min(operation.chunk_size, converted.bytes.size() - offset);
+          co_await operation.transport.write(std::span(converted.bytes).subspan(offset, count), writing.get_cancellation());
+          offset += count;
+        }
+      } catch (const cardio::canceled_exception &) {
+        cancellation.throw_if_cancellation_requested();
       }
       operation.write_active = false;
       operation.stream_changed.trigger();
@@ -575,11 +583,40 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
   connection->wake();
 }
 
+static cardio::promise<void> watch_carrier(TerminalConnection *connection) {
+  auto &operation = *connection->operation;
+  const auto cancellation = operation.io_stop.get_cancellation();
+  try {
+    co_await operation.transport.watch_carrier([connection, cancellation](bool connected) {
+      if (cancellation.is_cancellation_requested() || connection->state.carrier_connected == connected) return;
+      auto &current = *connection->operation;
+      connection->state.carrier_connected = connected;
+      if (!connected) {
+        ++connection->state.carrier_losses;
+        current.carrier_stop.cancel();
+        consume(current.outgoing, current.outgoing.length);
+        discard_outgoing(connection->terminal);
+        // All writers retain converted bytes, never a borrowed encoder. Drop
+        // its old partial UTF-8 and shift state before accepting a new carrier.
+        current.encoder = create_terminal_text_encoder(connection->state.encoding);
+      } else current.carrier_stop = {};
+      current.send_ready.trigger();
+      connection->wake();
+    }, cancellation);
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::system_error &error) {
+    fail(connection, error.code().value());
+  } catch (...) {
+    fail(connection, EIO);
+  }
+}
+
 static cardio::promise<void> run_transport(TerminalConnection *connection, TerminalTransportRequest request) {
   auto &operation = *connection->operation;
   const auto cancellation = operation.stop.get_cancellation();
   std::optional<cardio::promise<void>> reader;
   std::optional<cardio::promise<void>> writer;
+  std::optional<cardio::promise<void>> carrier;
   try {
     operation.decoder = create_terminal_text_decoder(request.encoding);
     operation.encoder = create_terminal_text_encoder(request.encoding);
@@ -599,6 +636,7 @@ static cardio::promise<void> run_transport(TerminalConnection *connection, Termi
     connection->wake();
     reader.emplace(read_stream(connection));
     writer.emplace(write_stream(connection));
+    if (operation.transport.watch_carrier) carrier.emplace(watch_carrier(connection));
     co_await *reader;
     while (!operation.peer_closed) co_await operation.drained.wait(cancellation);
   } catch (const cardio::canceled_exception &) {
@@ -610,6 +648,7 @@ static cardio::promise<void> run_transport(TerminalConnection *connection, Termi
   operation.io_stop.cancel();
   if (reader) co_await *reader;
   if (writer) co_await *writer;
+  if (carrier) co_await *carrier;
   while (operation.pending_operations != 0) co_await operation.drained.wait();
   co_await finish_stream(connection);
   if (operation.transport.close) co_await operation.transport.close();
@@ -741,6 +780,7 @@ TerminalConnectionState terminal_connection_state(const TerminalConnection *conn
 
 cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *connection, std::string encoding) {
   if (connection->state.phase != TerminalConnectionPhase::connected ||
+      !connection->state.carrier_connected ||
       connection->operation->changing_encoding || connection->operation->service_active) co_return false;
   if (connection->state.encoding == encoding) co_return true;
   TerminalTextStreamPtr decoder{nullptr, destroy_terminal_text_stream};
@@ -757,15 +797,18 @@ cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *co
   operation.read_paused = true;
   operation.read_interrupt.cancel();
   operation.receive_space.trigger();
-  const auto cancellation = operation.io_stop.get_cancellation();
+  const auto receiving = operation.io_stop.get_cancellation();
+  auto stop = cardio::cancellations::any(receiving, operation.carrier_stop.get_cancellation());
+  const auto cancellation = stop.get_cancellation();
   bool changed = false;
   try {
-    while (operation.read_active) co_await operation.stream_changed.wait(cancellation);
-    cancellation.throw_if_cancellation_requested();
+    while (operation.read_active) co_await operation.stream_changed.wait(receiving);
+    receiving.throw_if_cancellation_requested();
     if (operation.eof) throw cardio::canceled_exception();
-    co_await queue_decoded(connection, finish_auto_start_prefix(connection), cancellation);
-    co_await queue_pending_raw(connection, cancellation);
-    co_await queue_decoded(connection, finish_decoder(connection), cancellation);
+    co_await queue_decoded(connection, finish_auto_start_prefix(connection), receiving);
+    co_await queue_pending_raw(connection, receiving);
+    co_await queue_decoded(connection, finish_decoder(connection), receiving);
+    cancellation.throw_if_cancellation_requested();
     connection->wake();
     while (operation.write_active || operation.outgoing.length != 0 ||
         (boxrig_session_interests(operation.session) & BOXRIG_SESSION_INTEREST_WRITE) != 0) {
@@ -783,6 +826,12 @@ cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *co
     connection->state.encoding = std::move(encoding);
     changed = true;
   } catch (const cardio::canceled_exception &) {
+    if (!receiving.is_cancellation_requested() && operation.decoder_finished) {
+      // The old receive boundary has already been delivered in full. Resume
+      // the unchanged encoding with a fresh decoder after a carrier drop.
+      operation.decoder = create_terminal_text_decoder(connection->state.encoding);
+      operation.decoder_finished = false;
+    }
   } catch (const std::system_error &error) {
     fail(connection, error.code().value());
   } catch (...) {
@@ -812,6 +861,7 @@ static cardio::promise<void> drain_output(TerminalConnection *connection, cardio
 
 bool terminal_connection_can_send_break(const TerminalConnection *connection) {
   return connection->state.phase == TerminalConnectionPhase::connected &&
+      connection->state.carrier_connected &&
       !connection->operation->changing_encoding && !connection->operation->service_active &&
       static_cast<bool>(connection->operation->transport.send_break);
 }
@@ -827,7 +877,8 @@ cardio::promise<bool> terminal_connection_send_break(TerminalConnection *connect
   auto &operation = *connection->operation;
   ++operation.pending_operations;
   operation.service_active = true;
-  const auto cancellation = operation.io_stop.get_cancellation();
+  auto stop = cardio::cancellations::any(operation.io_stop.get_cancellation(), operation.carrier_stop.get_cancellation());
+  const auto cancellation = stop.get_cancellation();
   bool succeeded = false;
   try {
     co_await drain_output(connection, cancellation);
@@ -849,12 +900,13 @@ cardio::promise<bool> terminal_connection_send_break(TerminalConnection *connect
 cardio::promise<bool> terminal_connection_send_text(TerminalConnection *connection,
     TerminalTextSendRequest request, cardio::cancellation cancellation) {
   if (connection->state.phase != TerminalConnectionPhase::connected ||
+      !connection->state.carrier_connected ||
       connection->operation->changing_encoding || connection->operation->service_active ||
       request.bytes_per_second == 0 || !terminal_text_send_source_is_valid(request.source)) co_return false;
   auto &operation = *connection->operation;
   ++operation.pending_operations;
   operation.service_active = true;
-  auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation());
+  auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation(), operation.carrier_stop.get_cancellation());
   request.text_settings.encoding = connection->state.encoding;
   bool succeeded = false;
   try {
@@ -890,12 +942,14 @@ cardio::promise<bool> terminal_connection_send_text(TerminalConnection *connecti
 
 bool terminal_connection_prepare_transfer(TerminalConnection *connection) {
   if (connection->state.phase != TerminalConnectionPhase::connected ||
+      !connection->state.carrier_connected ||
       connection->operation->changing_encoding || connection->operation->service_active ||
       connection->operation->transfer_incoming.length != 0 ||
       !connection->operation->transfer_prefetch.empty()) return false;
   auto &operation = *connection->operation;
   operation.service_active = true;
   operation.transfer_prepared = true;
+  operation.transfer_carrier = operation.carrier_stop.get_cancellation();
   ++operation.pending_operations;
   operation.read_policy_changed = true;
   operation.read_interrupt.cancel();
@@ -976,7 +1030,7 @@ cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connectio
     TerminalTransferRequest request, cardio::cancellation cancellation) {
   if (!connection->operation || !connection->operation->transfer_prepared) co_return false;
   auto &operation = *connection->operation;
-  auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation());
+  auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation(), operation.transfer_carrier);
   bool succeeded = false;
   try {
     stop.get_cancellation().throw_if_cancellation_requested();

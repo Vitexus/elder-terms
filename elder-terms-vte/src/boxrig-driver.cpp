@@ -69,10 +69,10 @@ static void report_connection(Driver *driver) {
       state.phase == elder_terms::TerminalConnectionPhase::closed ? "closed" : "idle";
   char report[384];
   std::snprintf(report, sizeof(report),
-      "connection=%s generation=%llu spawn=%d stage=%d errno=%d pid=%d exit=%d signal=%d cancelled=%d reaped=%d error=%d rx_peak=%zu tx_peak=%zu",
+      "connection=%s generation=%llu spawn=%d stage=%d errno=%d pid=%d exit=%d signal=%d cancelled=%d reaped=%d error=%d rx_peak=%zu tx_peak=%zu carrier=%d",
       phase, static_cast<unsigned long long>(state.generation), state.spawn.state, state.spawn.stage,
       state.spawn.error_number, state.child, state.exit_code, state.signal_number,
-      state.cancelled, state.reaped, state.operation_error, state.receive_peak, state.send_peak);
+      state.cancelled, state.reaped, state.operation_error, state.receive_peak, state.send_peak, state.carrier_connected);
   if (driver->last_connection_report != report) {
     driver->last_connection_report = report;
     char label[128];
@@ -344,6 +344,12 @@ int main(int argc, char **argv) {
     }
     else if (std::string_view(argv[index]) == "--baud" && index + 1 < argc)
       serial.baudrate = std::strtol(argv[++index], nullptr, 10);
+    else if (std::string_view(argv[index]) == "--carrier" && index + 1 < argc) {
+      const std::string_view value(argv[++index]);
+      serial.carrier_detect = value == "cts" ? elder_terms::SerialCarrierDetect::cts :
+          value == "dsr" ? elder_terms::SerialCarrierDetect::dsr :
+          value == "cd" ? elder_terms::SerialCarrierDetect::cd : elder_terms::SerialCarrierDetect::ignore;
+    }
     else if (std::string_view(argv[index]) == "--telnet" && index + 2 < argc) {
       driver.connection_mode = true;
       telnet.address = argv[++index];

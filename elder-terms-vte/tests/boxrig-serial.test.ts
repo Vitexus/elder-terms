@@ -32,7 +32,16 @@ it('exchanges serial bytes, reconnects without clearing the display, and finaliz
   });
   const launcher = createGtkAppLauncher({
     appPath: driverPath,
-    args: ['--serial', path, '--return', 'lf', '--backspace', 'bs'],
+    args: [
+      '--serial',
+      path,
+      '--carrier',
+      'cd',
+      '--return',
+      'lf',
+      '--backspace',
+      'bs',
+    ],
   });
   try {
     const app = await launcher.launch();
@@ -40,6 +49,9 @@ it('exchanges serial bytes, reconnects without clearing the display, and finaliz
       expect((await app.output()).stdout).toContain(
         'connection=connected generation=1'
       )
+    );
+    expect((await app.output()).stderr).toContain(
+      'serial carrier detection unavailable'
     );
     peer.stdin.write('TX \x1b[6nSERIAL:日本語\x1bE\n');
     const visible = async (): Promise<string> => {

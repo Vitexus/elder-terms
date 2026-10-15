@@ -41,6 +41,7 @@ struct TerminalRuntime {
   bool break_active = false;
   TerminalTextSettings applied_input;
   bool input_allowed = true;
+  std::uint64_t handled_carrier_losses = 0;
   BoxrigGtk3TerminalWidget *widget = nullptr;
   GtkWidget *scroll = nullptr;
   GtkWindow *window = nullptr;
@@ -248,7 +249,10 @@ static bool process_input_policy(TerminalRuntime *runtime) {
     }
   }
   const auto connection = terminal_connection_state(runtime->connection);
-  if (connection.phase != TerminalConnectionPhase::connected) runtime->pending_encoding.reset();
+  const bool carrier_interrupted = runtime->handled_carrier_losses != connection.carrier_losses;
+  if (connection.phase != TerminalConnectionPhase::connected || !connection.carrier_connected || carrier_interrupted)
+    runtime->pending_encoding.reset();
+  if (!connection.carrier_connected || carrier_interrupted) terminal_runtime_cancel_transfer(runtime);
   if (runtime->auto_selecting && connection.receive_ended) terminal_runtime_cancel_transfer(runtime);
   if (connection.phase == TerminalConnectionPhase::closed && !connection.cancelled && runtime->recovery_request &&
       runtime->recovery_epoch != runtime->attempted_recovery_epoch && !runtime->pending_connection &&
@@ -257,11 +261,11 @@ static bool process_input_policy(TerminalRuntime *runtime) {
     runtime->pending_recovery = true;
     runtime->input_allowed = true;
   }
-  const bool enabled = runtime->input_allowed && !runtime->pending_connection &&
+  const bool enabled = runtime->input_allowed && !carrier_interrupted && !runtime->pending_connection &&
       !runtime->pending_encoding && !runtime->encoding_active &&
       !runtime->pending_service && !runtime->service_active &&
       (connection.generation == 0 ||
-      connection.phase == TerminalConnectionPhase::connected);
+      (connection.phase == TerminalConnectionPhase::connected && connection.carrier_connected));
   boxrig_ui_input_state input{};
   if (!ui_result(boxrig_gtk3_terminal_widget_get_input_state(runtime->widget, &input), "input state")) return false;
   if ((enabled && input.phase != BOXRIG_UI_INPUT_ENABLED) ||
@@ -306,6 +310,10 @@ static bool process_input_policy(TerminalRuntime *runtime) {
     runtime->pending_service.reset();
     runtime->service_active = true;
     runtime->service_completion.emplace(run_service(runtime, std::move(request)));
+  }
+  if (carrier_interrupted && input.phase == BOXRIG_UI_INPUT_DISABLED) {
+    runtime->handled_carrier_losses = connection.carrier_losses;
+    request_frame(runtime);
   }
   return true;
 }
@@ -739,7 +747,8 @@ bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime) { r
 bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string encoding) {
   if (runtime->stopped || runtime->ui_failed || runtime->encoding_active ||
       runtime->pending_service || runtime->service_active || runtime->break_active ||
-      terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected) return false;
+      terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected ||
+      !terminal_connection_state(runtime->connection).carrier_connected) return false;
   runtime->pending_encoding = std::move(encoding);
   request_frame(runtime);
   return true;
@@ -753,6 +762,7 @@ bool terminal_runtime_start_text_send(TerminalRuntime *runtime, TerminalTextSend
   if (runtime->stopped || runtime->ui_failed || runtime->pending_encoding || runtime->encoding_active ||
       runtime->pending_service || runtime->service_active || runtime->break_active ||
       terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected ||
+      !terminal_connection_state(runtime->connection).carrier_connected ||
       request.bytes_per_second == 0 || !terminal_text_send_source_is_valid(request.source)) return false;
   request.text_settings = runtime->applied_input;
   request.text_settings.encoding = terminal_connection_state(runtime->connection).encoding;

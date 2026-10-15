@@ -29,12 +29,13 @@ TerminalTransportRequest make_ssh_transport_request(SshConnectionSettings settin
 
 /**
  * Creates a serial byte-stream factory using the saved device identity.
- * @param settings Device identity, character framing, baud rate and flow control.
+ * @param settings Device identity, framing, baud rate, flow control and carrier.
  * @param encoding Peer character encoding.
- * @param callbacks Receive and send activity notifications.
+ * @param callbacks Receive/send activity and modem-line indicator notifications.
  * @return Reusable factory; each open resolves and configures a fresh descriptor.
  * @remarks Device notifications permit runtime recovery after a failed open or
  * unplug. The monitor is joined when the user disconnects or replaces the target.
+ * Carrier drops suspend sending while retaining the open port and its reader.
  */
 TerminalTransportRequest make_serial_transport_request(SerialConnectionSettings settings,
     std::string encoding, TerminalSessionCallbacks callbacks);
