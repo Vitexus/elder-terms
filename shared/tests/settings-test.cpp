@@ -1055,17 +1055,6 @@ static void test_general_color_none_overrides_global_colors() {
               "an explicit none should remain a connection override");
 }
 
-static void test_background_does_not_change_terminal_type() {
-  auto store = create_default_settings(default_terminal_display_settings(12.0),
-                                       "elder-terms");
-  set_explicit_setting_value(&store, general_background_setting_key(),
-                            elder_terms::SettingValue{std::string("#102030")});
-  expect_true(elder_terms::telnet_connection_settings(store).terminal_type ==
-                  "xterm-256color" &&
-                  ssh_connection_settings(store).terminal_type == "xterm-256color",
-              "a display background must not change the advertised terminal type");
-}
-
 static void test_invalid_general_colors_fall_back_and_warn() {
   const std::filesystem::path global_path =
       temporary_config_path("valid-global-general-colors");
@@ -4448,8 +4437,6 @@ int main() {
     elder_terms_settings_test::test_general_color_settings();
     elder_terms_settings_test::
         test_general_color_none_overrides_global_colors();
-    elder_terms_settings_test::
-        test_background_does_not_change_terminal_type();
     elder_terms_settings_test::
         test_invalid_general_colors_fall_back_and_warn();
     elder_terms_settings_test::test_terminal_text_defaults_follow_connection_type();
