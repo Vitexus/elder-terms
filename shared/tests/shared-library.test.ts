@@ -44,9 +44,10 @@ describe('elder-terms shared library', () => {
       ]);
 
     expect(header).toMatch(/Type:\s+DYN/);
-    expect(dynamic).toContain('Library soname: [libelder-terms.so]');
-    expect(launcherDynamic).toContain('Shared library: [libelder-terms.so]');
-    expect(terminalDynamic).toContain('Shared library: [libelder-terms.so]');
+    expect(dynamic).toContain('Library soname: [libelder-terms.so.0]');
+    expect(launcherDynamic).toContain('Shared library: [libelder-terms.so.0]');
+    expect(terminalDynamic).toContain('Shared library: [libelder-terms.so.0]');
+    expect(terminalDynamic).toContain('Shared library: [libcardio.so.0]');
     expect(symbols).toContain('elder_terms::create_settings_widget(');
     expect(symbols).toContain('elder_terms::load_settings(');
     expect(symbols).not.toContain('elder_terms::SettingsWidgetState::');

@@ -91,6 +91,7 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
 elder_terms_library = shared_library(
   'elder-terms',
   elder_terms_shared_sources,
+  soversion: '0',
   include_directories: elder_terms_shared_include_dir,
   dependencies: [
     cardio_dep,

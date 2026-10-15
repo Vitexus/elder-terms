@@ -103,6 +103,7 @@ cardio_cpp_args = [
 cardio_shared_library = shared_library(
   'cardio',
   'deps/cardio/samples/libcardio/libcardio.cpp',
+  soversion: '0',
   include_directories: cardio_include_dir,
   cpp_args: cardio_cpp_args + [
     '-DCARDIO_BUILD_SHARED_LIB=1',
@@ -113,6 +114,7 @@ cardio_shared_library = shared_library(
   ],
   install: true,
   install_dir: elder_terms_private_install_dir,
+  install_rpath: '$ORIGIN',
 )
 
 cardio_dep = declare_dependency(

@@ -61,6 +61,7 @@ write_control_file() {
 calculate_shlibdeps() {
 	tmp_dir=$(mktemp -d)
 	private_dir="$stage_dir/usr/lib/elder-terms"
+	package_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 	mkdir -p "$tmp_dir/debian"
 	{
 		printf 'Source: elder-terms\n'
@@ -76,11 +77,12 @@ calculate_shlibdeps() {
 	depends_value=$(
 		cd "$tmp_dir"
 		dpkg-shlibdeps \
-			--ignore-missing-info \
 			-O \
+			-L"$package_root/packaging/shlibs" \
+			-x"$ELDER_TERMS_PACKAGE_NAME" \
 			-l"$private_dir" \
-			"$private_dir/libelder-terms.so" \
-			"$private_dir/libcardio.so" \
+			"$private_dir/libelder-terms.so.0" \
+			"$private_dir/libcardio.so.0" \
 			"$private_dir/libboxrig.so.0" \
 			"$private_dir/libboxrig-ui.so.0" \
 			"$private_dir/libboxrig-session.so.0" \
@@ -134,8 +136,8 @@ validate_installed_package() {
 		fail "Unexpected installed package version: $installed_version"
 
 	for installed_file in \
-		/usr/lib/elder-terms/libelder-terms.so \
-		/usr/lib/elder-terms/libcardio.so \
+		/usr/lib/elder-terms/libelder-terms.so.0 \
+		/usr/lib/elder-terms/libcardio.so.0 \
 		/usr/lib/elder-terms/libboxrig.so.0 \
 		/usr/lib/elder-terms/libboxrig-ui.so.0 \
 		/usr/lib/elder-terms/libboxrig-session.so.0 \
@@ -265,8 +267,8 @@ write_control_file "$control_dir/control" "$shlib_depends, $runtime_depends"
 chmod 0644 "$control_dir/control"
 
 for staged_file in \
-	usr/lib/elder-terms/libelder-terms.so \
-	usr/lib/elder-terms/libcardio.so \
+	usr/lib/elder-terms/libelder-terms.so.0 \
+	usr/lib/elder-terms/libcardio.so.0 \
 	usr/lib/elder-terms/libboxrig.so.0 \
 	usr/lib/elder-terms/libboxrig-ui.so.0 \
 	usr/lib/elder-terms/libboxrig-session.so.0 \

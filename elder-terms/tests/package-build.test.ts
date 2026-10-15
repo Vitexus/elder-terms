@@ -122,8 +122,8 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
 
   const executablePaths = [
     'usr/bin/etctl',
-    'usr/lib/elder-terms/libelder-terms.so',
-    'usr/lib/elder-terms/libcardio.so',
+    'usr/lib/elder-terms/libelder-terms.so.0',
+    'usr/lib/elder-terms/libcardio.so.0',
     'usr/lib/elder-terms/libboxrig.so.0',
     'usr/lib/elder-terms/libboxrig-ui.so.0',
     'usr/lib/elder-terms/libboxrig-session.so.0',
@@ -826,7 +826,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
 
     for (const missingPath of [
       ...[
-        'libcardio.so',
+        'libcardio.so.0',
         'libboxrig.so.0',
         'libboxrig-ui.so.0',
         'libboxrig-session.so.0',
@@ -961,7 +961,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       expect(readlinkSync(path)).toBe(expectedTarget);
     }
     for (const relativePath of [
-      join(libraryDirectory, 'elder-terms/libelder-terms.so'),
+      join(libraryDirectory, 'elder-terms/libelder-terms.so.0'),
       join(libraryDirectory, 'elder-terms/launcher/elder-terms'),
       join(libraryDirectory, 'elder-terms/launcher/main-window.ui'),
       join(
@@ -999,6 +999,8 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     expectSuccess(loaded, 'installed terminal dependency resolution failed');
     expect(loaded.stdout).not.toContain('not found');
     for (const component of [
+      'elder-terms',
+      'cardio',
       'boxrig',
       'boxrig-ui',
       'boxrig-session',

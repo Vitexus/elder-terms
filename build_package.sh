@@ -394,8 +394,8 @@ validate_deb_package() {
 	dpkg-deb -x "$package_path" "$tmp_dir"
 	for required_file in \
 		usr/bin/etctl \
-		usr/lib/elder-terms/libelder-terms.so \
-		usr/lib/elder-terms/libcardio.so \
+		usr/lib/elder-terms/libelder-terms.so.0 \
+		usr/lib/elder-terms/libcardio.so.0 \
 		usr/lib/elder-terms/libboxrig.so.0 \
 		usr/lib/elder-terms/libboxrig-ui.so.0 \
 		usr/lib/elder-terms/libboxrig-session.so.0 \
@@ -439,8 +439,8 @@ validate_deb_package() {
 
 	for elf_path in \
 		usr/bin/etctl \
-		usr/lib/elder-terms/libelder-terms.so \
-		usr/lib/elder-terms/libcardio.so \
+		usr/lib/elder-terms/libelder-terms.so.0 \
+		usr/lib/elder-terms/libcardio.so.0 \
 		usr/lib/elder-terms/libboxrig.so.0 \
 		usr/lib/elder-terms/libboxrig-ui.so.0 \
 		usr/lib/elder-terms/libboxrig-session.so.0 \
