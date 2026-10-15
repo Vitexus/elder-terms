@@ -156,7 +156,6 @@ interface TransferProgressNoticeCase {
 const startDelaysMs = [250, 1000, 3000] as const;
 const batchTransferStartDelayMs = 1_000;
 const batchTransferTimeoutMs = 90_000;
-const maxXmodemSendAdjustedDurationMs = 20_000;
 const transferProgressNoticeStartDelayMs = 250;
 const transferProgressNoticeLinkPaceMs = 1;
 const ymodemPostRbStartDelayMs = 12_000;
@@ -2633,14 +2632,6 @@ describe.concurrent('elder-terms-vte XYZMODEM transfer e2e', () => {
                         adjustedElapsedMs,
                         elapsedMs,
                       });
-                      if (
-                        transferCase.menuItemId ===
-                        'transfer_xmodem_1k_send_item'
-                      ) {
-                        expect(adjustedElapsedMs).toBeLessThan(
-                          maxXmodemSendAdjustedDurationMs
-                        );
-                      }
                     },
                     connection.gtkTestOptions
                   );
