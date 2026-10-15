@@ -8,7 +8,7 @@ boxrigは`deps/boxrig`のsubmoduleから、elder-termsの通常ビルド中に�
 
 調査対象のelder-terms実装は`9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8`。boxrigは2026年10月15日に取得した`origin/develop` HEAD、`4b664b87cf405dc97477a1403d8a987881a3134f`へ更新した。入れ子のsubmoduleも初期化済みである。直前の固定版は`19be168c464d0509c3388bdc7bb3bef4c2717d3d`、その前は`8ab9bdfe2c44c76b81d8d74899484350734fc86a`だった。最初の追加コミットは`f8b7aaa`、その時点の固定先は`5ebe6420f6f81b4bf38d11fe233285f470a83ae6`だった。
 
-今回の再評価では、正規表現のUnicode一般カテゴリ対応を確認した。共通regex試験の`\p{L}`を含む式は、そのまま使用できる。既定HTTPルールも、カテゴリを明示すればUnicode空白で区切る動作を維持できる。照合前の名前検証、入力禁止、設定交換、端末由来のサイズ要求、PTY診断、共有ビルド、GTK3の本文アクセシビリティを含め、本計画で必須としたAPI不足は解消している。[API要件資料](../boxrig-api-requirements.md)に対応状況、残る文法差、アプリの担当、受け入れ試験を記す。
+今回の再評価では、正規表現のUnicode一般カテゴリ対応を確認した。共通regex試験の`\p{L}`を含む式は、そのまま使用できる。既定HTTPルールも、カテゴリを明示すればUnicode空白で区切る動作を維持できる。照合前の名前検証、入力禁止、設定交換、端末由来のサイズ要求、PTY診断、共有ビルド、GTK3の本文アクセシビリティを含め、本計画で必須としたAPI不足は解消している。[API要件資料](boxrig-api-requirements.md)に対応状況、残る文法差、アプリの担当、受け入れ試験を記す。
 
 今回はsubmoduleの更新と再調査・計画の改訂を行う。共有ビルドと上流のドライバーを実行した範囲は末尾に記録し、elder-termsへの移行実装・結合完了とは区別する。
 
@@ -153,7 +153,7 @@ PCRE2の全構文互換は求めず、boxrigの最左最長と限定文法を採
 
 `\p{L}`などのUnicode一般カテゴリは対応済みとなった。一般カテゴリは文字・結合符号・数などの分類を指し、略称を大文字・小文字を区別して波括弧で囲む。`\P{L}`による否定と文字クラス内の指定も利用できる。共通regex試験の日本語hostの式は変更せず、名前付きcaptureとUTF-8バイト位置の検証を残す。文字体系や一般カテゴリ以外の属性は未対応である。分類のためのアプリ独自のUnicode表や別エンジンは追加しない。
 
-既定HTTPの2ルールでは、否定クラス内の`\s`を`\s\p{Z}\u{85}\u{180e}`へ改め、全角スペースを含む従来の区切りを維持する。現在のアプリと更新版boxrigで26種類の区切りを比較し、画面リンクの終端とOSC 8の拒否結果が一致することを確認した。具体的な式と根拠は[API要件資料のUnicode一般カテゴリ](../boxrig-api-requirements.md#unicode一般カテゴリと既定リンク)に記す。変更するのは製品が用意する既定式であり、利用者設定の自動変換は行わない。
+既定HTTPの2ルールでは、否定クラス内の`\s`を`\s\p{Z}\u{85}\u{180e}`へ改め、全角スペースを含む従来の区切りを維持する。現在のアプリと更新版boxrigで26種類の区切りを比較し、画面リンクの終端とOSC 8の拒否結果が一致することを確認した。具体的な式と根拠は[API要件資料のUnicode一般カテゴリ](boxrig-api-requirements.md#unicode一般カテゴリと既定リンク)に記す。変更するのは製品が用意する既定式であり、利用者設定の自動変換は行わない。
 
 一般カテゴリ対応後も、一致全体は書記素境界に限られる。例えば`e`と結合アクセントの全体には`\p{L}+`だけでは一致せず、必要な用途では`[\p{L}\p{M}]+`と記述する。アプリが結合符号を暗黙に追加する補正は作らず、[regexガイド][regex-guide]と[公開コメント][regex-api]の一致規則を案内する。
 
@@ -203,7 +203,7 @@ bookworm標準の[Cairo 1.16.0](https://packages.debian.org/bookworm/libcairo2-d
 
 共有5本は既存の私有libdirである`lib/elder-terms/`へ同梱する。子実行ファイルの`$ORIGIN/..`と`libelder-terms.so`の`$ORIGIN`を設定し、上流の共有ライブラリ自身が持つ`$ORIGIN`と接続する。`dpkg-shlibdeps`には5本すべてを入力し、stagingと移動後のインストール先からロードを確認する。build pathや`LD_LIBRARY_PATH`に依存した起動を完了としない。
 
-boxrigと組み込むcodec、Unicode・encodingデータのライセンスを[上流の配布条件][distribution-guide]に従って同梱する。PCRE2についてはアプリ・同梱boxrigの直接依存を除去するが、GTK/GLib自体の間接依存を消したとは主張しない。調査環境のGLibはPCRE2を必要としており、詳細は[API要件資料](../boxrig-api-requirements.md)に記録した。
+boxrigと組み込むcodec、Unicode・encodingデータのライセンスを[上流の配布条件][distribution-guide]に従って同梱する。PCRE2についてはアプリ・同梱boxrigの直接依存を除去するが、GTK/GLib自体の間接依存を消したとは主張しない。調査環境のGLibはPCRE2を必要としており、詳細は[API要件資料](boxrig-api-requirements.md)に記録した。
 
 ## インクリメンタルな実装手順
 
@@ -306,7 +306,7 @@ GTK操作は既存のgestament環境を使う。試験の待機は状態・イ�
 
 2026年10月15日にboxrigを`8ab9bdf`へ更新し、`7c3f59a`でgitlinkをコミットした。アプリの実装と外部ソースは変更していない。この時点では不足8項目のうち、R2の名前照会だけが残っていた。
 
-上流Makeの共有5本を外部ディレクトリへ生成・インストールし、移動後のSDKをC++20から使用できた。XvfbとMesaではOpenGL PreferredのOpenGL描画と、GL初期化失敗時のCairo描画を確認した。regex、capture、設定交換、TTY消去文字、入力停止、サイズ要求、PTY診断、GTK3の本文アクセシビリティの個別試験も成功した。実行範囲は[API要件資料](../boxrig-api-requirements.md#この調査の完了条件と結果)にまとめた。
+上流Makeの共有5本を外部ディレクトリへ生成・インストールし、移動後のSDKをC++20から使用できた。XvfbとMesaではOpenGL PreferredのOpenGL描画と、GL初期化失敗時のCairo描画を確認した。regex、capture、設定交換、TTY消去文字、入力停止、サイズ要求、PTY診断、GTK3の本文アクセシビリティの個別試験も成功した。実行範囲は[API要件資料](boxrig-api-requirements.md#この調査の完了条件と結果)にまとめた。
 
 既存アプリの`npm test --workspaces`を実行した。実行結果は次のとおりである。
 
@@ -329,7 +329,7 @@ C++ビルドでは警告をエラーとして扱う設定で成功した。Vites
 
 同日にboxrigを`19be168`へ更新し、`c9be8ee`でgitlinkをコミットした。差分2コミットを確認し、名前照会APIによってR2が解消したと判断した。fcitxの変更は試験開始時のfocus同期であり、製品側の補正を追加する変更ではない。アプリの実装と外部の追跡対象ソースは変更していない。
 
-新しい外部ディレクトリで共有5本をビルド・インストールし、SDK移動後のC99・C++20から新APIを呼び出せた。regex全体と共有consumer、既定リンク4ルールの事前メタデータ照会、OpenGL PreferredとCairo fallback、変更されたGTK3 fcitx試験に成功した。APIの契約と検証範囲は[API要件資料](../boxrig-api-requirements.md#この調査の完了条件と結果)に記録した。
+新しい外部ディレクトリで共有5本をビルド・インストールし、SDK移動後のC99・C++20から新APIを呼び出せた。regex全体と共有consumer、既定リンク4ルールの事前メタデータ照会、OpenGL PreferredとCairo fallback、変更されたGTK3 fcitx試験に成功した。APIの契約と検証範囲は[API要件資料](boxrig-api-requirements.md#この調査の完了条件と結果)に記録した。
 
 既存の[全体試験手順](../../en/ftps-validation.md#development-tree)に従い、`ELDER_TERMS_VTE_TEST_FILE_PARALLELISM=true npm test --workspaces -- --fileParallelism --maxWorkers=4`を実行した。workspaceの順序を保ち、各workspace内のファイルを最大4ワーカーで実行する構成である。対象の絞り込みとタイムアウト変更は行っていない。今回は実行前にgitlinkをコミットし、試験中の版数変化を避けた。全体コマンドは終了コード0で完了し、合計840件成功、3件省略となった。
 
@@ -348,7 +348,7 @@ C++ビルドでは警告をエラーとして扱う設定で成功した。Vites
 
 同日にboxrigを`4b664b8`へ更新し、`3453b3f`でgitlinkをコミットした。直前からの4コミットにはmergeが1件あり、変更は7ファイルだった。Unicode一般カテゴリの文法、分類と診断、試験、公式文書の追加であり、公開関数のシグネチャと公開型、GTK3の入力・レイアウト・フォント・描画、共有ビルドの構成には変更がない。外部の追跡対象ソースとelder-termsの実装は変更していない。
 
-共有5本を新しい外部ディレクトリでビルド・インストールし、SDK移動後のC99・C++20から実行した。`test-regex`と共有版にリンクしたregex・capture試験に成功した。共通regex試験から取得した元の`\p{L}`の式で、名前照会、capture、UTF-8バイト位置を維持できた。既定HTTPの2ルールにUnicode空白を明示する案も、現行実装との比較に成功した。Xvfb・MesaでOpenGL Preferredの描画とGL初期化失敗時のCairo描画を確認した。詳細は[API要件資料](../boxrig-api-requirements.md#この調査の完了条件と結果)に記す。
+共有5本を新しい外部ディレクトリでビルド・インストールし、SDK移動後のC99・C++20から実行した。`test-regex`と共有版にリンクしたregex・capture試験に成功した。共通regex試験から取得した元の`\p{L}`の式で、名前照会、capture、UTF-8バイト位置を維持できた。既定HTTPの2ルールにUnicode空白を明示する案も、現行実装との比較に成功した。Xvfb・MesaでOpenGL Preferredの描画とGL初期化失敗時のCairo描画を確認した。詳細は[API要件資料](boxrig-api-requirements.md#この調査の完了条件と結果)に記す。
 
 アプリの全体試験は、前回と同じ`ELDER_TERMS_VTE_TEST_FILE_PARALLELISM=true npm test --workspaces -- --fileParallelism --maxWorkers=4`を実行した。初回はsharedの124件、launcherの107件が成功し、Mesonは141件成功・1件失敗・2件省略だった。失敗は既存の`ssh-proxy-ftp-test`で、正常系12シナリオの成功後、試験サーバーの終了コードがnullとなった。試験helperは終了signalを記録していないが、ホストのkernel logでは初回・再実行の時刻に対応する`ssh-proxy-test-`のsegfaultを2件確認した。サーバーはboxrigをリンクしておらず、今回の更新との因果関係とsegfaultの根本原因は確認していない。
 
