@@ -25,7 +25,9 @@ describe('elder-terms shared library', () => {
   it('provides the shared runtime dependency with only public API symbols', async () => {
     const libraryPath = buildArtifactPath('shared/libelder-terms.so');
     const launcherPath = buildArtifactPath('elder-terms/elder-terms');
-    const terminalPath = buildArtifactPath('elder-terms-terminal/elder-terms-terminal');
+    const terminalPath = buildArtifactPath(
+      'elder-terms-terminal/elder-terms-terminal'
+    );
 
     const [header, dynamic, launcherDynamic, terminalDynamic, symbols] =
       await Promise.all([

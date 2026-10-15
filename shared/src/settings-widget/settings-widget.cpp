@@ -4180,7 +4180,6 @@ static void on_general_background_mode_changed(GtkComboBox *,
   }
   update_color_mode_from_widget(
       state, ColorSettingField::background);
-  sync_terminal_type_entries(state);
   notify_changed(state);
 }
 
@@ -4202,7 +4201,6 @@ static void on_general_background_color_set(GtkColorButton *,
     return;
   }
   update_color_from_picker(state, ColorSettingField::background);
-  sync_terminal_type_entries(state);
   notify_changed(state);
 }
 

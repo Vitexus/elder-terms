@@ -2609,12 +2609,12 @@ describe.concurrent('shared settings widget', () => {
       await waitForEntryPlaceholder(
         app,
         'settings_telnet_terminal_type_entry',
-        'xterm (built-in default)'
+        'xterm-256color (built-in default)'
       );
       await waitForEntryPlaceholder(
         app,
         'settings_ssh_terminal_type_entry',
-        'xterm (built-in default)'
+        'xterm-256color (built-in default)'
       );
 
       const backgroundMode = expectElementKind(
@@ -2636,12 +2636,12 @@ describe.concurrent('shared settings widget', () => {
       await waitForEntryPlaceholder(
         app,
         'settings_telnet_terminal_type_entry',
-        'xterm (built-in default)'
+        'xterm-256color (built-in default)'
       );
       await waitForEntryPlaceholder(
         app,
         'settings_ssh_terminal_type_entry',
-        'xterm (built-in default)'
+        'xterm-256color (built-in default)'
       );
       await expectElementKind(
         await app.getById('settings_apply_button'),

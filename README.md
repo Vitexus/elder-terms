@@ -830,12 +830,7 @@ movement, function keys, and other features. You can normally leave the
 default unchanged. If the remote host does not support that terminal type,
 specify a value installed on the host, such as `xterm`.
 
-The normal default for TELNET and SSH is `xterm-256color`. However, if you set a
-"Content background" color without explicitly setting the terminal type, the
-default automatically changes to `xterm`. This is because the background color
-may not render correctly with `xterm-256color`. If you explicitly set the
-terminal type, that value takes precedence even when the background color is
-changed.
+The default for TELNET and SSH is `xterm-256color`. Use global or connection settings to select a terminal type supported by the remote host.
 
 ## Configuring the Display Language
 

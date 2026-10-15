@@ -79,7 +79,6 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/settings/ssh-proxy-settings.cpp',
   'src/settings/telnet-settings.cpp',
   'src/settings/terminal-settings.cpp',
-  'src/settings/terminal-type-settings.cpp',
   'src/settings/transfer-settings.cpp',
   'src/settings-widget/settings-presentation.cpp',
   'src/settings-widget/application-settings-widget.cpp',
