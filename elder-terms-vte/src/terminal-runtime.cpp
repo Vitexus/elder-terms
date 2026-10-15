@@ -665,6 +665,10 @@ TerminalConnectionState terminal_runtime_connection_state(const TerminalRuntime 
   return terminal_connection_state(runtime->connection);
 }
 
+std::shared_ptr<AuthenticatedSshTransport> terminal_runtime_authenticated_ssh(const TerminalRuntime *runtime) {
+  return terminal_connection_authenticated_ssh(runtime->connection);
+}
+
 void terminal_runtime_set_output_callback(TerminalRuntime *runtime,
     std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> callback) {
   runtime->output = std::move(callback);

@@ -222,4 +222,12 @@ cardio::promise<bool> terminal_connection_send_break(TerminalConnection *connect
  */
 TerminalConnectionState terminal_connection_state(const TerminalConnection *connection);
 
+/**
+ * Shares the authenticated SSH transport of the connected shell.
+ * @param connection Communication owner.
+ * @return Shared transport, or nullptr for inactive/non-SSH connections.
+ * @remarks An SFTP client retaining this share can outlive the shell channel.
+ */
+std::shared_ptr<AuthenticatedSshTransport> terminal_connection_authenticated_ssh(const TerminalConnection *connection);
+
 }

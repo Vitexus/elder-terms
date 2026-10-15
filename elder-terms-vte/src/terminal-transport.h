@@ -3,11 +3,14 @@
 #include <cardio.h>
 #include <cstddef>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string>
 #include <vector>
 
 namespace elder_terms {
+
+class AuthenticatedSshTransport;
 
 /**
  * Owned communication operations, independent of terminal parsing and widgets.
@@ -27,6 +30,8 @@ struct TerminalTransport {
   std::function<std::vector<unsigned char>()> finish_read = {};
   /** Sends BREAK and restores the line on cancellation; empty when unsupported. */
   std::function<cardio::promise<void>(cardio::cancellation)> send_break = {};
+  /** Shares the current shell's authenticated SSH route; empty for other transports. */
+  std::function<std::shared_ptr<AuthenticatedSshTransport>()> authenticated_ssh = {};
 };
 
 /** A reusable channel factory and bounded stream-conversion policy. */

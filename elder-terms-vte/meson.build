@@ -75,7 +75,8 @@ boxrig_runtime_dep = declare_dependency(
   include_directories: elder_terms_shared_include_dir,
   dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep, ssh_transport_dep],
 )
-executable('boxrig-driver', ['src/boxrig-driver.cpp', 'src/inline-prompt.cpp', 'src/terminal-log.cpp'],
+executable('boxrig-driver', ['src/boxrig-driver.cpp', 'src/inline-prompt.cpp', 'src/terminal-log.cpp',
+    'src/sftp/sftp-client.cpp'],
   cpp_args: ['-I' + gestament_include_dir],
   dependencies: [boxrig_runtime_dep],
 )

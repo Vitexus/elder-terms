@@ -2,6 +2,7 @@
 #include "terminal-transports.h"
 #include "inline-prompt.h"
 #include "terminal-log.h"
+#include "sftp/sftp-client.h"
 
 #include <gestament/gtk.h>
 #include <glib-unix.h>
@@ -11,12 +12,19 @@
 #include <string>
 #include <optional>
 #include <filesystem>
+#include <array>
 
 struct Driver {
   elder_terms::TerminalRuntime *runtime = nullptr;
   GtkWidget *status = nullptr;
   GtkWidget *connection_status = nullptr;
   GtkWidget *break_button = nullptr;
+  GtkWidget *sftp_button = nullptr;
+  std::string sftp_path;
+  std::shared_ptr<elder_terms::RemoteFileClient> sftp;
+  std::optional<cardio::promise<void>> sftp_task;
+  cardio::cancellation_source sftp_stop;
+  bool sftp_active = false;
   elder_terms::TerminalLocalCommand command;
   std::optional<elder_terms::TerminalTransportRequest> transport;
   std::shared_ptr<elder_terms::InlinePromptController> prompt;
@@ -82,6 +90,8 @@ static void report_state(void *context) {
   report_connection(driver);
   if (driver->break_button) gtk_widget_set_sensitive(driver->break_button,
       elder_terms::terminal_runtime_can_send_break(driver->runtime));
+  if (driver->sftp_button) gtk_widget_set_sensitive(driver->sftp_button,
+      !driver->sftp_active && (driver->sftp || elder_terms::terminal_runtime_authenticated_ssh(driver->runtime)));
   auto *widget = elder_terms::terminal_runtime_widget(driver->runtime);
   boxrig_gtk_render_state render{};
   boxrig_font_effective_metrics metrics{};
@@ -145,6 +155,9 @@ static void paste_clipboard(GtkButton *, gpointer context) {
 static cardio::promise<void> close_driver(Driver *driver) {
   if (driver->closing) co_return;
   driver->closing = true;
+  driver->sftp_stop.cancel();
+  if (driver->sftp_task) co_await *driver->sftp_task;
+  driver->sftp.reset();
   co_await elder_terms::terminal_runtime_disconnect(driver->runtime);
   co_await elder_terms::stop_terminal_log_async(driver->log.get());
   gtk_main_quit();
@@ -237,6 +250,43 @@ static void send_break(GtkButton *, gpointer context) {
   elder_terms::terminal_runtime_send_break(driver->runtime, std::move(request));
 }
 
+static cardio::promise<void> read_sftp(Driver *driver) {
+  bool succeeded = false;
+  const auto cancellation = driver->sftp_stop.get_cancellation();
+  try {
+    if (!driver->sftp) {
+      auto transport = elder_terms::terminal_runtime_authenticated_ssh(driver->runtime);
+      if (!transport) throw std::runtime_error("No authenticated SSH shell");
+      driver->sftp = co_await elder_terms::open_sftp_client_async(std::move(transport), cancellation);
+    }
+    auto opening = driver->sftp->open_read_async(driver->sftp_path, cancellation);
+    auto reader = std::move(co_await opening);
+    std::array<std::byte, 4096> bytes{};
+    while (const auto count = co_await reader->read_async(bytes, cancellation)) {
+      auto *encoded = g_base64_encode(reinterpret_cast<const guchar *>(bytes.data()), count);
+      std::printf("sftp_data=%s\n", encoded);
+      g_free(encoded);
+    }
+    co_await reader->close_async(cancellation);
+    succeeded = true;
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::exception &error) {
+    std::fprintf(stderr, "SFTP: %s\n", error.what());
+  }
+  driver->sftp_active = false;
+  std::printf("sftp_finished=%d\n", succeeded);
+  std::fflush(stdout);
+  report_state(driver);
+}
+
+static void start_sftp(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  if (driver->closing || driver->sftp_active) return;
+  driver->sftp_active = true;
+  report_state(driver);
+  driver->sftp_task.emplace(read_sftp(driver));
+}
+
 static elder_terms::TerminalTransferRequest transfer_request(Driver *driver) {
   auto request = driver->transfer;
   request.active = [](bool active) { std::printf("transfer_active=%d\n", active); std::fflush(stdout); };
@@ -312,6 +362,16 @@ int main(int argc, char **argv) {
       options.known_hosts_file = argv[++index];
     else if (std::string_view(argv[index]) == "--ssh-config" && index + 1 < argc)
       options.config_file = argv[++index];
+    else if (std::string_view(argv[index]) == "--proxy" && index + 3 < argc) {
+      options.proxy.enabled = true;
+      options.proxy.endpoint.address = argv[++index];
+      options.proxy.endpoint.port = std::strtol(argv[++index], nullptr, 10);
+      options.proxy.endpoint.username = argv[++index];
+    }
+    else if (std::string_view(argv[index]) == "--proxy-identity" && index + 1 < argc)
+      options.proxy.endpoint.identity_file = argv[++index];
+    else if (std::string_view(argv[index]) == "--sftp-file" && index + 1 < argc)
+      driver.sftp_path = argv[++index];
     else if (std::string_view(argv[index]) == "--trs80")
       driver.input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
     else if (std::string_view(argv[index]) == "--encoding" && index + 1 < argc)
@@ -410,6 +470,12 @@ int main(int argc, char **argv) {
     gestament_gtk_assign_accessible_id(driver.break_button, "driver_break");
     gtk_box_pack_start(GTK_BOX(connections), driver.break_button, FALSE, FALSE, 0);
     g_signal_connect(driver.break_button, "clicked", G_CALLBACK(send_break), &driver);
+    if (!driver.sftp_path.empty()) {
+      driver.sftp_button = gtk_button_new_with_label("Read SFTP file");
+      gestament_gtk_assign_accessible_id(driver.sftp_button, "driver_sftp");
+      gtk_box_pack_start(GTK_BOX(connections), driver.sftp_button, FALSE, FALSE, 0);
+      g_signal_connect(driver.sftp_button, "clicked", G_CALLBACK(start_sftp), &driver);
+    }
     auto *inputs = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
     gtk_box_pack_start(GTK_BOX(content), inputs, FALSE, FALSE, 0);
     const char *input_labels[] = {"Use TRS-80 (Ctrl+F12)", "Use default keys", "Pause input", "Resume input"};

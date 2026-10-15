@@ -816,6 +816,12 @@ bool terminal_connection_can_send_break(const TerminalConnection *connection) {
       static_cast<bool>(connection->operation->transport.send_break);
 }
 
+std::shared_ptr<AuthenticatedSshTransport> terminal_connection_authenticated_ssh(const TerminalConnection *connection) {
+  if (connection->state.phase != TerminalConnectionPhase::connected ||
+      !connection->operation->transport.authenticated_ssh) return {};
+  return connection->operation->transport.authenticated_ssh();
+}
+
 cardio::promise<bool> terminal_connection_send_break(TerminalConnection *connection, TerminalBreakRequest request) {
   if (!terminal_connection_can_send_break(connection)) co_return false;
   auto &operation = *connection->operation;

@@ -117,6 +117,14 @@ cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime);
 TerminalConnectionState terminal_runtime_connection_state(const TerminalRuntime *runtime);
 
 /**
+ * Shares the current shell's authenticated SSH route with a file-transfer client.
+ * @param runtime Live runtime.
+ * @return Shared transport, or nullptr when no SSH shell is connected.
+ * @remarks The caller may retain the share across shell disconnect/reconnect.
+ */
+std::shared_ptr<AuthenticatedSshTransport> terminal_runtime_authenticated_ssh(const TerminalRuntime *runtime);
+
+/**
  * Installs a receiver for normal output, before session parsing and retries.
  * @param runtime Live runtime.
  * @param callback Borrowed raw and UTF-8 bytes, valid during the call only.
