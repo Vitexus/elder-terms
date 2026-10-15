@@ -137,6 +137,15 @@ cardio::promise<void> terminal_connection_wait_stopped(TerminalConnection *conne
 bool terminal_connection_dispatch(TerminalConnection *connection);
 
 /**
+ * Applies backpressure to normal receive delivery while retaining transmit progress.
+ * @param connection Communication owner.
+ * @param enabled False keeps decoded bytes in the finite receive queue.
+ * @remarks Used while received macros retain earlier notifications. This does
+ * not pause outgoing writes or binary-transfer reads. Stop always reopens it.
+ */
+void terminal_connection_set_receive_delivery_enabled(TerminalConnection *connection, bool enabled);
+
+/**
  * Awaits one grid request at the peer before applying it to the core.
  * @param connection Communication owner.
  * @param rows Nonzero rows.

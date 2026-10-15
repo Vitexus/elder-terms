@@ -60,6 +60,7 @@ ssh_transport_dep = declare_dependency(link_with: ssh_transport_library,
 boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
   ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp',
    'src/terminal-links.cpp', 'src/terminal-action-regex.cpp', 'src/terminal-hyperlink-resolver.cpp',
+   'src/terminal-received-macros.cpp',
    'src/terminal-text-send.cpp', 'src/terminal-text-send-runner.cpp',
    'src/terminal-transfer.cpp', 'src/terminal-transfer-runner.cpp',
    'src/terminal-zmodem-auto-start.cpp',
@@ -212,6 +213,11 @@ executable(
 )
 
 if get_option('build_tests')
+boxrig_macros_test = executable('boxrig-macros-test',
+  ['tests/cpp/boxrig-macros-test.cpp', 'src/terminal-received-macros.cpp', 'src/terminal-action-regex.cpp'],
+  dependencies: [boxrig_deps['boxrig'], elder_terms_dep])
+test('boxrig-macros-test', boxrig_macros_test)
+
 boxrig_links_test = executable('boxrig-links-test',
   ['tests/cpp/boxrig-links-test.cpp', 'src/terminal-links.cpp', 'src/terminal-action-regex.cpp',
    'src/terminal-hyperlink-resolver.cpp'],
@@ -254,6 +260,12 @@ boxrig_runtime_test = executable('boxrig-runtime-test',
 test('boxrig-runtime-test', find_program('xvfb-run'),
   args: ['-a', boxrig_runtime_test], timeout: 30,
   env: ['GDK_GL=disable', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
+
+boxrig_runtime_macros_test = executable('boxrig-runtime-macros-test',
+  'tests/cpp/boxrig-runtime-macros-test.cpp', dependencies: boxrig_runtime_dep)
+test('boxrig-runtime-macros-test', find_program('xvfb-run'),
+  args: ['-a', boxrig_runtime_macros_test], timeout: 60,
+  env: ['GDK_GL=disable', 'GTK_IM_MODULE=gtk-im-context-simple', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
 
 boxrig_ime_test = executable('boxrig-ime-test', 'tests/cpp/boxrig-ime-test.cpp', dependencies: boxrig_runtime_dep)
 test('boxrig-fcitx4-runtime-test', find_program('xvfb-run'),

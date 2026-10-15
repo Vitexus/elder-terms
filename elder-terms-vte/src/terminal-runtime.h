@@ -1,5 +1,7 @@
 #pragma once
 
+#include <elder-terms/settings/macro-settings.h>
+
 #include <boxrig/gtk3.h>
 #include <string_view>
 #include <optional>
@@ -60,6 +62,20 @@ void terminal_runtime_set_hyperlink_rules(TerminalRuntime *runtime,
  * @return True when the current pointer and recognition revisions are valid.
  */
 bool terminal_runtime_has_link_hover(const TerminalRuntime *runtime);
+
+/**
+ * Replaces received-line macros and discards work from the previous rule set.
+ * @param runtime Live communication and presentation owner.
+ * @param rules Ordered patterns and actions; an empty list disables macros.
+ * @param follow_return_code Normalize expanded sends with the applied Enter policy.
+ * @param command Receives an expanded executable and arguments without a shell.
+ * @param error Receives compile, expansion, or send diagnostics.
+ * @remarks Matching and sending are bounded and cancelled on disconnect. Raw
+ * logging and display retain their original receive notification boundaries.
+ */
+void terminal_runtime_set_macro_rules(TerminalRuntime *runtime, std::vector<MacroRule> rules,
+    bool follow_return_code, std::function<void(std::string, std::vector<std::string>)> command,
+    std::function<void(std::string)> error);
 
 /**
  * Feeds fixed UTF-8 driver output and schedules presentation.

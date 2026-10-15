@@ -1,5 +1,6 @@
 #include "terminal-runtime.h"
 #include "terminal-links.h"
+#include "terminal-received-macros.h"
 
 #include <cstdint>
 #include <limits>
@@ -25,6 +26,9 @@ struct TerminalRuntime {
   bool link_hover = false;
   bool osc8_hover = false;
   bool links_pending = false;
+  std::unique_ptr<TerminalReceivedMacros, decltype(&destroy_terminal_received_macros)> macros{
+      nullptr, destroy_terminal_received_macros};
+  bool macros_pending = false;
   std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> output;
   std::optional<std::variant<TerminalLocalCommand, TerminalTransportRequest>> pending_connection;
   std::optional<TerminalTransportRequest> recovery_request;
@@ -54,6 +58,7 @@ struct TerminalRuntime {
   GtkWindow *window = nullptr;
   GtkBox *content = nullptr;
   guint frame_source = 0;
+  int frame_priority = G_PRIORITY_DEFAULT;
   guint presentation_source = 0;
   bool stopped = false;
   bool ui_failed = false;
@@ -73,6 +78,14 @@ struct TerminalRuntime {
 };
 
 static void request_frame(void *context);
+static void request_continuation(TerminalRuntime *runtime);
+
+static void reset_macros(TerminalRuntime *runtime) {
+  if (runtime->macros) terminal_received_macros_reset(runtime->macros.get(),
+      terminal_connection_state(runtime->connection).generation);
+  runtime->macros_pending = false;
+  terminal_connection_set_receive_delivery_enabled(runtime->connection, true);
+}
 
 static void notify_changed(TerminalRuntime *runtime) {
   runtime->notified_settled = terminal_runtime_is_settled(runtime);
@@ -543,7 +556,16 @@ static gboolean dispatch_frame(gpointer context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   runtime->frame_source = 0;
   if (runtime->stopped) return G_SOURCE_REMOVE;
-  if (terminal_connection_dispatch(runtime->connection)) request_frame(runtime);
+  const auto connection = terminal_connection_state(runtime->connection);
+  if (connection.cancelled || !connection.carrier_connected ||
+      runtime->handled_carrier_losses != connection.carrier_losses) reset_macros(runtime);
+  if (runtime->macros) {
+    const auto progress = terminal_received_macros_dispatch(runtime->macros.get(), 4096);
+    runtime->macros_pending = progress.pending;
+    terminal_connection_set_receive_delivery_enabled(runtime->connection, !progress.pending);
+    if (progress.pending && !progress.blocked) request_continuation(runtime);
+  }
+  if (terminal_connection_dispatch(runtime->connection)) request_continuation(runtime);
   if (!process_host_items(runtime)) {
     fail_ui(runtime);
     return G_SOURCE_REMOVE;
@@ -559,7 +581,7 @@ static gboolean dispatch_frame(gpointer context) {
     return G_SOURCE_REMOVE;
   }
   runtime->links_pending = runtime->links && terminal_links_dispatch(runtime->links.get(), 4096);
-  if (runtime->links_pending) request_frame(runtime);
+  if (runtime->links_pending) request_continuation(runtime);
   // Communication and stream finalization continue while the window is hidden.
   if (!runtime->widget_allocated || !gtk_widget_get_mapped(GTK_WIDGET(runtime->widget))) return G_SOURCE_REMOVE;
   boxrig_ui_component_frame_result result{};
@@ -582,13 +604,24 @@ static gboolean dispatch_frame(gpointer context) {
   return G_SOURCE_REMOVE;
 }
 
-static void request_frame(void *context) {
-  auto *runtime = static_cast<TerminalRuntime *>(context);
-  if (!runtime->stopped && runtime->frame_source == 0) {
-    // Dispatch accepted font/layout requests before GTK's resize priority.
-    // The callback still only schedules work; no frame runs recursively.
-    runtime->frame_source = g_idle_add_full(G_PRIORITY_DEFAULT, dispatch_frame, runtime, nullptr);
+static void schedule_frame(TerminalRuntime *runtime, int priority) {
+  if (!runtime->stopped && (runtime->frame_source == 0 || priority < runtime->frame_priority)) {
+    if (runtime->frame_source) g_source_remove(runtime->frame_source);
+    runtime->frame_priority = priority;
+    runtime->frame_source = g_idle_add_full(priority, dispatch_frame, runtime, nullptr);
   }
+}
+
+static void request_frame(void *context) {
+  // Dispatch accepted font/layout requests before GTK's resize priority.
+  // The callback still only schedules work; no frame runs recursively.
+  schedule_frame(static_cast<TerminalRuntime *>(context), G_PRIORITY_DEFAULT);
+}
+
+static void request_continuation(TerminalRuntime *runtime) {
+  // Long matching and stream work must yield to GTK allocation and drawing.
+  // A native/input notification promotes this source to the normal priority.
+  schedule_frame(runtime, G_PRIORITY_DEFAULT_IDLE);
 }
 
 static void allocated(GtkWidget *, GtkAllocation *, gpointer context) {
@@ -695,6 +728,17 @@ TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content) {
       [runtime] { request_frame(runtime); },
       [runtime](std::span<const unsigned char> raw, std::span<const unsigned char> cooked) {
         if (runtime->output) runtime->output(raw, cooked);
+        const auto state = terminal_connection_state(runtime->connection);
+        if (runtime->macros && !cooked.empty() && !state.cancelled && state.carrier_connected) {
+          if (!terminal_received_macros_feed(runtime->macros.get(), state.generation, cooked)) {
+            g_warning("Received macro queue exceeded its bounded receive window");
+            terminal_connection_stop(runtime->connection);
+          } else {
+            runtime->macros_pending = true;
+            terminal_connection_set_receive_delivery_enabled(runtime->connection, false);
+            request_frame(runtime);
+          }
+        }
       });
   g_signal_connect(window, "size-allocate", G_CALLBACK(allocated), runtime);
   g_signal_connect(window, "window-state-event", G_CALLBACK(window_state_changed), runtime);
@@ -705,6 +749,7 @@ void destroy_terminal_runtime(TerminalRuntime *runtime) {
   if (!runtime) return;
   runtime->stopped = true;
   runtime->links.reset();
+  runtime->macros.reset();
   if (runtime->frame_source) g_source_remove(runtime->frame_source);
   if (runtime->presentation_source) g_source_remove(runtime->presentation_source);
   g_signal_handlers_disconnect_by_data(runtime->window, runtime);
@@ -738,6 +783,30 @@ void terminal_runtime_set_hyperlink_rules(TerminalRuntime *runtime,
 
 bool terminal_runtime_has_link_hover(const TerminalRuntime *runtime) { return runtime->link_hover; }
 
+void terminal_runtime_set_macro_rules(TerminalRuntime *runtime, std::vector<MacroRule> rules,
+    bool follow_return_code, std::function<void(std::string, std::vector<std::string>)> command,
+    std::function<void(std::string)> error) {
+  reset_macros(runtime);
+  runtime->macros.reset();
+  if (!rules.empty()) runtime->macros.reset(create_terminal_received_macros(std::move(rules), {
+      [runtime, follow_return_code](std::string text) {
+        return normalize_terminal_text_line_endings(text, follow_return_code, runtime->applied_input.return_code);
+      },
+      [runtime, error](std::span<const unsigned char> bytes) {
+        const auto state = terminal_connection_state(runtime->connection);
+        if (!runtime->input_allowed || state.phase != TerminalConnectionPhase::connected ||
+            !state.carrier_connected || runtime->pending_service || runtime->service_active ||
+            runtime->pending_encoding || runtime->encoding_active || runtime->break_active) return true;
+        const auto status = boxrig_terminal_send_text(runtime->terminal,
+            reinterpret_cast<const char *>(bytes.data()), bytes.size());
+        if (status == BOXRIG_STATUS_WOULD_BLOCK) return false;
+        if (status != BOXRIG_STATUS_OK && error)
+          error("Macro send failed (status " + std::to_string(status) + ")");
+        return true;
+      }, std::move(command), std::move(error)}));
+  request_frame(runtime);
+}
+
 bool terminal_runtime_feed(TerminalRuntime *runtime, std::string_view text) {
   size_t consumed = 0;
   const auto status = boxrig_terminal_feed(runtime->terminal,
@@ -768,7 +837,8 @@ boxrig_ui_status terminal_runtime_set_preferred_grid(TerminalRuntime *runtime, s
 bool terminal_runtime_is_settled(const TerminalRuntime *runtime) {
   boxrig_ui_size_command_state state{};
   boxrig_gtk_render_state render{};
-  return !runtime->stopped && !runtime->ui_failed && !runtime->links_pending && !runtime->grid_pending && runtime->frame_source == 0 &&
+  return !runtime->stopped && !runtime->ui_failed && !runtime->links_pending && !runtime->macros_pending &&
+      !runtime->grid_pending && runtime->frame_source == 0 &&
       runtime->size_command.revision == 0 &&
       boxrig_gtk3_terminal_widget_has_presentation(runtime->widget) &&
       !boxrig_ui_view_frame_requested(boxrig_gtk3_terminal_widget_view(runtime->widget)) &&
@@ -817,6 +887,7 @@ cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
     if (status != BOXRIG_UI_BUSY) ui_result(status, "disconnect input");
   }
   terminal_connection_stop(runtime->connection);
+  reset_macros(runtime);
   request_frame(runtime);
   co_await terminal_connection_wait_stopped(runtime->connection);
   if (runtime->recovery_completion) co_await *runtime->recovery_completion;

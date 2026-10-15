@@ -59,6 +59,7 @@ struct ConnectionOperation {
   std::size_t transfer_prefetch_offset = 0;
   TerminalZmodemAutoStartDetectorState auto_start_detector;
   bool read_policy_changed = false;
+  bool receive_delivery_enabled = true;
   std::size_t chunk_size = 0;
   bool eof = false;
   bool write_closed = false;
@@ -114,6 +115,10 @@ static bool discard_outgoing(boxrig_terminal *terminal) {
 static boxrig_transport_status receive(
     void *context, uint8_t *bytes, size_t capacity, size_t *length) {
   auto *operation = static_cast<ConnectionOperation *>(context);
+  if (!operation->receive_delivery_enabled) {
+    *length = 0;
+    return BOXRIG_TRANSPORT_WOULD_BLOCK;
+  }
   const auto available = front(operation->incoming);
   *length = std::min(capacity, available.size());
   if (*length == 0) {
@@ -708,6 +713,7 @@ void terminal_connection_stop(TerminalConnection *connection) {
   if (connection->state.phase == TerminalConnectionPhase::idle ||
       connection->state.phase == TerminalConnectionPhase::closed) return;
   connection->state.cancelled = true;
+  connection->operation->receive_delivery_enabled = true;
   connection->state.phase = TerminalConnectionPhase::stopping;
   connection->operation->stop.cancel();
   connection->operation->io_stop.cancel();
@@ -731,7 +737,8 @@ bool terminal_connection_dispatch(TerminalConnection *connection) {
        !connection->operation->finishing)) return false;
   auto &operation = *connection->operation;
   uint32_t ready = BOXRIG_SESSION_READY_NONE;
-  if (operation.incoming.length || operation.eof) ready |= BOXRIG_SESSION_READY_READ;
+  if (operation.receive_delivery_enabled && (operation.incoming.length || operation.eof))
+    ready |= BOXRIG_SESSION_READY_READ;
   if (operation.finishing || operation.outgoing.length < operation.outgoing.storage.size() || operation.write_closed)
     ready |= BOXRIG_SESSION_READY_WRITE;
   boxrig_session_dispatch_result result{};
@@ -750,7 +757,14 @@ bool terminal_connection_dispatch(TerminalConnection *connection) {
   const auto interests = boxrig_session_interests(operation.session);
   operation.stream_changed.trigger();
   return result.terminal_bytes_fed != 0 || result.transport_bytes_written != 0 ||
-      ((interests & BOXRIG_SESSION_INTEREST_READ) && operation.incoming.length != 0);
+      (operation.receive_delivery_enabled && (interests & BOXRIG_SESSION_INTEREST_READ) && operation.incoming.length != 0);
+}
+
+void terminal_connection_set_receive_delivery_enabled(TerminalConnection *connection, bool enabled) {
+  if (connection->operation && connection->operation->receive_delivery_enabled != enabled) {
+    connection->operation->receive_delivery_enabled = enabled;
+    connection->wake();
+  }
 }
 
 cardio::promise<bool> terminal_connection_resize(TerminalConnection *connection, std::size_t rows, std::size_t columns) {

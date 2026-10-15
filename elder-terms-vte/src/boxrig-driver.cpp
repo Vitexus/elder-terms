@@ -37,6 +37,7 @@ struct Driver {
   bool connection_mode = false;
   bool zmodem_auto = false;
   bool links = false;
+  std::vector<elder_terms::MacroRule> macros;
   bool closing = false;
   std::string last_report;
   std::string last_connection_report;
@@ -385,6 +386,23 @@ int main(int argc, char **argv) {
   for (int index = 1; index < argc; ++index) {
     if (std::string_view(argv[index]) == "--local") driver.connection_mode = true;
     else if (std::string_view(argv[index]) == "--links") driver.links = true;
+    else if (std::string_view(argv[index]) == "--macro-send" && index + 2 < argc) {
+      const std::string pattern = argv[++index];
+      driver.macros.push_back({"driver-" + std::to_string(driver.macros.size()), pattern,
+          elder_terms::MacroSendAction{argv[++index]}});
+    }
+    else if (std::string_view(argv[index]) == "--macro-command" && index + 2 < argc) {
+      const std::string pattern = argv[++index];
+      driver.macros.push_back({"driver-" + std::to_string(driver.macros.size()), pattern,
+          elder_terms::MacroCommandAction{argv[++index], {}}});
+    }
+    else if (std::string_view(argv[index]) == "--macro-arg" && index + 1 < argc) {
+      if (driver.macros.empty() || !std::holds_alternative<elder_terms::MacroCommandAction>(driver.macros.back().action)) {
+        std::fputs("--macro-arg requires a preceding --macro-command\n", stderr);
+        return 2;
+      }
+      std::get<elder_terms::MacroCommandAction>(driver.macros.back().action).arguments.emplace_back(argv[++index]);
+    }
     else if (std::string_view(argv[index]) == "--serial" && index + 1 < argc) {
       driver.connection_mode = true;
       serial.device = argv[++index];
@@ -577,6 +595,17 @@ int main(int argc, char **argv) {
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }
   if (driver.links) configure_links(&driver);
+  if (!driver.macros.empty()) elder_terms::terminal_runtime_set_macro_rules(driver.runtime,
+      std::move(driver.macros), true, [](std::string command, std::vector<std::string> args) {
+        for (const auto &arg : args) {
+          command.push_back('\0');
+          command += arg;
+        }
+        auto *encoded = g_base64_encode(reinterpret_cast<const guchar *>(command.data()), command.size());
+        std::printf("macro=%s\n", encoded);
+        g_free(encoded);
+        std::fflush(stdout);
+      }, [](std::string error) { std::fprintf(stderr, "Macro rejected: %s\n", error.c_str()); });
   if (driver.zmodem_auto) elder_terms::terminal_runtime_set_zmodem_auto_start(driver.runtime,
       [&driver](elder_terms::TerminalTransferDirection, cardio::cancellation cancellation)
           -> cardio::promise<std::optional<elder_terms::TerminalTransferRequest>> {
