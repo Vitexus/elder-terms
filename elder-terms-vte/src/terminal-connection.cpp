@@ -57,6 +57,8 @@ struct ConnectionOperation {
   ByteQueue transfer_incoming;
   std::string transfer_prefetch;
   std::size_t transfer_prefetch_offset = 0;
+  std::optional<unsigned char> transfer_start_control;
+  std::chrono::steady_clock::time_point transfer_start_control_time;
   TerminalZmodemAutoStartDetectorState auto_start_detector;
   bool read_policy_changed = false;
   bool receive_delivery_enabled = true;
@@ -285,6 +287,16 @@ static cardio::promise<void> read_stream(TerminalConnection *connection) {
           operation.transfer_ready.trigger();
           continue;
         }
+        // A receiver can announce its X/YMODEM mode before the user presses
+        // Send. Retain only the latest isolated start control; unrelated text
+        // invalidates it, and the normal display/log still receives it once.
+        if (!operation.service_active && bytes.size() <= 16 &&
+            std::all_of(bytes.begin(), bytes.end(), [](unsigned char value) {
+              return value == 0x15 || value == 'C' || value == 'G';
+            })) {
+          operation.transfer_start_control = bytes.back();
+          operation.transfer_start_control_time = std::chrono::steady_clock::now();
+        } else operation.transfer_start_control.reset();
         if (connection->auto_start && !operation.service_active && !operation.changing_encoding) {
           auto filtered = filter_terminal_zmodem_auto_start(&operation.auto_start_detector,
               {reinterpret_cast<const char *>(bytes.data()), bytes.size()});
@@ -607,6 +619,7 @@ static cardio::promise<void> watch_carrier(TerminalConnection *connection) {
       auto &current = *connection->operation;
       connection->state.carrier_connected = connected;
       if (!connected) {
+        current.transfer_start_control.reset();
         ++connection->state.carrier_losses;
         current.carrier_stop.cancel();
         consume(current.outgoing, current.outgoing.length);
@@ -1068,11 +1081,21 @@ cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connectio
   if (!connection->operation || !connection->operation->transfer_prepared) co_return false;
   auto &operation = *connection->operation;
   auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation(), operation.transfer_carrier);
+  const auto start_control = operation.transfer_start_control;
+  operation.transfer_start_control.reset();
   bool succeeded = false;
   try {
     stop.get_cancellation().throw_if_cancellation_requested();
     if (connection->state.phase != TerminalConnectionPhase::connected)
       throw xyzm_async_io_error("transfer is not connected");
+    if (request.direction == TerminalTransferDirection::send &&
+        (request.protocol == TerminalTransferProtocol::xmodem ||
+         request.protocol == TerminalTransferProtocol::ymodem) &&
+        start_control &&
+        std::chrono::steady_clock::now() - operation.transfer_start_control_time <= std::chrono::seconds(5)) {
+      operation.transfer_prefetch.insert(operation.transfer_prefetch.begin(),
+          static_cast<char>(*start_control));
+    }
     co_await drain_output(connection, stop.get_cancellation());
     operation.write_paused = true;
     TerminalTransferTransport transport{

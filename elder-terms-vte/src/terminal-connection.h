@@ -200,6 +200,8 @@ bool terminal_connection_prepare_transfer(TerminalConnection *connection);
  * @return True on complete transfer success.
  * @remarks Binary bytes bypass conversion, logs and the terminal parser.
  * Successful completion returns prefetched normal output to the same stream.
+ * X/YMODEM send can consume the latest isolated start control received in the
+ * preceding five seconds, without duplicating its normal display/log output.
  * The runtime owns active/finished callbacks and input resumption.
  */
 cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connection,

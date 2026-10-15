@@ -17,6 +17,86 @@ const libraryPeerPath = fileURLToPath(
 const quote = (value: string): string => `'${value.split("'").join("'\\''")}'`;
 
 describe('boxrig binary transfers', () => {
+  for (const initialControl of [0x15, 0x43]) {
+    it(`uses an XMODEM start control ${initialControl} received before Send without requiring a retry`, async () => {
+      const directory = await mkdtemp(join(tmpdir(), 'boxrig-transfer-start-'));
+      const source = join(directory, 'payload.bin');
+      const received = join(directory, 'received.bin');
+      const peer = join(directory, 'peer.mjs');
+      const log = join(directory, 'terminal.log');
+      const payload = Buffer.from(Array.from({ length: 128 }, (_, i) => i));
+      await writeFile(source, payload);
+      await writeFile(
+        peer,
+        `import { writeFileSync } from 'node:fs';
+let pending = Buffer.alloc(0);
+let accepted = false;
+process.stdin.on('data', (bytes) => {
+  pending = Buffer.concat([pending, bytes]);
+  while (pending.length > 0) {
+    if (accepted) {
+      if (pending[0] !== 4) throw new Error('Expected XMODEM EOT');
+      pending = pending.subarray(1);
+      process.stdout.write(Buffer.from([6]));
+      process.stdout.write('AFTER');
+      return;
+    }
+    const size = pending[0] === 1 ? 128 : pending[0] === 2 ? 1024 : 0;
+    if (size === 0) throw new Error('Expected an XMODEM data block');
+    const length = 3 + size + ${initialControl === 0x43 ? 2 : 1};
+    if (pending.length < length) return;
+    if (pending[1] !== 1 || pending[2] !== 254) throw new Error('Invalid block number');
+    writeFileSync(process.argv[2], pending.subarray(3, 3 + 128));
+    pending = pending.subarray(length);
+    accepted = true;
+    process.stdout.write(Buffer.from([6]));
+  }
+});
+process.stdin.resume();
+// Send once: successful transfer cannot rely on a handshake timeout/retry.
+process.stdout.write(Buffer.from([${initialControl}]));
+`
+      );
+      const launcher = createGtkAppLauncher({
+        appPath: driverPath,
+        args: [
+          '--local',
+          '--log-raw',
+          log,
+          '--transfer',
+          'xmodem',
+          'send',
+          '--transfer-uri',
+          `file://${source}`,
+          '--',
+          '/bin/sh',
+          '-c',
+          `stty raw -echo; exec ${quote(process.execPath)} ${quote(peer)} ${quote(received)}`,
+        ],
+      });
+      try {
+        const app = await launcher.launch();
+        await toPass(async () =>
+          expect(await readFile(log)).toEqual(Buffer.from([initialControl]))
+        );
+        const transfer = await app.getById('driver_transfer');
+        if (transfer.kind !== 'button') throw new Error('Missing Send button');
+        await transfer.click();
+        await toPass(async () => {
+          const output = await app.output();
+          expect(output.stdout, output.stderr).toContain('transfer_finished=1');
+          expect(await readFile(received)).toEqual(payload);
+          expect(await readFile(log)).toEqual(
+            Buffer.concat([Buffer.from([initialControl]), Buffer.from('AFTER')])
+          );
+        });
+      } finally {
+        await launcher.release();
+        await rm(directory, { recursive: true, force: true });
+      }
+    });
+  }
+
   for (const protocol of ['xmodem', 'ymodem', 'zmodem'] as const) {
     for (const direction of ['send', 'receive'] as const) {
       for (const peerKind of ['library', 'lrzsz'] as const) {
