@@ -61,6 +61,8 @@ struct TerminalConnectionState {
   bool cancelled = false;
   /** Whether the sole child reaper completed. */
   bool reaped = false;
+  /** Whether the peer reader has ended, before buffered input and services finish. */
+  bool receive_ended = false;
   /** Largest observed application receive queue occupancy. */
   std::size_t receive_peak = 0;
   /** Largest observed application send queue occupancy. */
@@ -184,6 +186,18 @@ bool terminal_connection_prepare_transfer(TerminalConnection *connection);
  */
 cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connection,
     TerminalTransferRequest request, cardio::cancellation cancellation);
+
+/**
+ * Configures raw ZMODEM header detection for subsequent normal input.
+ * @param connection Communication owner.
+ * @param start Reserves a transfer synchronously and returns true if accepted;
+ * an empty callback disables detection.
+ * @remarks The detector holds at most 17 partial header bytes. On acceptance,
+ * the matched header and current read are retained for transfer replay, in
+ * addition to the bounded receive queue. Rejected headers remain normal data.
+ */
+void terminal_connection_set_zmodem_auto_start(TerminalConnection *connection,
+    std::function<bool(TerminalTransferDirection)> start);
 
 /**
  * Reports whether the connected transport can accept a BREAK operation.

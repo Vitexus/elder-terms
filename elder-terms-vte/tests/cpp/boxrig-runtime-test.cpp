@@ -18,6 +18,7 @@ struct Fixture {
   cardio::primitives::conditional resize_ready;
   cardio::primitives::conditional write_ready;
   cardio::primitives::conditional break_ready;
+  cardio::primitives::conditional selection_ready;
   std::string incoming;
   std::string outgoing;
   std::string normal_output;
@@ -32,6 +33,9 @@ struct Fixture {
   bool write_pending = false;
   bool break_asserted = false;
   bool closed_during_break = false;
+  bool selection_pending = false;
+  bool selection_cancelled = false;
+  bool peer_eof = false;
   std::size_t requested_rows = 0;
   std::size_t requested_columns = 0;
 };
@@ -50,7 +54,7 @@ static std::string text(Fixture *fixture) {
 
 static cardio::promise<std::size_t> read_peer(Fixture *fixture, std::span<unsigned char> bytes,
     cardio::cancellation cancellation) {
-  while (fixture->incoming.empty()) co_await fixture->received.wait(cancellation);
+  while (fixture->incoming.empty() && !fixture->peer_eof) co_await fixture->received.wait(cancellation);
   const auto count = std::min(bytes.size(), fixture->incoming.size());
   std::memcpy(bytes.data(), fixture->incoming.data(), count);
   fixture->incoming.erase(0, count);
@@ -74,6 +78,7 @@ static TerminalTransportRequest request(Fixture *fixture) {
   request.open = [fixture](std::size_t, std::size_t, cardio::cancellation cancellation) -> cardio::promise<TerminalTransport> {
     cancellation.throw_if_cancellation_requested();
     fixture->closed = false;
+    fixture->peer_eof = false;
     co_return TerminalTransport{
         [fixture](std::span<unsigned char> bytes, cardio::cancellation stop) { return read_peer(fixture, bytes, stop); },
         [fixture](std::span<const unsigned char> bytes, cardio::cancellation stop) -> cardio::promise<void> {
@@ -273,6 +278,79 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   co_await terminal_runtime_disconnect(fixture->runtime);
   expect(finished == 8 && !succeeded && fixture->closed && !fixture->closed_during_break,
       "disconnect cancels and deasserts BREAK before closing the channel");
+
+  TerminalZmodemAutoStart select = [fixture](TerminalTransferDirection direction, cardio::cancellation cancellation)
+      -> cardio::promise<std::optional<TerminalTransferRequest>> {
+    expect(direction == TerminalTransferDirection::send, "ZRINIT requests a local send");
+    fixture->selection_pending = true;
+    fixture->selection_cancelled = false;
+    fixture->changed.trigger();
+    try { co_await fixture->selection_ready.wait(cancellation); }
+    catch (const cardio::canceled_exception &) { fixture->selection_cancelled = true; }
+    fixture->selection_pending = false;
+    fixture->changed.trigger();
+    co_return std::nullopt;
+  };
+  terminal_runtime_set_zmodem_auto_start(fixture->runtime, select);
+  auto automatic_request = request(fixture);
+  automatic_request.queue_capacity = 1;
+  automatic_request.io_chunk_size = 1;
+  expect(terminal_runtime_connect_transport(fixture->runtime, std::move(automatic_request)), "connect for split auto-start detection");
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  fixture->outgoing.clear();
+  const auto prior_normal = fixture->normal_output;
+  fixture->incoming = "BEFORE**\x18" "B0100000063f694\r";
+  fixture->received.trigger();
+  while (!fixture->selection_pending || !fixture->incoming.empty()) co_await fixture->changed.wait();
+  boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  expect(input.phase == BOXRIG_UI_INPUT_DISABLED && fixture->outgoing.empty(),
+      "file selection inhibits input before any protocol response");
+  expect(fixture->normal_output == prior_normal + "BEFORE", "split preamble and bounded queued bytes stay out of normal output");
+  expect(terminal_runtime_cancel_transfer(fixture->runtime), "cancel automatic file selection");
+  do {
+    co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  } while (input.phase != BOXRIG_UI_INPUT_ENABLED);
+  expect(fixture->selection_cancelled && !fixture->closed && fixture->outgoing.empty(),
+      "selection cancellation joins the reservation without starting the protocol");
+  fixture->incoming = "AFTER*";
+  fixture->received.trigger();
+  while (!fixture->incoming.empty()) co_await fixture->changed.wait();
+  terminal_runtime_set_zmodem_auto_start(fixture->runtime, {});
+  while (fixture->normal_output != prior_normal + "BEFOREAFTER*") co_await fixture->changed.wait();
+  terminal_runtime_set_zmodem_auto_start(fixture->runtime, select);
+  fixture->incoming = "**\x18" "B0100000063f694";
+  fixture->received.trigger();
+  while (!fixture->selection_pending) co_await fixture->changed.wait();
+  fixture->peer_eof = true;
+  fixture->received.trigger();
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::closed)
+    co_await fixture->changed.wait();
+  co_await terminal_runtime_disconnect(fixture->runtime);
+  expect(fixture->selection_cancelled && !fixture->selection_pending && fixture->closed,
+      "peer EOF cancels and joins automatic selection and its receive reservation");
+
+  expect(terminal_runtime_connect_transport(fixture->runtime, request(fixture)), "reconnect for selection shutdown");
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  fixture->incoming = "**\x18" "B0100000063f694";
+  fixture->received.trigger();
+  while (!fixture->selection_pending) co_await fixture->changed.wait();
+  co_await terminal_runtime_disconnect(fixture->runtime);
+  expect(fixture->selection_cancelled && !fixture->selection_pending && fixture->closed,
+      "explicit disconnect joins automatic selection before closing");
+
+  expect(terminal_runtime_connect_transport(fixture->runtime, request(fixture)), "reconnect for incomplete header EOF");
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  const auto before_eof = fixture->normal_output;
+  fixture->incoming = "**\x18" "B0000";
+  fixture->peer_eof = true;
+  fixture->received.trigger();
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::closed)
+    co_await fixture->changed.wait();
+  expect(fixture->normal_output == before_eof + "**\x18" "B0000", "EOF releases an incomplete header as ordinary data exactly once");
 }
 
 static cardio::promise<void> run(Fixture *fixture, std::exception_ptr *failure) {

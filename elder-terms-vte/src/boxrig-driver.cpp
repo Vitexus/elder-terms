@@ -27,6 +27,7 @@ struct Driver {
   std::uint64_t text_rate = 1024;
   elder_terms::TerminalTransferRequest transfer;
   bool connection_mode = false;
+  bool zmodem_auto = false;
   bool closing = false;
   std::string last_report;
   std::string last_connection_report;
@@ -236,13 +237,17 @@ static void send_break(GtkButton *, gpointer context) {
   elder_terms::terminal_runtime_send_break(driver->runtime, std::move(request));
 }
 
-static void start_transfer(GtkButton *, gpointer context) {
-  auto *driver = static_cast<Driver *>(context);
+static elder_terms::TerminalTransferRequest transfer_request(Driver *driver) {
   auto request = driver->transfer;
   request.active = [](bool active) { std::printf("transfer_active=%d\n", active); std::fflush(stdout); };
   request.finished = [](bool succeeded) { std::printf("transfer_finished=%d\n", succeeded); std::fflush(stdout); };
   request.status = [](const std::string &status) { std::fprintf(stderr, "Transfer: %s\n", status.c_str()); };
-  elder_terms::terminal_runtime_start_transfer(driver->runtime, std::move(request));
+  return request;
+}
+
+static void start_transfer(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  elder_terms::terminal_runtime_start_transfer(driver->runtime, transfer_request(driver));
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
@@ -317,6 +322,7 @@ int main(int argc, char **argv) {
       driver.text_source = elder_terms::TerminalTextSendFileSource{argv[++index]};
     else if (std::string_view(argv[index]) == "--rate" && index + 1 < argc)
       driver.text_rate = std::strtoull(argv[++index], nullptr, 10);
+    else if (std::string_view(argv[index]) == "--zmodem-auto") driver.zmodem_auto = true;
     else if (std::string_view(argv[index]) == "--transfer" && index + 2 < argc) {
       const std::string_view protocol = argv[++index];
       driver.transfer.protocol = protocol == "xmodem" ? elder_terms::TerminalTransferProtocol::xmodem :
@@ -445,6 +451,12 @@ int main(int argc, char **argv) {
   }
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }
+  if (driver.zmodem_auto) elder_terms::terminal_runtime_set_zmodem_auto_start(driver.runtime,
+      [&driver](elder_terms::TerminalTransferDirection, cardio::cancellation cancellation)
+          -> cardio::promise<std::optional<elder_terms::TerminalTransferRequest>> {
+        cancellation.throw_if_cancellation_requested();
+        co_return transfer_request(&driver);
+      });
   auto *widget = elder_terms::terminal_runtime_widget(driver.runtime);
   if (boxrig_gtk3_terminal_widget_set_key_router(widget, route_key, &driver) != BOXRIG_UI_OK) {
     elder_terms::destroy_terminal_runtime(driver.runtime);

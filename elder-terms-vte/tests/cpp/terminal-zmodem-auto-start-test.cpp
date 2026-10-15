@@ -81,6 +81,32 @@ static bool run() {
     return false;
   }
 
+  for (const auto &header : {zrqinit, zrinit}) {
+    const auto direction = header == zrqinit ? elder_terms::TerminalTransferDirection::receive :
+        elder_terms::TerminalTransferDirection::send;
+    const auto stream = "BEFORE" + header + "BINARY";
+    for (std::size_t split = 0; split <= stream.size(); ++split) {
+      elder_terms::TerminalZmodemAutoStartDetectorState filtering;
+      auto first = elder_terms::filter_terminal_zmodem_auto_start(&filtering, stream.substr(0, split));
+      auto second = first.direction ? elder_terms::TerminalZmodemAutoStartResult{
+          {}, stream.substr(split), {}} :
+          elder_terms::filter_terminal_zmodem_auto_start(&filtering, stream.substr(split));
+      if (!expect_true(first.terminal_data + second.terminal_data == "BEFORE" &&
+          first.transfer_data + second.transfer_data == header + "BINARY" &&
+          (first.direction ? first.direction : second.direction) == direction,
+          "every split retains the complete binary preamble and preceding normal text")) return false;
+    }
+  }
+  elder_terms::TerminalZmodemAutoStartDetectorState filtering;
+  const std::string ordinary = "* ** *** x*" + invalid_crc + "\r\nPLAIN";
+  std::string restored;
+  for (char value : ordinary) {
+    const auto result = elder_terms::filter_terminal_zmodem_auto_start(&filtering, std::string_view(&value, 1));
+    restored += result.terminal_data;
+    if (!expect_true(!result.direction && result.transfer_data.empty(), "invalid preambles remain ordinary data")) return false;
+  }
+  if (!expect_true(restored == ordinary && filtering.tail.empty(), "ordinary bytes are neither lost nor duplicated")) return false;
+
   return true;
 }
 

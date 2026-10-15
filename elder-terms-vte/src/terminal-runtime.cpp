@@ -27,6 +27,9 @@ struct TerminalRuntime {
   std::optional<cardio::promise<void>> service_completion;
   cardio::cancellation_source service_stop;
   bool service_active = false;
+  TerminalZmodemAutoStart auto_start;
+  bool auto_selecting = false;
+  std::optional<std::pair<TerminalTransferDirection, TerminalZmodemAutoStart>> pending_auto_start;
   std::optional<cardio::promise<void>> break_completion;
   bool break_active = false;
   TerminalTextSettings applied_input;
@@ -161,6 +164,30 @@ static cardio::promise<void> run_service(TerminalRuntime *runtime, TerminalServi
   finish_service(runtime, request, succeeded);
 }
 
+static cardio::promise<void> run_auto_start(TerminalRuntime *runtime,
+    std::pair<TerminalTransferDirection, TerminalZmodemAutoStart> selection) {
+  std::optional<TerminalTransferRequest> selected;
+  const auto cancellation = runtime->service_stop.get_cancellation();
+  try {
+    cancellation.throw_if_cancellation_requested();
+    selected = co_await selection.second(selection.first, cancellation);
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::exception &error) {
+    g_printerr("ZMODEM selection: %s\n", error.what());
+  }
+  runtime->auto_selecting = false;
+  auto request = selected.value_or(TerminalTransferRequest{});
+  request.protocol = TerminalTransferProtocol::zmodem;
+  request.direction = selection.first;
+  if (!selected || (request.direction == TerminalTransferDirection::send && request.source_file_uris.empty()))
+    runtime->service_stop.cancel();
+  else if (request.active) request.active(true);
+  // Every accepted detection owns a receive reservation, including cancelled
+  // file selection. Joining it returns the stream to the same connection.
+  const auto succeeded = co_await terminal_connection_transfer(runtime->connection, request, cancellation);
+  finish_service(runtime, TerminalServiceRequest{request}, succeeded);
+}
+
 static cardio::promise<void> send_break(TerminalRuntime *runtime, TerminalBreakRequest request) {
   const auto succeeded = co_await terminal_connection_send_break(runtime->connection, request);
   runtime->break_active = false;
@@ -193,6 +220,7 @@ static bool process_input_policy(TerminalRuntime *runtime) {
     }
   }
   const auto connection = terminal_connection_state(runtime->connection);
+  if (runtime->auto_selecting && connection.receive_ended) terminal_runtime_cancel_transfer(runtime);
   const bool enabled = runtime->input_allowed && !runtime->pending_connection &&
       !runtime->pending_encoding && !runtime->encoding_active &&
       !runtime->pending_service && !runtime->service_active &&
@@ -214,6 +242,11 @@ static bool process_input_policy(TerminalRuntime *runtime) {
         return terminal_connection_start_local(runtime->connection, std::move(request));
       else return terminal_connection_start_transport(runtime->connection, std::move(request));
     }, std::move(command))) return false;
+  }
+  if (runtime->pending_auto_start && input.phase == BOXRIG_UI_INPUT_DISABLED) {
+    auto selection = std::move(*runtime->pending_auto_start);
+    runtime->pending_auto_start.reset();
+    runtime->service_completion.emplace(run_auto_start(runtime, std::move(selection)));
   }
   if (runtime->pending_encoding && input.phase == BOXRIG_UI_INPUT_DISABLED) {
     auto encoding = std::move(*runtime->pending_encoding);
@@ -625,6 +658,12 @@ bool terminal_runtime_start_text_send(TerminalRuntime *runtime, TerminalTextSend
 
 bool terminal_runtime_cancel_transfer(TerminalRuntime *runtime) {
   runtime->service_stop.cancel();
+  if (runtime->pending_auto_start) {
+    auto selection = std::move(*runtime->pending_auto_start);
+    runtime->pending_auto_start.reset();
+    runtime->service_completion.emplace(run_auto_start(runtime, std::move(selection)));
+    return true;
+  }
   if (runtime->pending_service) {
     auto request = std::move(*runtime->pending_service);
     runtime->pending_service.reset();
@@ -651,6 +690,25 @@ bool terminal_runtime_start_transfer(TerminalRuntime *runtime, TerminalTransferR
   if (transfer.active) transfer.active(true);
   request_frame(runtime);
   return true;
+}
+
+void terminal_runtime_set_zmodem_auto_start(TerminalRuntime *runtime, TerminalZmodemAutoStart select) {
+  runtime->auto_start = std::move(select);
+  if (!runtime->auto_start) {
+    terminal_connection_set_zmodem_auto_start(runtime->connection, {});
+    return;
+  }
+  terminal_connection_set_zmodem_auto_start(runtime->connection, [runtime](TerminalTransferDirection direction) {
+    if (runtime->stopped || runtime->ui_failed || runtime->pending_encoding || runtime->encoding_active ||
+        runtime->pending_service || runtime->service_active || runtime->break_active || !runtime->auto_start ||
+        !terminal_connection_prepare_transfer(runtime->connection)) return false;
+    runtime->service_stop = {};
+    runtime->service_active = true;
+    runtime->auto_selecting = true;
+    runtime->pending_auto_start.emplace(direction, runtime->auto_start);
+    request_frame(runtime);
+    return true;
+  });
 }
 
 bool terminal_runtime_can_send_break(const TerminalRuntime *runtime) {

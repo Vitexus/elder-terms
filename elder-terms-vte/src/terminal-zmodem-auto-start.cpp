@@ -2,6 +2,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <algorithm>
+#include <utility>
 
 namespace elder_terms {
 
@@ -160,6 +162,39 @@ feed_terminal_zmodem_auto_start_detector(
   }
   trim_detector_tail(state);
   return std::nullopt;
+}
+
+TerminalZmodemAutoStartResult filter_terminal_zmodem_auto_start(
+    TerminalZmodemAutoStartDetectorState *state, std::string_view payload) {
+  state->tail.append(payload);
+  std::size_t offset = 0;
+  while (offset < state->tail.size()) {
+    if (state->tail[offset] != zmodem_pad) { ++offset; continue; }
+    auto marker = offset + 1;
+    if (marker < state->tail.size() && state->tail[marker] == zmodem_pad) ++marker;
+    if (marker == state->tail.size()) break;
+    if (state->tail[marker] != zmodem_zdle) { ++offset; continue; }
+    if (marker + 1 == state->tail.size()) break;
+    if (state->tail[marker + 1] != zmodem_zhex) { ++offset; continue; }
+    const std::string_view digits(state->tail.data() + marker + 2,
+        std::min(zhex_header_digit_count, state->tail.size() - marker - 2));
+    bool valid_digits = true;
+    for (char value : digits) if (!decode_hex_digit(value)) valid_digits = false;
+    if (!valid_digits) { ++offset; continue; }
+    if (digits.size() < zhex_header_digit_count) break;
+    const auto type = decode_zhex_header_type(digits);
+    if (type == zmodem_zrqinit || type == zmodem_zrinit) {
+      TerminalZmodemAutoStartResult result{
+          state->tail.substr(0, offset), state->tail.substr(offset),
+          *type == zmodem_zrqinit ? TerminalTransferDirection::receive : TerminalTransferDirection::send};
+      state->tail.clear();
+      return result;
+    }
+    ++offset;
+  }
+  auto normal = state->tail.substr(0, offset);
+  state->tail.erase(0, offset);
+  return {std::move(normal), {}, {}};
 }
 
 } // namespace elder_terms

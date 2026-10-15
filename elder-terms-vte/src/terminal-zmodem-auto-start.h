@@ -19,6 +19,27 @@ struct TerminalZmodemAutoStartDetectorState {
   std::string tail;
 };
 
+/** Separates ordinary output from the first complete, CRC-valid start header. */
+struct TerminalZmodemAutoStartResult {
+  /** Ordinary bytes before the header, or bytes ruled out as header prefixes. */
+  std::string terminal_data;
+  /** Complete header and subsequent bytes, to replay into the transfer. */
+  std::string transfer_data;
+  /** Local transfer direction, present only with a validated header. */
+  std::optional<TerminalTransferDirection> direction;
+};
+
+/**
+ * Holds a possible partial header and releases bytes as their routing is known.
+ * @param state Incremental state, retaining at most 17 possible header bytes.
+ * @param payload New raw peer bytes.
+ * @return Ordinary output and, on detection, all accepted binary bytes.
+ * @remarks Feed retained tail as ordinary output on EOF or when disabling
+ * detection. Once a header is found, route subsequent input to the transfer.
+ */
+TerminalZmodemAutoStartResult filter_terminal_zmodem_auto_start(
+    TerminalZmodemAutoStartDetectorState *state, std::string_view payload);
+
 /**
  * Scans remote bytes for ZMODEM ZRQINIT/ZRINIT auto-start headers.
  *

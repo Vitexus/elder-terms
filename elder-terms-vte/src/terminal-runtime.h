@@ -2,6 +2,7 @@
 
 #include <boxrig/gtk3.h>
 #include <string_view>
+#include <optional>
 #include <elder-terms/settings.h>
 #include "terminal-connection.h"
 
@@ -9,6 +10,17 @@ namespace elder_terms {
 
 /** Owns a terminal, its model, and the GTK attachment on the GTK thread. */
 struct TerminalRuntime;
+
+/**
+ * Selects files and presentation callbacks for an automatically detected transfer.
+ * @param direction Requested local transfer direction.
+ * @param cancellation Cancel and join any pending dialog when requested.
+ * @return Owned transfer request, or no value when selection is cancelled.
+ * @remarks Called after widget input stops. Protocol and direction are supplied
+ * by the runtime; display and bounded binary reception remain available.
+ */
+using TerminalZmodemAutoStart = std::function<cardio::promise<std::optional<TerminalTransferRequest>>(
+    TerminalTransferDirection direction, cardio::cancellation cancellation)>;
 
 /**
  * Creates a terminal with OpenGL preferred rendering and the standard scroll container.
@@ -173,6 +185,13 @@ bool terminal_runtime_cancel_transfer(TerminalRuntime *runtime);
  * normal output drains. Display and selection remain available throughout.
  */
 bool terminal_runtime_start_transfer(TerminalRuntime *runtime, TerminalTransferRequest request);
+
+/**
+ * Enables automatic ZMODEM transfer selection or disables it with an empty callback.
+ * @param runtime Live runtime.
+ * @param select Selects files without blocking the dispatcher; retained across connections.
+ */
+void terminal_runtime_set_zmodem_auto_start(TerminalRuntime *runtime, TerminalZmodemAutoStart select);
 
 /**
  * Reports whether BREAK can be started on the current connection.
