@@ -19,6 +19,13 @@ struct Forward {
   ssh_channel channel = nullptr;
   ssh_event event = nullptr;
   int fd = -1;
+  bool watching = false;
+  bool close_requested = false;
+  bool peer_eof = false;
+  bool eof_sent = false;
+  std::array<unsigned char, 32768> pending{};
+  std::size_t pending_size = 0;
+  std::size_t pending_offset = 0;
   ssh_channel_callbacks_struct callbacks{};
 };
 struct Gateway {
@@ -29,7 +36,8 @@ struct Gateway {
 static int on_none(ssh_session, const char *, void *) { return SSH_AUTH_SUCCESS; }
 static void close_peer(Forward &forward) {
   if (forward.fd >= 0) {
-    ssh_event_remove_fd(forward.event, forward.fd);
+    if (forward.watching) ssh_event_remove_fd(forward.event, forward.fd);
+    forward.watching = false;
     ::close(forward.fd);
     forward.fd = -1;
   }
@@ -41,7 +49,7 @@ static int on_channel_data(ssh_session, ssh_channel, void *data, std::uint32_t s
     const auto count = ::send(forward.fd, static_cast<unsigned char *>(data) + offset, size - offset, MSG_NOSIGNAL);
     if (count > 0) offset += count;
     else if (count < 0 && errno == EINTR) continue;
-    else { close_peer(forward); return -1; }
+    else { forward.close_requested = true; return -1; }
   }
   return size;
 }
@@ -49,23 +57,51 @@ static void on_channel_eof(ssh_session, ssh_channel, void *opaque) {
   auto &forward = *static_cast<Forward *>(opaque);
   if (forward.fd >= 0) (void)::shutdown(forward.fd, SHUT_WR);
 }
-static void on_channel_close(ssh_session, ssh_channel, void *opaque) { close_peer(*static_cast<Forward *>(opaque)); }
+static void on_channel_close(ssh_session, ssh_channel, void *opaque) {
+  static_cast<Forward *>(opaque)->close_requested = true;
+}
 static int on_peer(socket_t fd, int, void *opaque) {
   auto &forward = *static_cast<Forward *>(opaque);
-  std::array<unsigned char, 32768> buffer{};
-  const auto count = ::recv(fd, buffer.data(), buffer.size(), MSG_DONTWAIT);
+  if (forward.close_requested || forward.pending_size || forward.peer_eof) return 0;
+  const auto count = ::recv(fd, forward.pending.data(), forward.pending.size(), MSG_DONTWAIT);
   if (count > 0) {
-    std::size_t offset = 0;
-    while (offset < static_cast<std::size_t>(count)) {
-      const auto sent = ssh_channel_write(forward.channel, buffer.data() + offset, count - offset);
-      if (sent <= 0) { close_peer(forward); return 0; }
-      offset += sent;
-    }
+    forward.pending_size = static_cast<std::size_t>(count);
   } else if (count == 0 || (errno != EINTR && errno != EAGAIN && errno != EWOULDBLOCK)) {
-    (void)ssh_channel_send_eof(forward.channel);
-    ssh_event_remove_fd(forward.event, fd);
+    forward.peer_eof = true;
   }
   return 0;
+}
+static void flush_peer(Forward &forward) {
+  if (forward.fd < 0) return;
+  // Removing an fd inside any event callback invalidates libssh's poll walk.
+  if (forward.close_requested) { close_peer(forward); return; }
+  // libssh writes can dispatch events even in nonblocking mode. Drain outside
+  // the fd callback, with its watcher detached until the bounded buffer clears.
+  if ((forward.pending_size || forward.peer_eof) && forward.watching) {
+    ssh_event_remove_fd(forward.event, forward.fd);
+    forward.watching = false;
+  }
+  if (forward.pending_offset < forward.pending_size) {
+    const auto sent = ssh_channel_write(forward.channel,
+        forward.pending.data() + forward.pending_offset,
+        static_cast<std::uint32_t>(forward.pending_size - forward.pending_offset));
+    if (sent == SSH_ERROR) { close_peer(forward); return; }
+    if (sent > 0) forward.pending_offset += static_cast<std::size_t>(sent);
+  }
+  if (forward.close_requested) { close_peer(forward); return; }
+  if (forward.pending_offset < forward.pending_size) return;
+  forward.pending_offset = forward.pending_size = 0;
+  if (forward.peer_eof) {
+    if (!forward.eof_sent) {
+      const auto result = ssh_channel_send_eof(forward.channel);
+      if (result == SSH_OK) forward.eof_sent = true;
+      else if (result == SSH_ERROR) close_peer(forward);
+    }
+  } else if (!forward.watching) {
+    if (ssh_event_add_fd(forward.event, forward.fd, POLLIN, on_peer, &forward) == SSH_OK)
+      forward.watching = true;
+    else close_peer(forward);
+  }
 }
 static int on_message(ssh_session, ssh_message message, void *opaque) {
   auto &gateway = *static_cast<Gateway *>(opaque);
@@ -101,6 +137,7 @@ static int on_message(ssh_session, ssh_message message, void *opaque) {
   ssh_callbacks_init(&forward->callbacks);
   if (ssh_set_channel_callbacks(forward->channel, &forward->callbacks) != SSH_OK ||
       ssh_event_add_fd(gateway.event, forward->fd, POLLIN, on_peer, forward.get()) != SSH_OK) return 1;
+  forward->watching = true;
   std::cout << "FORWARD " << host << " " << port << std::endl;
   gateway.forwards.push_back(std::move(forward));
   return 0;
@@ -129,9 +166,13 @@ int main(int argc, char **argv) {
   ssh_set_auth_methods(session, SSH_AUTH_METHOD_NONE);
   ssh_set_message_callback(session, on_message, &gateway);
   if (ssh_handle_key_exchange(session) != SSH_OK) return 7;
+  ssh_set_blocking(session, 0);
   gateway.event = ssh_event_new();
   if (!gateway.event || ssh_event_add_session(gateway.event, session) != SSH_OK) return 8;
-  while (ssh_is_connected(session) && ssh_event_dopoll(gateway.event, -1) != SSH_ERROR) {}
+  while (ssh_is_connected(session) && ssh_event_dopoll(gateway.event, -1) != SSH_ERROR) {
+    // A write may accept another channel, so do not retain vector iterators.
+    for (std::size_t i = 0; i < gateway.forwards.size(); ++i) flush_peer(*gateway.forwards[i]);
+  }
   for (auto &forward : gateway.forwards) {
     close_peer(*forward);
     ssh_channel_free(forward->channel);
