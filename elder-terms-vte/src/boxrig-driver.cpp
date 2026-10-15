@@ -4,16 +4,48 @@
 #include <glib-unix.h>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 
 struct Driver {
   elder_terms::TerminalRuntime *runtime = nullptr;
   GtkWidget *status = nullptr;
+  GtkWidget *connection_status = nullptr;
+  elder_terms::TerminalLocalCommand command;
+  bool local = false;
+  bool closing = false;
   std::string last_report;
+  std::string last_connection_report;
 };
+
+static void report_connection(Driver *driver) {
+  if (!driver->local) return;
+  const auto state = elder_terms::terminal_runtime_connection_state(driver->runtime);
+  const char *phase = state.phase == elder_terms::TerminalConnectionPhase::starting ? "starting" :
+      state.phase == elder_terms::TerminalConnectionPhase::connected ? "connected" :
+      state.phase == elder_terms::TerminalConnectionPhase::stopping ? "stopping" :
+      state.phase == elder_terms::TerminalConnectionPhase::closed ? "closed" : "idle";
+  char report[384];
+  std::snprintf(report, sizeof(report),
+      "connection=%s generation=%llu spawn=%d stage=%d errno=%d pid=%d exit=%d signal=%d cancelled=%d reaped=%d error=%d rx_peak=%zu tx_peak=%zu",
+      phase, static_cast<unsigned long long>(state.generation), state.spawn.state, state.spawn.stage,
+      state.spawn.error_number, state.child, state.exit_code, state.signal_number,
+      state.cancelled, state.reaped, state.operation_error, state.receive_peak, state.send_peak);
+  if (driver->last_connection_report != report) {
+    driver->last_connection_report = report;
+    char label[128];
+    std::snprintf(label, sizeof(label), "%s: spawn stage %d, errno %d, exit %d", phase,
+        state.spawn.stage, state.spawn.error_number, state.exit_code);
+    if (std::string_view(gtk_label_get_text(GTK_LABEL(driver->connection_status))) != label)
+      gtk_label_set_text(GTK_LABEL(driver->connection_status), label);
+    std::printf("%s\n", report);
+    std::fflush(stdout);
+  }
+}
 
 static void report_state(void *context) {
   auto *driver = static_cast<Driver *>(context);
+  report_connection(driver);
   auto *widget = elder_terms::terminal_runtime_widget(driver->runtime);
   boxrig_gtk_render_state render{};
   boxrig_font_effective_metrics metrics{};
@@ -60,16 +92,51 @@ static void copy_selection(GtkButton *, gpointer context) {
     g_warning("boxrig copy failed: %d", status);
 }
 
-static gboolean close_window(GtkWidget *, GdkEvent *, gpointer) {
+static cardio::promise<void> close_driver(Driver *driver) {
+  if (driver->closing) co_return;
+  driver->closing = true;
+  co_await elder_terms::terminal_runtime_disconnect(driver->runtime);
   gtk_main_quit();
+}
+
+static gboolean close_window(GtkWidget *, GdkEvent *, gpointer context) {
+  cardio::fire_and_forget(close_driver(static_cast<Driver *>(context)));
   return TRUE;
 }
 
-static gboolean stop_driver(gpointer) { gtk_main_quit(); return G_SOURCE_CONTINUE; }
+static gboolean stop_driver(gpointer context) {
+  cardio::fire_and_forget(close_driver(static_cast<Driver *>(context)));
+  return G_SOURCE_CONTINUE;
+}
+
+static void disconnect(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  cardio::fire_and_forget(elder_terms::terminal_runtime_disconnect(driver->runtime));
+}
+
+static void reconnect(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  elder_terms::terminal_runtime_connect_local(driver->runtime, driver->command);
+  gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
+}
 
 int main(int argc, char **argv) {
-  gtk_init(&argc, &argv);
+  // Arguments after -- belong to the child; GTK must not consume their flags.
+  gtk_init(nullptr, nullptr);
+  cardio::dispatcher_group_glib group;
+  cardio::dispatcher_host_glib_auto dispatcher(group);
   Driver driver;
+  for (int index = 1; index < argc; ++index) {
+    if (std::string_view(argv[index]) == "--local") driver.local = true;
+    else if (std::string_view(argv[index]) == "--") {
+      for (++index; index < argc; ++index) driver.command.arguments.emplace_back(argv[index]);
+      break;
+    }
+  }
+  if (driver.command.arguments.empty()) {
+    const auto *shell = std::getenv("SHELL");
+    driver.command.arguments.emplace_back(shell && *shell ? shell : "/bin/sh");
+  }
   auto *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   gtk_window_set_title(GTK_WINDOW(window), "boxrig driver");
   gestament_gtk_assign_accessible_id(window, "driver_window");
@@ -86,6 +153,20 @@ int main(int argc, char **argv) {
   driver.status = gtk_label_new("Starting boxrig");
   gestament_gtk_assign_accessible_id(driver.status, "driver_status");
   gtk_box_pack_start(GTK_BOX(controls), driver.status, FALSE, FALSE, 0);
+  if (driver.local) {
+    auto *connections = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_start(GTK_BOX(content), connections, FALSE, FALSE, 0);
+    auto *stop = gtk_button_new_with_label("Disconnect");
+    auto *start = gtk_button_new_with_label("Reconnect");
+    gestament_gtk_assign_accessible_id(stop, "driver_disconnect");
+    gestament_gtk_assign_accessible_id(start, "driver_reconnect");
+    gtk_box_pack_start(GTK_BOX(connections), stop, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(connections), start, FALSE, FALSE, 0);
+    driver.connection_status = gtk_label_new("Starting local command");
+    gtk_box_pack_start(GTK_BOX(connections), driver.connection_status, FALSE, FALSE, 0);
+    g_signal_connect(stop, "clicked", G_CALLBACK(disconnect), &driver);
+    g_signal_connect(start, "clicked", G_CALLBACK(reconnect), &driver);
+  }
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }
   auto *widget = elder_terms::terminal_runtime_widget(driver.runtime);
@@ -93,12 +174,22 @@ int main(int argc, char **argv) {
   elder_terms::terminal_runtime_set_changed_callback(driver.runtime, report_state, &driver);
   g_signal_connect(zoom, "clicked", G_CALLBACK(zoom_in), &driver);
   g_signal_connect(copy, "clicked", G_CALLBACK(copy_selection), &driver);
-  g_signal_connect(window, "delete-event", G_CALLBACK(close_window), nullptr);
-  const auto signal_source = g_unix_signal_add(SIGTERM, stop_driver, nullptr);
+  g_signal_connect(window, "delete-event", G_CALLBACK(close_window), &driver);
+  const auto signal_source = g_unix_signal_add(SIGTERM, stop_driver, &driver);
+  elder_terms::terminal_runtime_set_output_callback(driver.runtime,
+      [](std::span<const unsigned char> raw, std::span<const unsigned char> cooked) {
+        auto *raw_text = g_base64_encode(raw.data(), raw.size());
+        auto *cooked_text = g_base64_encode(cooked.data(), cooked.size());
+        std::printf("raw=%s\ncooked=%s\n", raw_text, cooked_text);
+        std::fflush(stdout);
+        g_free(raw_text);
+        g_free(cooked_text);
+      });
   std::string output;
   for (unsigned int line = 1; line <= 120; ++line) output += "History line " + std::to_string(line) + "\r\n";
   output += "\033[2J\033[H日本語の端末 — boxrig\r\n\033[1;32mBold green text\033[0m\r\nSelect and copy this text.\r\n";
-  const bool fed = elder_terms::terminal_runtime_feed(driver.runtime, output);
+  const bool fed = driver.local ? elder_terms::terminal_runtime_connect_local(driver.runtime, driver.command) :
+      elder_terms::terminal_runtime_feed(driver.runtime, output);
   gtk_widget_show_all(window);
   gtk_widget_grab_focus(GTK_WIDGET(widget));
   if (fed) gtk_main();

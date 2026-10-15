@@ -49,12 +49,12 @@ libxyzm_static_library = libxyzm_static_libraries[0]
 libxyzm_async_static_library = libxyzm_static_libraries[1]
 
 boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
-  'src/terminal-runtime.cpp',
-  dependencies: [boxrig_deps['boxrig-gtk3']],
+  ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp'],
+  dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep],
 )
 boxrig_runtime_dep = declare_dependency(
   link_with: boxrig_runtime_library,
-  dependencies: [boxrig_deps['boxrig-gtk3']],
+  dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep],
 )
 executable('boxrig-driver', 'src/boxrig-driver.cpp',
   cpp_args: ['-I' + gestament_include_dir],
@@ -188,6 +188,12 @@ executable(
 )
 
 if get_option('build_tests')
+boxrig_connection_test = executable('boxrig-connection-test',
+  'tests/cpp/boxrig-connection-test.cpp',
+  dependencies: [boxrig_runtime_dep],
+)
+test('boxrig-connection-test', boxrig_connection_test, timeout: 60)
+
 # Compile the unchanged upstream probe with the application's C++20 toolchain.
 boxrig_png_isolation_source = configure_file(
   input: '../deps/boxrig/tests/gtk/test_png_isolation.c',

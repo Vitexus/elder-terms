@@ -10,6 +10,8 @@ namespace elder_terms {
 struct TerminalRuntime {
   boxrig_terminal *terminal = nullptr;
   boxrig_ui_model *model = nullptr;
+  TerminalConnection *connection = nullptr;
+  std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> output;
   BoxrigGtk3TerminalWidget *widget = nullptr;
   GtkWidget *scroll = nullptr;
   GtkWindow *window = nullptr;
@@ -145,7 +147,7 @@ static bool process_layout(TerminalRuntime *runtime) {
   if (!boxrig_gtk3_terminal_widget_take_layout_action(runtime->widget, &action)) return true;
   if (action.kind == BOXRIG_UI_LAYOUT_ACTION_GRID_RESIZE) {
     const auto &grid = action.value.grid_resize;
-    const bool resized = boxrig_terminal_resize(runtime->terminal, grid.rows, grid.columns) == BOXRIG_STATUS_OK;
+    const bool resized = terminal_connection_resize(runtime->connection, grid.rows, grid.columns);
     return ui_result(boxrig_gtk3_terminal_widget_complete_grid_resize(
         runtime->widget, action.revision, resized), "complete grid") && resized;
   }
@@ -176,6 +178,7 @@ static bool process_layout(TerminalRuntime *runtime) {
 
 static bool process_host_items(TerminalRuntime *runtime) {
   boxrig_host_item item{};
+  bool consumed = false;
   for (unsigned int work = 0; work < 64 && boxrig_terminal_host_item_peek(runtime->terminal, &item); ++work) {
     if (item.type == BOXRIG_HOST_ITEM_TITLE) {
       const std::string title(item.payload_length == 0 ? "" :
@@ -184,22 +187,32 @@ static bool process_host_items(TerminalRuntime *runtime) {
     }
     const auto request_id = item.request_id;
     if (boxrig_terminal_host_item_consume(runtime->terminal) != BOXRIG_STATUS_OK) return false;
+    consumed = true;
     if (request_id != 0 && boxrig_terminal_complete_host_request(runtime->terminal,
         request_id, BOXRIG_HOST_REQUEST_UNAVAILABLE, nullptr, 0) != BOXRIG_STATUS_OK) return false;
   }
-  if (boxrig_terminal_host_item_peek(runtime->terminal, &item)) request_frame(runtime);
+  if (consumed) request_frame(runtime);
   return true;
 }
 
 static gboolean dispatch_frame(gpointer context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   runtime->frame_source = 0;
-  if (runtime->stopped || !gtk_widget_get_mapped(GTK_WIDGET(runtime->widget))) return G_SOURCE_REMOVE;
+  if (runtime->stopped) return G_SOURCE_REMOVE;
+  if (terminal_connection_dispatch(runtime->connection)) request_frame(runtime);
+  if (!process_host_items(runtime)) {
+    terminal_connection_stop(runtime->connection);
+    runtime->stopped = true;
+    return G_SOURCE_REMOVE;
+  }
+  // Communication and stream finalization continue while the window is hidden.
+  if (!gtk_widget_get_mapped(GTK_WIDGET(runtime->widget))) return G_SOURCE_REMOVE;
   boxrig_ui_component_frame_result result{};
-  if (!process_host_items(runtime) || !process_layout(runtime) ||
+  if (!process_layout(runtime) ||
       !ui_result(boxrig_ui_model_synchronize(runtime->model), "synchronize") ||
       !ui_result(boxrig_gtk3_terminal_widget_frame(runtime->widget, &result), "frame")) {
     runtime->stopped = true;
+    terminal_connection_stop(runtime->connection);
     boxrig_gtk3_terminal_widget_quiesce(runtime->widget);
     return G_SOURCE_REMOVE;
   }
@@ -259,6 +272,11 @@ TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content) {
     return nullptr;
   }
   g_object_ref_sink(runtime->widget);
+  runtime->connection = create_terminal_connection(runtime->terminal,
+      [runtime] { request_frame(runtime); },
+      [runtime](std::span<const unsigned char> raw, std::span<const unsigned char> cooked) {
+        if (runtime->output) runtime->output(raw, cooked);
+      });
   runtime->scroll = GTK_WIDGET(boxrig_gtk3_terminal_widget_create_scroll_container(runtime->widget));
   if (!runtime->scroll) { destroy_terminal_runtime(runtime); return nullptr; }
   g_object_ref_sink(runtime->scroll);
@@ -290,6 +308,7 @@ void destroy_terminal_runtime(TerminalRuntime *runtime) {
     gtk_widget_destroy(runtime->scroll);
     g_object_unref(runtime->scroll);
   }
+  destroy_terminal_connection(runtime->connection);
   boxrig_ui_model_destroy(runtime->model);
   boxrig_terminal_destroy(runtime->terminal);
   delete runtime;
@@ -324,6 +343,24 @@ bool terminal_runtime_is_settled(const TerminalRuntime *runtime) {
       runtime->size_command.revision == 0 &&
       boxrig_gtk3_terminal_widget_get_size_command_state(runtime->widget, &state) == BOXRIG_UI_OK &&
       state == BOXRIG_UI_SIZE_COMMAND_IDLE;
+}
+
+bool terminal_runtime_connect_local(TerminalRuntime *runtime, TerminalLocalCommand command) {
+  return terminal_connection_start_local(runtime->connection, std::move(command));
+}
+
+cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
+  terminal_connection_stop(runtime->connection);
+  co_await terminal_connection_wait_stopped(runtime->connection);
+}
+
+TerminalConnectionState terminal_runtime_connection_state(const TerminalRuntime *runtime) {
+  return terminal_connection_state(runtime->connection);
+}
+
+void terminal_runtime_set_output_callback(TerminalRuntime *runtime,
+    std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> callback) {
+  runtime->output = std::move(callback);
 }
 
 }

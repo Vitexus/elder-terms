@@ -2,6 +2,7 @@
 
 #include <boxrig/gtk3.h>
 #include <string_view>
+#include "terminal-connection.h"
 
 namespace elder_terms {
 
@@ -61,5 +62,36 @@ bool terminal_runtime_is_settled(const TerminalRuntime *runtime);
  */
 void terminal_runtime_set_changed_callback(
     TerminalRuntime *runtime, void (*callback)(void *), void *context);
+
+/**
+ * Starts a local command while retaining this runtime's display and history.
+ * @param runtime Live runtime.
+ * @param command Owned command and communication limits.
+ * @return Whether a new connection generation was accepted.
+ */
+bool terminal_runtime_connect_local(TerminalRuntime *runtime, TerminalLocalCommand command);
+
+/**
+ * Requests disconnection and waits for transport and child recovery.
+ * @param runtime Runtime kept alive until completion.
+ * @return Completion of all borrowed communication work.
+ * @remarks Required before destroying a runtime that has started a connection.
+ */
+cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime);
+
+/**
+ * Gets the current or completed connection snapshot.
+ * @param runtime Live runtime.
+ * @return Spawn, lifecycle, and child recovery information.
+ */
+TerminalConnectionState terminal_runtime_connection_state(const TerminalRuntime *runtime);
+
+/**
+ * Installs a receiver for normal output, before session parsing and retries.
+ * @param runtime Live runtime.
+ * @param callback Borrowed raw and UTF-8 bytes, valid during the call only.
+ */
+void terminal_runtime_set_output_callback(TerminalRuntime *runtime,
+    std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> callback);
 
 }
