@@ -40,6 +40,9 @@ struct Driver {
   std::string last_report;
   std::string last_connection_report;
   std::string last_encoding_report;
+  std::uint64_t text_events = 0;
+  std::uint64_t caret_events = 0;
+  std::uint64_t selection_events = 0;
 };
 
 static void observe_log_connection(Driver *driver, const elder_terms::TerminalConnectionState &state) {
@@ -112,13 +115,29 @@ static void report_state(void *context) {
       std::char_traits<char>::length(visible_text));
   boxrig_ui_input_state input{};
   boxrig_gtk3_terminal_widget_get_input_state(widget, &input);
+  boxrig_gtk_ime_state ime{};
+  boxrig_gtk3_terminal_widget_get_ime_state(widget, &ime);
+  boxrig_composition_view composition{};
+  boxrig_composition_get_view(boxrig_gtk3_terminal_widget_composition(widget), &composition);
+  auto *preedit = g_base64_encode(reinterpret_cast<const guchar *>(composition.text), composition.text_length);
+  boxrig_ui_size_command_state size_state{};
+  boxrig_gtk3_terminal_widget_get_size_command_state(widget, &size_state);
   const std::string report = std::string(text) + " cell=" + std::to_string(metrics.cell_width) +
       "x" + std::to_string(metrics.cell_height) + " selected=" + std::to_string(atk_text_get_n_selections(ATK_TEXT(accessible))) +
       " ready=" + (elder_terms::terminal_runtime_is_settled(driver->runtime) ? "1" : "0") +
       " input=" + std::to_string(input.phase) +
       " input_pending=" + (elder_terms::terminal_runtime_input_settings_pending(driver->runtime) ? "1" : "0") +
       " input_generation=" + std::to_string(input.generation) +
+      " size_command=" + std::to_string(size_state) +
+      " ime_policy=" + std::to_string(ime.requested_policy) + " ime_route=" + std::to_string(ime.active_route) +
+      " ime_reason=" + std::to_string(ime.reason) + " ime_state=" + std::to_string(ime.direct.state) +
+      " ime_pending=" + std::to_string(ime.direct.pending) + " ime_contexts=" + std::to_string(ime.direct.contexts) +
+      " ime_errors=" + std::to_string(ime.direct.errors) + " preedit=" + preedit +
+      " caret=" + std::to_string(atk_text_get_caret_offset(ATK_TEXT(accessible))) +
+      " text_events=" + std::to_string(driver->text_events) + " caret_events=" + std::to_string(driver->caret_events) +
+      " selection_events=" + std::to_string(driver->selection_events) +
       " text=" + encoded;
+  g_free(preedit);
   g_free(encoded);
   g_free(visible_text);
   if (report != driver->last_report) {
@@ -536,6 +555,18 @@ int main(int argc, char **argv) {
     return 1;
   }
   gestament_gtk_assign_accessible_id(GTK_WIDGET(widget), "driver_terminal");
+  auto *accessible = gtk_widget_get_accessible(GTK_WIDGET(widget));
+  const auto text_changed = +[](AtkText *, int, int, const char *, gpointer context) {
+    ++static_cast<Driver *>(context)->text_events;
+  };
+  g_signal_connect(accessible, "text-insert", G_CALLBACK(text_changed), &driver);
+  g_signal_connect(accessible, "text-remove", G_CALLBACK(text_changed), &driver);
+  g_signal_connect(accessible, "text-caret-moved", G_CALLBACK(+[](AtkText *, int, gpointer context) {
+    ++static_cast<Driver *>(context)->caret_events;
+  }), &driver);
+  g_signal_connect(accessible, "text-selection-changed", G_CALLBACK(+[](AtkText *, gpointer context) {
+    ++static_cast<Driver *>(context)->selection_events;
+  }), &driver);
   elder_terms::terminal_runtime_set_changed_callback(driver.runtime, report_state, &driver);
   elder_terms::terminal_runtime_request_input_settings(driver.runtime, driver.input_settings);
   g_signal_connect(zoom, "clicked", G_CALLBACK(zoom_in), &driver);

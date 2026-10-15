@@ -30,6 +30,7 @@ describe('boxrig GTK3 driver', () => {
         appPath: driverPath,
         env: {
           LIBGL_ALWAYS_SOFTWARE: '1',
+          GTK_IM_MODULE: 'gtk-im-context-simple',
           ...(backend === 'cairo' ? { GDK_GL: 'disable' } : {}),
         },
       });
@@ -64,6 +65,16 @@ describe('boxrig GTK3 driver', () => {
           );
           expect(await status.text()).toContain('grid=80x24');
           expect(await visibleText()).toContain('日本語の端末');
+          const report =
+            (await app.output()).stdout.trimEnd().split('\n').pop() ?? '';
+          expect(report).toContain('ime_policy=0 ime_route=1');
+          expect(Number(/caret=(\d+)/.exec(report)?.[1])).toBeGreaterThan(0);
+          expect(Number(/text_events=(\d+)/.exec(report)?.[1])).toBeGreaterThan(
+            0
+          );
+          expect(
+            Number(/caret_events=(\d+)/.exec(report)?.[1])
+          ).toBeGreaterThan(0);
         });
         const terminalCapture = await terminal.capture();
         const metrics = /cell=(\d+)x(\d+)/.exec((await app.output()).stdout);
@@ -83,6 +94,14 @@ describe('boxrig GTK3 driver', () => {
           Math.trunc(origin.y + cellHeight * 2.5)
         );
         await app.input.setMouseButton('left', false);
+        await toPass(async () => {
+          const report =
+            (await app.output()).stdout.trimEnd().split('\n').pop() ?? '';
+          expect(report).toContain('selected=1');
+          expect(
+            Number(/selection_events=(\d+)/.exec(report)?.[1])
+          ).toBeGreaterThan(0);
+        });
         const copy = await app.getById('driver_copy');
         if (copy.kind !== 'button') throw new Error('Copy control is missing');
         await copy.click();
@@ -142,17 +161,30 @@ describe('boxrig GTK3 driver', () => {
         const before = await status.text();
         const fontBefore = Number(/font=([\d.]+)/.exec(before)?.[1]);
         await zoom.click();
-        await toPass(async () => {
-          const current = await status.text();
-          expect(current).toContain('grid=80x24');
-          expect(Number(/font=([\d.]+)/.exec(current)?.[1])).toBeGreaterThan(
-            fontBefore
+        try {
+          await toPass(async () => {
+            const current = await status.text();
+            expect(current).toContain('grid=80x24');
+            expect(Number(/font=([\d.]+)/.exec(current)?.[1])).toBeGreaterThan(
+              fontBefore
+            );
+            expect(await visibleText()).toContain('日本語の端末');
+            expect(
+              (await app.output()).stdout.trimEnd().split('\n').pop()
+            ).toContain('ready=1');
+          });
+        } finally {
+          const output = await app.output();
+          await writeFile(
+            fileURLToPath(
+              new URL(
+                `../../test-results/boxrig/driver-${backend}.log`,
+                import.meta.url
+              )
+            ),
+            output.stdout + '\n' + output.stderr
           );
-          expect(await visibleText()).toContain('日本語の端末');
-          expect(
-            (await app.output()).stdout.trimEnd().split('\n').pop()
-          ).toContain('ready=1');
-        });
+        }
         const bounds = await window.bounds();
         await window.resizeTo(bounds.width + 100, bounds.height + 60);
         await toPass(async () => {

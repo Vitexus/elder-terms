@@ -201,6 +201,22 @@ executable(
 )
 
 if get_option('build_tests')
+# Compile unchanged C protocol fixtures separately from the C++ application.
+# Adding C to the project would also change how generated GTK resources build.
+foreach ime : ['fcitx4', 'fcitx5', 'ibus']
+  fixture_name = 'boxrig-' + ime + (ime == 'ibus' ? '-engine' : '-server')
+  fixture_source = ime == 'ibus' ? '../deps/boxrig/tests/wayland/ibus_engine.c' : '../deps/boxrig/tests/ime/' + ime + '_server.c'
+  fixture_args = []
+  foreach flag : run_command(boxrig_pkg_config, '--cflags', '--libs', ime == 'ibus' ? 'ibus-1.0' : 'gio-2.0', check: true).stdout().strip().split()
+    fixture_args += flag.startswith('-I') ? flag.replace('-I', '-isystem') : flag
+  endforeach
+  set_variable('boxrig_' + ime + '_fixture', custom_target(fixture_name,
+    input: fixture_source, output: fixture_name,
+    command: [find_program('cc'), '-std=c99', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
+      '@INPUT@', '-o', '@OUTPUT@'] + fixture_args,
+    build_by_default: true))
+endforeach
+
 boxrig_connection_test = executable('boxrig-connection-test',
   'tests/cpp/boxrig-connection-test.cpp',
   dependencies: [boxrig_runtime_dep],
@@ -212,6 +228,14 @@ boxrig_runtime_test = executable('boxrig-runtime-test',
 test('boxrig-runtime-test', find_program('xvfb-run'),
   args: ['-a', boxrig_runtime_test], timeout: 30,
   env: ['GDK_GL=disable', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
+
+boxrig_ime_test = executable('boxrig-ime-test', 'tests/cpp/boxrig-ime-test.cpp', dependencies: boxrig_runtime_dep)
+test('boxrig-fcitx4-runtime-test', find_program('xvfb-run'),
+  args: ['-a', 'dbus-run-session', '--config-file=' + meson.project_source_root() / 'deps/boxrig/tests/ime/session.conf',
+    '--', 'env', '-u', 'GTK_IM_MODULE', '-u', 'FCITX_DBUS_ADDRESS', 'XMODIFIERS=@im=fcitx', 'IBUS_ADDRESS=',
+    'bash', meson.project_source_root() / 'deps/boxrig/tests/ime/run_fcitx4.sh', '--display',
+    boxrig_fcitx4_fixture, boxrig_ime_test],
+  timeout: 60, env: ['GDK_GL=disable', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
 
 # Compile the unchanged upstream probe with the application's C++20 toolchain.
 boxrig_png_isolation_source = configure_file(
