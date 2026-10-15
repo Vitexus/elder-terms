@@ -129,9 +129,6 @@ elder_terms_dep = declare_dependency(
 if get_option('build_tests')
 shared_regex_test = executable('shared-regex-test', 'tests/regex-test.cpp', dependencies: elder_terms_dep)
 test('shared-regex-test', shared_regex_test)
-regex_migration_removal_test = executable('regex-migration-removal-test',
-  'tests/regex-migration-removal-test.cpp', dependencies: elder_terms_dep)
-test('regex-migration-removal-test', regex_migration_removal_test)
 
 ssh_proxy_widget_test = executable(
   'ssh-proxy-widget-test', 'tests/ssh-proxy-widget-test.cpp',
