@@ -4,7 +4,7 @@ elder_terms_launcher_gio_dep = dependency('gio-2.0')
 elder_terms_launcher_gdk_pixbuf_dep = dependency('gdk-pixbuf-2.0')
 elder_terms_launcher_x11_dep = dependency('x11')
 elder_terms_launcher_xml_dep = dependency('libxml-2.0')
-elder_terms_launcher_gestament_config = find_program('gestament-config')
+elder_terms_launcher_gestament_config = find_program(meson.project_source_root() / 'node_modules/.bin/gestament-config')
 elder_terms_launcher_gestament_include_dir = run_command(
   elder_terms_launcher_gestament_config,
   ['--includedir'],

@@ -9,7 +9,7 @@ libxml2_dep = dependency('libxml-2.0', version: '>=2.9.14')
 openssl_dep = dependency('openssl')
 vte_dep = dependency('vte-2.91')
 
-gestament_config = find_program('gestament-config')
+gestament_config = find_program(meson.project_source_root() / 'node_modules/.bin/gestament-config')
 gestament_include_dir = run_command(
   gestament_config,
   ['--includedir'],
@@ -48,6 +48,18 @@ libxyzm_static_libraries = custom_target(
 libxyzm_static_library = libxyzm_static_libraries[0]
 libxyzm_async_static_library = libxyzm_static_libraries[1]
 
+boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
+  'src/terminal-runtime.cpp',
+  dependencies: [boxrig_deps['boxrig-gtk3']],
+)
+boxrig_runtime_dep = declare_dependency(
+  link_with: boxrig_runtime_library,
+  dependencies: [boxrig_deps['boxrig-gtk3']],
+)
+executable('boxrig-driver', 'src/boxrig-driver.cpp',
+  cpp_args: ['-I' + gestament_include_dir],
+  dependencies: [boxrig_runtime_dep],
+)
 
 ssh_transport_library = static_library('elder-terms-ssh-transport',
   ['src/terminal-sessions/ssh-session/ssh-channel-connection.cpp',
@@ -176,6 +188,19 @@ executable(
 )
 
 if get_option('build_tests')
+# Compile the unchanged upstream probe with the application's C++20 toolchain.
+boxrig_png_isolation_source = configure_file(
+  input: '../deps/boxrig/tests/gtk/test_png_isolation.c',
+  output: 'boxrig-png-isolation-test.cpp',
+  copy: true,
+)
+boxrig_png_isolation_test = executable('boxrig-png-isolation-test',
+  boxrig_png_isolation_source,
+  cpp_args: ['-UNDEBUG'],
+  dependencies: [boxrig_deps['boxrig'], dependency('gdk-pixbuf-2.0'), gio_dep],
+)
+test('boxrig-png-isolation-test', boxrig_png_isolation_test)
+
 executable(
   'clipboard-read-helper',
   'tests/cpp/clipboard-read-helper.cpp',

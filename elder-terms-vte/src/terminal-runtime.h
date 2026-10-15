@@ -1,0 +1,65 @@
+#pragma once
+
+#include <boxrig/gtk3.h>
+#include <string_view>
+
+namespace elder_terms {
+
+/** Owns a terminal, its model, and the GTK attachment on the GTK thread. */
+struct TerminalRuntime;
+
+/**
+ * Creates a terminal with OpenGL preferred rendering and the standard scroll container.
+ * @param window Borrowed top-level window; must outlive the runtime.
+ * @param content Borrowed content box, excluding client-side window decorations.
+ * @return An owned runtime, or nullptr after a reported initialization failure.
+ */
+TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content);
+
+/**
+ * Cancels queued frames, destroys the GTK attachment, then releases model and core.
+ * @param runtime Owned runtime, or nullptr.
+ */
+void destroy_terminal_runtime(TerminalRuntime *runtime);
+
+/**
+ * Gets the GTK terminal for native focus, accessibility, and portable UI operations.
+ * @param runtime Live runtime.
+ * @return Borrowed widget; owned by the runtime and its GTK container.
+ */
+BoxrigGtk3TerminalWidget *terminal_runtime_widget(TerminalRuntime *runtime);
+
+/**
+ * Feeds fixed UTF-8 driver output and schedules presentation.
+ * @param runtime Live runtime.
+ * @param text Complete, bounded terminal output.
+ * @return Whether the complete output was consumed.
+ * @remarks Streaming connections use a session transport, not this driver helper.
+ */
+bool terminal_runtime_feed(TerminalRuntime *runtime, std::string_view text);
+
+/**
+ * Requests a visual zoom step and schedules its layout transaction.
+ * @param runtime Live runtime.
+ * @param direction Requested visual step direction.
+ * @return The widget's status; BUSY leaves the request unaccepted.
+ */
+boxrig_ui_status terminal_runtime_visual_zoom(TerminalRuntime *runtime, boxrig_font_zoom_direction direction);
+
+/**
+ * Reports whether the last frame completed its layout and presentation work.
+ * @param runtime Live runtime.
+ * @return False while native allocation, grid completion, or another frame is pending.
+ */
+bool terminal_runtime_is_settled(const TerminalRuntime *runtime);
+
+/**
+ * Installs a notification after frame processing, for application UI updates.
+ * @param runtime Live runtime.
+ * @param callback Called on the GTK thread; nullptr disables notification.
+ * @param context Borrowed callback state, valid until removed.
+ */
+void terminal_runtime_set_changed_callback(
+    TerminalRuntime *runtime, void (*callback)(void *), void *context);
+
+}

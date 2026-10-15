@@ -2,18 +2,21 @@
   "name": "elder-terms-root",
   "version": "0.0.1",
   "private": true,
+  "type": "module",
   "workspaces": [
     "shared",
     "elder-terms",
     "elder-terms-vte"
   ],
   "scripts": {
+    "dependencies": "reskill",
     "build": "npm run build --workspaces",
     "test": "npm run test --workspaces",
     "dev": "npm run build && ./.build/elder-terms/elder-terms"
   },
   "devDependencies": {
     "funcity": "^1.5.0",
+    "resolved-killer": "^1.1.0",
     "screw-up": ">=1.36.0"
   }
 }
