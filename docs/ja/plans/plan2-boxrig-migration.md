@@ -619,6 +619,8 @@ Debian trixie amd64のクリーンビルド、deb生成とインストールに�
 
 残るdpkgの警告は、libc6が管理する`/lib64/ld-linux-x86-64.so.2`のusr-mergeによるdiversion通知である。標準パスと正規化後のパスが同じlibc6へ対応し、生成したDependsに`libc6 (>= 2.38)`を含み、実際にインストールできることを確認した。[dpkg-shlibdepsの依存照会と診断](https://manpages.debian.org/trixie/dpkg-dev/dpkg-shlibdeps.1.en.html)を参照する。警告の表示は抑制していない。
 
+背景色による端末種別補正の撤去後も、SSH・TELNETのE2Eに旧仕様の期待値が残っていた。SSHでは実際の`xterm-256color`に対して`xterm`を期待して失敗し、TELNETでも同じ不一致を再現した。撤去済み機能だけを対象とする2件と、SSHの試験専用の端末種別記録を削除した。TELNETの残る8件とTypeScriptの型検査は成功した。背景色の表示や転送中止を検証する試験は維持する。
+
 ### 段階6の描画検証（2026年10月16日）
 
 実行ドライバーに、描画直前のGLコンテキストを一度だけ解除する試験操作を追加した。[GTKのrender通知](https://docs.gtk.org/gtk3/signal.GLArea.render.html)と[GDKの公開API](https://docs.gtk.org/gdk3/type_func.GLContext.clear_current.html)を使い、外部ソースやboxrigの非公開APIは変更していない。未実装時の試験失敗を確認した後、OpenGLからCairoへの切り替えと`CONTEXT`診断を検証した。描画途中のGPUリセット自体を再現する試験ではない。
