@@ -39,7 +39,7 @@ compile_macro_rules(std::vector<MacroRule> rules) {
     }
 
     RegularExpressionState *regex =
-        create_regular_expression(rule.pattern, false, &reason);
+        create_regular_expression(rule.pattern, &reason);
     if (regex == nullptr) {
       continue;
     }

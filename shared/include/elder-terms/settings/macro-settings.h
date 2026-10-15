@@ -41,7 +41,7 @@ using MacroAction = std::variant<MacroSendAction, MacroCommandAction>;
 struct MacroRule {
   /** Identifier used by the macro.<id> INI section. */
   std::string id;
-  /** GLib regular expression matched against one received line. */
+  /** Bounded boxrig regular expression matched against one received line. */
   std::string pattern;
   /** Action performed after a successful match. */
   MacroAction action = MacroSendAction{};

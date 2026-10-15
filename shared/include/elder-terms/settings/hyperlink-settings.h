@@ -37,7 +37,7 @@ struct HyperlinkActionRule {
   /** Terminal data against which the regular expression is matched. */
   HyperlinkRecognitionSource recognition_source =
       HyperlinkRecognitionSource::osc8;
-  /** PCRE2 regular expression used to recognize the link. */
+  /** Bounded boxrig regular expression used to recognize the link. */
   std::string pattern;
   /** Fixed executable name or path, without capture expansion. */
   std::string command;

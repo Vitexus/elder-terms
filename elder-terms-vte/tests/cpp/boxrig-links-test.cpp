@@ -1,5 +1,5 @@
 #include "../../src/terminal-links.h"
-#include "../../src/terminal-action-regex.h"
+#include <elder-terms/settings/regular-expression.h>
 
 #include <cstdio>
 #include <memory>
@@ -118,8 +118,10 @@ int main() {
         "\u2028", "\u2029", "\u202f", "\u205f", "\u3000"};
     std::string reason;
     const auto defaults = default_hyperlink_action_rules();
-    const auto http_text = compile_terminal_action_regex(defaults[1].pattern, &reason);
-    const auto http_osc8 = compile_terminal_action_regex(defaults[0].pattern, &reason);
+    const std::shared_ptr<RegularExpressionState> http_text(
+        create_regular_expression(defaults[1].pattern, &reason), destroy_regular_expression);
+    const std::shared_ptr<RegularExpressionState> http_osc8(
+        create_regular_expression(defaults[0].pattern, &reason), destroy_regular_expression);
     expect(static_cast<bool>(http_text), "compile default HTTP pattern");
     for (const auto &separator : separators) {
       const std::string input = "https://good.test/" + separator + "bad";

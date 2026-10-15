@@ -1,5 +1,5 @@
 #include "terminal-received-macros.h"
-#include "terminal-action-regex.h"
+#include <elder-terms/settings/regular-expression.h>
 
 #include <algorithm>
 #include <deque>
@@ -14,7 +14,7 @@ static constexpr std::size_t send_chunk_capacity = 4096;
 
 struct ReceivedMacroRule {
   MacroRule rule;
-  TerminalActionRegex program;
+  std::shared_ptr<RegularExpressionState> program;
 };
 
 struct ReceivedMacroNotification {
@@ -63,7 +63,7 @@ static void append_line(TerminalReceivedMacros *macros, const char *bytes, std::
 static void execute_action(TerminalReceivedMacros *macros, const boxrig_regex_result *result) {
   macros->action_executed = true;
   const RegexCaptureLookup capture = [result](const std::string &name) {
-    return terminal_action_regex_capture(result, name);
+    return regular_expression_capture(result, name);
   };
   const auto expand = [&](const std::string &value) {
     std::string reason;
@@ -125,7 +125,7 @@ static void advance_match(TerminalReceivedMacros *macros, std::size_t budget) {
   } else if (progress == BOXRIG_REGEX_MATCH) {
     boxrig_regex_result *result = nullptr;
     if (boxrig_regex_matcher_result(macros->matcher.get(), &result) == BOXRIG_STATUS_OK) {
-      const TerminalActionRegexResult owned(result, boxrig_regex_result_destroy);
+      const std::shared_ptr<boxrig_regex_result> owned(result, boxrig_regex_result_destroy);
       execute_action(macros, owned.get());
     } else {
       diagnose(macros, "Macro captures could not be retained");
@@ -169,7 +169,7 @@ TerminalReceivedMacros *create_terminal_received_macros(
   macros->callbacks = std::move(callbacks);
   for (auto &rule : rules) {
     std::string reason;
-    auto program = compile_terminal_action_regex(rule.pattern, &reason);
+    std::shared_ptr<RegularExpressionState> program(create_regular_expression(rule.pattern, &reason), destroy_regular_expression);
     if (!program) diagnose(macros.get(), rule.id + ": " + reason);
     else macros->rules.push_back({std::move(rule), std::move(program)});
   }

@@ -1,5 +1,5 @@
 #include "terminal-links.h"
-#include "terminal-action-regex.h"
+#include <elder-terms/settings/regular-expression.h>
 
 #include <algorithm>
 #include <array>
@@ -9,7 +9,7 @@ namespace elder_terms {
 
 struct LinkRule {
   HyperlinkActionRule rule;
-  TerminalActionRegex program;
+  std::shared_ptr<RegularExpressionState> program;
   std::uint64_t recognizer = 0;
   std::uint64_t rescan_revision = 0;
 };
@@ -45,7 +45,7 @@ TerminalLinks *create_terminal_links(boxrig_ui_view *view, std::vector<Hyperlink
   const auto limits = boxrig_text_recognizer_limits_default();
   for (auto &rule : rules) {
     std::string reason;
-    auto program = compile_terminal_action_regex(rule.pattern, &reason);
+    std::shared_ptr<RegularExpressionState> program(create_regular_expression(rule.pattern, &reason), destroy_regular_expression);
     if (!program) {
       g_warning("Link rule %s: %s", rule.id.c_str(), reason.c_str());
       continue;
@@ -158,7 +158,7 @@ bool terminal_links_dispatch(TerminalLinks *links, std::size_t budget) {
   return more || queued || rescanning || boxrig_terminal_text_recognizer_event_peek(links->terminal, nullptr);
 }
 
-static TerminalActionRegexResult match_osc8(const LinkRule &rule, const boxrig_ui_hit_test_result &hit) {
+static std::shared_ptr<boxrig_regex_result> match_osc8(const LinkRule &rule, const boxrig_ui_hit_test_result &hit) {
   if (!hit.hyperlink_uri || hit.hyperlink_uri_length == 0 || hit.hyperlink_uri_length > 8192) return {};
   boxrig_regex_matcher *matcher = nullptr;
   std::size_t error = 0;
@@ -192,7 +192,7 @@ std::optional<TerminalHyperlinkResolution> terminal_links_resolve(
       annotations.data(), annotations.size(), &count, nullptr) != BOXRIG_UI_OK) return std::nullopt;
   std::optional<TerminalHyperlinkResolution> rejection;
   for (const auto &rule : links->rules) {
-    TerminalActionRegexResult result;
+    std::shared_ptr<boxrig_regex_result> result;
     if (rule.rule.recognition_source == HyperlinkRecognitionSource::osc8) {
       result = match_osc8(rule, hit);
     } else if (rule.recognizer) {
@@ -212,7 +212,7 @@ std::optional<TerminalHyperlinkResolution> terminal_links_resolve(
     if (!result) continue;
     std::string reason;
     auto action = expand_terminal_hyperlink_action(rule.rule,
-        [&result](const std::string &capture) { return terminal_action_regex_capture(result.get(), capture); }, &reason);
+        [&result](const std::string &capture) { return regular_expression_capture(result.get(), capture); }, &reason);
     if (action) return TerminalHyperlinkResolution{std::move(action), {}};
     if (!rejection) rejection = TerminalHyperlinkResolution{std::nullopt, "rule " + rule.rule.id + ": " + reason};
   }

@@ -41,11 +41,7 @@ compile_hyperlink_rules(std::vector<HyperlinkActionRule> rules) {
     }
 
     RegularExpressionState *regex =
-        create_regular_expression(
-            rule.pattern,
-            rule.recognition_source ==
-                HyperlinkRecognitionSource::terminal_text,
-            &reason);
+        create_regular_expression(rule.pattern, &reason);
     if (regex == nullptr) {
       continue;
     }

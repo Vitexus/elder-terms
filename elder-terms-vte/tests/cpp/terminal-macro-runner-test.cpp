@@ -116,7 +116,7 @@ static void test_expands_commands_and_preserves_control_sequences() {
       {
           elder_terms::MacroRule{
               .id = "ansi_error",
-              .pattern = R"(^\x1b\[31mERROR (?<code>[0-9]+)$)",
+              .pattern = R"(^\u{1b}\[31mERROR (?<code>[0-9]+)$)",
               .action = elder_terms::MacroCommandAction{
                   .command = "tool-${code}",
                   .arguments = {"${0}", "$$${code}"},

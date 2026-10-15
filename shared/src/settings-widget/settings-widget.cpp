@@ -2181,7 +2181,7 @@ static void update_macro_validation(SettingsWidgetState *state) {
     regex_reason = "regular expression must not be empty";
   } else {
     RegularExpressionState *regex =
-        create_regular_expression(rule->pattern, false, &regex_reason);
+        create_regular_expression(rule->pattern, &regex_reason);
     if (regex == nullptr) {
       regex_valid = false;
     }

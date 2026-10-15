@@ -141,23 +141,9 @@ bool hyperlink_action_rule_is_valid(const HyperlinkActionRule &rule,
   }
 
   RegularExpressionState *regex =
-      create_regular_expression(
-          rule.pattern,
-          rule.recognition_source ==
-              HyperlinkRecognitionSource::terminal_text,
-          reason);
+      create_regular_expression(rule.pattern, reason);
   if (regex == nullptr) {
     return false;
-  }
-
-  if (rule.recognition_source ==
-      HyperlinkRecognitionSource::terminal_text) {
-    std::string match_reason;
-    if (search_regular_expression(regex, {}, &match_reason).has_value()) {
-      *reason = "terminal text expression must not match empty text";
-      destroy_regular_expression(regex);
-      return false;
-    }
   }
 
   bool valid = std::all_of(

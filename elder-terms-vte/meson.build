@@ -59,7 +59,7 @@ ssh_transport_dep = declare_dependency(link_with: ssh_transport_library,
 
 boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
   ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp',
-   'src/terminal-links.cpp', 'src/terminal-action-regex.cpp', 'src/terminal-hyperlink-resolver.cpp',
+   'src/terminal-links.cpp', 'src/terminal-hyperlink-resolver.cpp',
    'src/terminal-received-macros.cpp',
    'src/terminal-text-send.cpp', 'src/terminal-text-send-runner.cpp',
    'src/terminal-transfer.cpp', 'src/terminal-transfer-runner.cpp',
@@ -214,12 +214,12 @@ executable(
 
 if get_option('build_tests')
 boxrig_macros_test = executable('boxrig-macros-test',
-  ['tests/cpp/boxrig-macros-test.cpp', 'src/terminal-received-macros.cpp', 'src/terminal-action-regex.cpp'],
+  ['tests/cpp/boxrig-macros-test.cpp', 'src/terminal-received-macros.cpp'],
   dependencies: [boxrig_deps['boxrig'], elder_terms_dep])
 test('boxrig-macros-test', boxrig_macros_test)
 
 boxrig_links_test = executable('boxrig-links-test',
-  ['tests/cpp/boxrig-links-test.cpp', 'src/terminal-links.cpp', 'src/terminal-action-regex.cpp',
+  ['tests/cpp/boxrig-links-test.cpp', 'src/terminal-links.cpp',
    'src/terminal-hyperlink-resolver.cpp'],
   dependencies: [boxrig_deps['boxrig-ui'], elder_terms_dep])
 test('boxrig-links-test', boxrig_links_test)

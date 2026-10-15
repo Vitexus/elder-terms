@@ -893,7 +893,7 @@ describe.concurrent('shared settings widget', () => {
       );
       expect(await id.text()).toBe('rule1');
       await id.setText('first');
-      await regex.setText('^READY (?<value>.+)$');
+      await regex.setText('^READY\\u{20}(?<value>[\\p{L}]+)$');
       const action = expectElementKind(
         await app.getById('settings_macro_action_combo'),
         'comboBox'
@@ -918,6 +918,13 @@ describe.concurrent('shared settings widget', () => {
         )
       );
       await argument.setText('${value}');
+      await expectSensitive(apply);
+      await argument.setText('${missing}');
+      await expectInsensitive(apply);
+      await argument.setText('${Value}');
+      await expectInsensitive(apply);
+      await argument.setText('${value}');
+      await expectSensitive(apply);
 
       await add.click();
       await expectInsensitive(apply);

@@ -4483,10 +4483,10 @@ static void test_regular_expression_reports_project_owned_matches() {
   std::string reason;
   elder_terms::RegularExpressionState *regex =
       elder_terms::create_regular_expression(
-          R"((?<scheme>https?)://(?<host>[\p{L}0-9.-]+))", false,
+          R"((?<scheme>https?)://(?<host>[\p{L}0-9.-]+))",
           &reason);
   expect_true(regex != nullptr,
-              "a valid PCRE2 expression should compile: " + reason);
+              "a valid boxrig expression should compile: " + reason);
   expect_true(elder_terms::regular_expression_capture_exists(regex, "0") &&
                   elder_terms::regular_expression_capture_exists(
                       regex, "scheme") &&

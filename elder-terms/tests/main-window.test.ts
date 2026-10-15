@@ -792,7 +792,8 @@ describe('elder-terms main window', () => {
         expect(await id.text()).toBe('rule1');
         await id.setText('local-file');
         await source.selectChildAt(1);
-        await regex.setText('^file:(?<path>/[^ ]+)$');
+        const pattern = '^file\\u{3a}(?<path>/[^ ]+)$';
+        await regex.setText(pattern);
         await command.setText('xdg-open');
         await expectElementKind(
           await app.getById('settings_link_argument_add_button'),
@@ -815,6 +816,18 @@ describe('elder-terms main window', () => {
           'comboBox'
         ).selectChildAt(1);
         await expectSensitive(save);
+        const argument = expectElementKind(
+          await app.getById('settings_link_argument_0_entry'),
+          'entry'
+        );
+        await argument.setText('${missing}');
+        await expectInsensitive(save);
+        await argument.setText('${Path}');
+        await expectInsensitive(save);
+        await argument.setText('${999999999999999999999999999999999}');
+        await expectInsensitive(save);
+        await argument.setText('${path}');
+        await expectSensitive(save);
         await save.click();
 
         let configured = '';
@@ -828,10 +841,18 @@ describe('elder-terms main window', () => {
         expect(configured).toContain('command=xdg-open');
         expect(configured).toContain('path_validation=existing-local-path');
         expect(configured).toContain('path=${path}');
+        expect(configured).toContain('regex=^file\\\\u{3a}');
         expect(configured).toContain('width=88');
         const globalConfigured = await readFile(globalConfigPath, 'utf8');
         expect(globalConfigured).not.toContain('[hyperlink');
         expect(globalConfigured).toContain('width=91');
+
+        await selectConnectionRow(app, list, 1);
+        await selectConnectionRow(app, list, 0);
+        await selectSettingsTab(app, 'settings', 'Links');
+        await waitForResult(async () =>
+          expect(await regex.text()).toBe(pattern)
+        );
 
         await selectSettingsTab(app, 'settings', 'Links');
         await expectElementKind(
