@@ -4,7 +4,7 @@
 
 elder-termsを最初からboxrigで実装した構造へ改めるための調査資料である。端末の解析、キー生成、画面上の認識、フォント、配置はboxrigへ集約する。elder-termsには接続管理、通信方式、操作設定、ログ、マクロの実行、外部コマンドの起動を残す。VTEのsignalや内部都合を模倣する互換層は作らない。
 
-再調査日は2026年10月15日。elder-termsの実装基準は`9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8`のまま、`deps/boxrig`を取得時の`origin/develop` HEADである`19be168c464d0509c3388bdc7bb3bef4c2717d3d`へ更新した。前回の固定版は`8ab9bdfe2c44c76b81d8d74899484350734fc86a`、初回は`5ebe6420f6f81b4bf38d11fe233285f470a83ae6`である。今回の差分は、正規表現の名前付き部分を照合前に調べるAPIと、GTKのfcitx試験の初期focus同期である。公式文書、公開ヘッダーのAPIコメント、実装とテストを照合し、以前の8項目に対する影響を確認した。
+再調査日は2026年10月15日。elder-termsの実装基準は`9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8`のまま、`deps/boxrig`を取得時の`origin/develop` HEADである`4b664b87cf405dc97477a1403d8a987881a3134f`へ更新した。直前の固定版は`19be168c464d0509c3388bdc7bb3bef4c2717d3d`、その前は`8ab9bdfe2c44c76b81d8d74899484350734fc86a`、初回は`5ebe6420f6f81b4bf38d11fe233285f470a83ae6`である。今回の差分はUnicode一般カテゴリを指定する正規表現、公式文書、公開APIコメント、試験の追加である。関数や公開型の追加はなく、従来のregex APIから使える。全差分と以前の8項目への影響を確認した。
 
 本書のcoreは端末解析と画面状態、UI modelは表示用モデル、GTK3 widgetはGTKへ配置する端末部品を指す。sessionは端末と通信路を結ぶ有限バッファ付きの処理単位、host itemは端末からアプリへの通知である。
 
@@ -27,7 +27,7 @@ regexは正規表現を指す。コンパイル済みの式をprogram、一つ�
 | B1 | Linux共有ビルドとC++利用 | 対応済み。`shared-gtk3`／`install-shared-gtk3`と公開ヘッダーのC linkage | elder-termsのビルドから上流Makeを呼び、共有5本を同梱する |
 | A1 | 本文アクセシビリティと変更通知 | GTK3のAtkTextに対応。上流でVTE比較とAT-SPI・Orcaの観測あり | elder-termsへの結合確認を行う。表示範囲・読取専用・保持上限の契約に従う |
 
-前回のR2を含め、本計画で必須としたAPIの不足は解消した。共有ビルドから設定検証、本体切り替えまで、追加APIの公開を待たずに実装を進められる。以下に記すregexの文法差とアプリ側の担当範囲は残る。PCRE2の全構文互換を要件には加えない。
+前回解消したR2を含め、本計画で必須としたAPIの不足はない。今回、共通regex試験が使う`\p{L}`にも対応したため、その式を変更せず移行できる。共有ビルドから設定検証、本体切り替えまで、追加APIの公開を待たずに実装を進められる。以下に記すregexの文法差とアプリ側の担当範囲は残る。PCRE2の全構文互換を要件には加えない。
 
 ## 正規表現の移行
 
@@ -50,22 +50,50 @@ boxrigは独立した照合と画面認識に同じregexエンジンを使う。
 
 | 現在使えるもの・実例 | 固定版での状態 | 移行時の判断 |
 | --- | --- | --- |
-| 既定の画面HTTPリンクと`${0}` | 対応。Unicode文字クラスとの意味差は残る | recognizerが保持したregex resultを使う |
+| 既定の画面HTTPリンクと`${0}` | 対応。Unicodeの空白も明示したクラスで区切れる | recognizerが保持したregex resultを使い、既定HTTPルールの区切りを維持する |
 | HTTPを含むOSC 8 URIの照合 | 対応。URIを独立matcherへ渡せる | R1の公開APIを使う |
 | 既定`vscode://file...`の`(?<path>...)`、`(?<line>...)`、`(?<column>...)` | 対応。名前付き構文と結果取得がある | 同じprogramを使い、アプリでテンプレートを展開する |
 | READMEの`^ERROR: (.+)$`と`${1}`、CHALLENGEの`${token}` | 対応。番号・名前の両方を取得できる | 受信行へ照合し、結果をマクロへ渡す |
 | マクロ試験の`\x1b\[31mERROR ...` | `\x1b`は文書化された構文に含まれず、実装も拒否する | 同じ制御文字を`\u{1b}`で記述する。制御列込みのsubjectはR1へ渡す |
 | 空文字にも一致する式 | 独立regexも認識器も拒否。現行はマクロ・OSC 8では許容する | 全用途で空一致を禁止する。無条件動作を必要とする機能は別途判断する |
-| `(?:...)` | 非キャプチャグループとして対応済み | 前回の非対応判定を取り消す |
+| `(?:...)` | 非キャプチャグループとして対応済み | 現在の公開文法を使う |
 | 先読み・後読み、後方参照、`(?i)`、遅延量指定 | 限定文法では非対応 | PCRE2の全互換は求めない。必要な実利用例がある場合だけ追加を検討する |
-| `\d`・`\s`・`\w`のUnicode範囲 | 現行はPCRE2_UCP。boxrigはASCIIのクラス | Unicodeリテラルは使用できるが、分類の意味は変わる。Unicode分類が必要なルールは追加要件にする |
-| `\p{L}`によるUnicode文字種の指定 | 非対応。[共通regex試験](../../shared/tests/settings-test.cpp)には日本語を含むhostのcaptureで使用例がある | 既定リンクはこの構文を使わない。試験のUnicode captureとバイト位置の検証は対応する式で残し、文字種指定そのものは文法差として扱う |
+| `\d`・`\s`・`\w`のUnicode範囲 | 現行はPCRE2_UCP。boxrigの略記は引き続きASCII限定 | 一般カテゴリを明示したクラスで必要な分類を指定する。既定HTTPルールの変更案は後述する。任意設定の自動変換はしない |
+| `\p{L}`によるUnicode文字種の指定 | 対応済み。[共通regex試験](../../shared/tests/settings-test.cpp)の日本語hostの式をそのまま使える | 名前付きcaptureとUTF-8バイト位置の検証を維持し、否定クラスによる代替は行わない |
+| `\p{Greek}`等の文字体系、`\p{White_Space}`等の一般カテゴリ以外の属性 | 非対応。今回の追加は一般カテゴリの略称に限る | 必要な文字種は対応済みのカテゴリとリテラルで記述する。新たな実利用要件がある場合だけ上流追加を検討する |
 | `.`と`^`／`$` | 独立regexの`.`はLFにも一致し、anchorは入力全体を指す。検索開始offsetを変えてもanchorの基準は変わらない | 現行PCRE2はDOTALLを付けていない。改行を除外する式では`[^\n]`を使い、全入力と論理行の違いを案内する |
 | 短い候補と長い候補が同じ位置で一致する選択式。例は`a`または`ab`を選ぶ式に対するsubject `ab` | 現行の通常PCRE2照合は先の選択肢を優先し、boxrigは同じ開始位置で最長を選ぶ | boxrigの最左最長を採用し、ルール順の優先とは分けて説明・試験する |
 
 ルールの優先順はelder-termsが維持し、一つのルール内での一致選択はboxrigへ従う。
 
 調査した組み込みルール・README・テストには、番号・名前付きキャプチャとESCを含む照合の実例がある。一方、先読み・後読み・後方参照の維持を必須にする具体例は確認していない。任意の利用者設定すべてを調べたわけではないため、その利用が存在しないとは断定しない。
+
+### Unicode一般カテゴリと既定リンク
+
+一般カテゴリは、Unicodeの文字を文字・結合符号・数・記号などに分類する仕組みである。`\p{カテゴリ}`はその分類に属するUnicodeスカラー1個、`\P{カテゴリ}`は属さない1個に一致する。`L`・`M`・`N`・`P`・`S`・`Z`・`C`、`LC`、`Lu`や`Nd`などの2文字の細分類を指定できる。波括弧は必須で、大文字・小文字を区別する。`Letter`のような長い名前や`gc=L`形式は受理しない。[公式ガイド][boxrig-regex-guide]と[APIコメント][boxrig-regex-api]に従う。
+
+単独でも文字クラス`[]`内でも使え、クラス内はリテラル・範囲・カテゴリの和集合になる。`[\P{L}A]`は文字以外と`A`、`[^\P{L}]`は文字を表す。カテゴリを範囲の端点にはできない。不正な名前や波括弧は`INVALID_ESCAPE`となり、診断位置はバックスラッシュのバイト位置を指す。範囲の端点に使った場合は`INVALID_RANGE`になる。
+
+分類は同梱のutf8procに従う。アプリがUnicode表を持ったり、PCRE2へ照合を委譲したりする必要はない。追加の外部依存と公開symbolも不要で、既存の共有5本の構成を維持できる。分類データの版や一致規則までPCRE2と同一になる意味ではない。
+
+現行の共通regex試験は次の式を使い、入力`Open https://example.みんな now`のバイト位置`[5, 30)`を照合している。
+
+```regex
+(?<scheme>https?)://(?<host>[\p{L}0-9.-]+)
+```
+
+更新版の共有ライブラリでこの式をそのままコンパイルし、照合前の`host`の番号2、`scheme`の`https`、`host`の`example.みんな`を確認した。captureの位置は一致本文からの相対位置で、`scheme`が`[0, 5)`、`host`が`[8, 25)`になる。前回検討した「区切り文字以外を取り込む」代替表現へ変更する必要はなく、絵文字や全角スペースをhostへ取り込む意味の拡大も避けられる。この式自体はホスト名の候補抽出であり、ドメイン名全体の妥当性検証ではない。
+
+一般カテゴリ対応後も、一致全体は書記素境界に限られる。`e`と結合アクセントからなる文字列へ`\p{L}+`だけを照合しても、文字の途中で終われないため一致しない。結合符号も必要な用途では`[\p{L}\p{M}]+`を使う。内部captureの端点はUnicodeスカラー境界なので、`(?<letter>\p{L})(?<mark>\p{M})`なら両者を分けて取得できる。アプリが暗黙に`\p{M}`を補うことはせず、[上流のcapture試験][boxrig-captures-test]と同じ規則を案内する。
+
+[既定HTTPルール](../../shared/src/settings/hyperlink-settings.cpp)の`\s`は、現行の`PCRE2_UCP`ではUnicodeの空白も区切る。boxrigの`\s`だけへ移すと全角スペースなどをURLに含めるため、移行時は次のように区切りを明示する。上が画面用、下がOSC 8用である。
+
+```regex
+https?://[^\s\p{Z}\u{85}\u{180e}<>"']+
+^https?://[^\s\p{Z}\u{85}\u{180e}<>"']+$
+```
+
+`Z`はUnicodeの空白・行・段落の区切り、`\u{85}`はNEL、`\u{180e}`はMongolian vowel separatorを指す。ASCIIの空白・タブ・改行などは`\s`が扱う。[PCRE2の文字種仕様][pcre2-pattern]にあるUCPの区切りを明示した案であり、elder-termsの現行エンジンと更新版boxrigで26種類の区切りを比較した。画面用は区切り直前までを取得し、OSC 8用は途中に区切りがあるURIを拒否する結果が一致した。これは製品が用意する既定2ルールの変更であり、利用者設定を変換する互換層は作らない。書記素境界と最左最長などの意味差は引き続きboxrigへ従う。
 
 ### R1 任意UTF-8文字列に対する公開regex API
 
@@ -85,7 +113,7 @@ matcherはprogramを参照保持し、入力をコピーする。生成時のUTF
 
 名前は一意なASCII識別子`[A-Za-z_][A-Za-z_0-9]*`に限られる。同じ全体範囲のcaptureは左の選択肢と貪欲な反復を優先し、反復内のgroupは最後に参加した値を保持する。結果集合の本文保持上限は既定16 MiBで、切り替え時は現在と次の集合を持つ。アプリが取得して保持した結果は別枠なので、操作後に`boxrig_regex_result_destroy()`で解放する。
 
-前回不足していた照合前の名前照会には、`boxrig_regex_program_find_named_group()`が追加された。不変program、NUL終端の名前、存在有無と番号の出力先を渡す。[設定保存前の公式手順][boxrig-regex-guide]と[公開APIコメント][boxrig-regex-api]で、次の契約を確認できる。
+照合前の名前照会には、`19be168`で取り込んだ`boxrig_regex_program_find_named_group()`を使う。不変program、NUL終端の名前、存在有無と番号の出力先を渡す。[設定保存前の公式手順][boxrig-regex-guide]と[公開APIコメント][boxrig-regex-api]で、次の契約を確認できる。
 
 | 入力と状態 | 戻り値と出力 |
 | --- | --- |
@@ -188,7 +216,7 @@ SSHは要求の送信処理完了、TelnetはNAWS送信の完了または未交�
 
 タイトル合成、BELの音声ファイルと既定beep、リンクコマンド・パス検証、認証、再接続、BREAK、XYZMODEM、FTP・SFTP・WebDAVもアプリの責任である。boxrigにこれらの製品機能を一括追加する要求は出さない。
 
-VTEのリンク許可setterとmatch cursor名setterにも同名のAPIはないが、製品の有効・無効はリンクactionとhover表示の許可として実装できる。画面候補とOSC 8のhit、annotation、GTKのポインター表示を組み合わせる。DeleteのAuto、カーソル点滅、選択の有無とテキストコピーはboxrigの標準core／UIに従い、旧VTEの出力や見た目の再現を目的に補正しない。TITLE host itemの対象・push／pop flagsはアプリのタイトル管理へ接続する。[GTK3公開API][boxrig-gtk]と[ホスト連携ガイド](https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/host-integration.md)を参照する。
+VTEのリンク許可setterとmatch cursor名setterにも同名のAPIはないが、製品の有効・無効はリンクactionとhover表示の許可として実装できる。画面候補とOSC 8のhit、annotation、GTKのポインター表示を組み合わせる。DeleteのAuto、カーソル点滅、選択の有無とテキストコピーはboxrigの標準core／UIに従い、旧VTEの出力や見た目の再現を目的に補正しない。TITLE host itemの対象・push／pop flagsはアプリのタイトル管理へ接続する。[GTK3公開API][boxrig-gtk]と[ホスト連携ガイド](https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/host-integration.md)を参照する。
 
 ## 起動・共有ビルド・アクセシビリティ
 
@@ -208,7 +236,7 @@ VTEのリンク許可setterとmatch cursor名setterにも同名のAPIはない�
 
 上流は共有ライブラリ自身の`$ORIGIN`、移動可能なpkg-config情報、明示した公開symbolとライブラリ間専用symbol、private codecの非公開化を提供する。`BOXRIG_PRIVATE_0`は内部連携用であり、アプリから使わない。生成ツールはNode.js・Vite・funcityを使い、依存導入は`npm ci --prefix deps/boxrig/tools/codegen`で行う。コンパイル成果物と生成ツール出力は`BUILD_DIR`配下になる。
 
-前回の独自ソース列挙、単一`libelder-terms-boxrig.so`、C linkage用bridge案は不要になった。elder-termsの通常ビルドから上流Makeを起動し、`libboxrig.so.0`、`libboxrig-ui.so.0`、`libboxrig-session.so.0`、`libboxrig-posix.so.0`、`libboxrig-gtk3.so.0`を私有libdirへ同梱する。sharedのregexはcoreへ、端末は必要な各ライブラリへリンクする。生成元のstatic archiveをアプリへ重ねてリンクしない。
+初回の独自ソース列挙、単一`libelder-terms-boxrig.so`、C linkage用bridge案は不要になった。elder-termsの通常ビルドから上流Makeを起動し、`libboxrig.so.0`、`libboxrig-ui.so.0`、`libboxrig-session.so.0`、`libboxrig-posix.so.0`、`libboxrig-gtk3.so.0`を私有libdirへ同梱する。sharedのregexはcoreへ、端末は必要な各ライブラリへリンクする。生成元のstatic archiveをアプリへ重ねてリンクしない。
 
 codegenの開発依存とMakeの呼び出しはアプリのビルドから用意し、別途システムへboxrigを手動インストールする前提にしない。残る検証は親Mesonとの増分依存、配布時のRUNPATH、`dpkg-shlibdeps`、各対象環境のロードである。外部ソースを修正する必要はない。
 
@@ -226,7 +254,7 @@ GTK3 widgetはAtkTextを実装し、表示中の本文、caret、選択、文字
 
 developにはIBusに加え、直接fcitx 5／4へ接続する経路と診断がある。GTK3は既定の`BOXRIG_GTK_IME_AUTO`を使い、明示されたGTKモジュールやboxrigの選択規則に従う。入力方式をIBusへ固定せず、`get_ime_state()`で実際の経路と理由を観測する。[IMEガイド][boxrig-ime-guide]と[GTK入力方式の公開型][boxrig-input-method]を根拠とする。
 
-今回の[fcitx試験の変更][boxrig-fcitx-test]は、windowのmap後にnative focusイベントを処理してから試験のfocusを設定する修正である。IMEの公開APIや製品側の実装変更ではない。elder-termsへ待機タイマーやfocus補正を持ち込む根拠にはしない。
+`19be168`で取り込んだ[fcitx試験の変更][boxrig-fcitx-test]は、windowのmap後にnative focusイベントを処理してから試験のfocusを設定する修正である。IMEの公開APIや製品側の実装変更ではない。elder-termsへ待機タイマーやfocus補正を持ち込む根拠にはしない。今回の差分にはIMEの変更はない。
 
 直接fcitx接続はGLib／GIOを使い、fcitx開発パッケージは不要である。実行時のデーモン・エンジンと、GTK委譲時のIMEモジュールは別に必要になる。これは今回の不足APIではないが、入力禁止後の遅延確定、候補表示、DPI変更を含めて結合検証へ加える。
 
@@ -242,9 +270,9 @@ developにはIBusに加え、直接fcitx 5／4へ接続する経路と診断が�
 
 ## この調査の完了条件と結果
 
-今回の完了条件は、develop HEADへgitlinkを更新し、前回からの全差分と8項目への影響を確認することである。R2は公式文書と公開コメントを再確認し、現行の保存時検証へ接続できるかを判断する。対応済み・残る機能差・アプリの担当を計画へ反映する。更新コミットは`c9be8ee`。外部の追跡対象ソースは変更していない。
+今回の完了条件は、develop HEADへgitlinkを更新し、前回からの全差分と8項目への影響を確認することである。Unicode一般カテゴリの公式文書と公開コメントを確認し、元の共通regex試験と既定リンクへ適用できるかを判断する。対応済み・残る機能差・アプリの担当を計画へ反映する。更新コミットは`3453b3f`。外部の追跡対象ソースは変更していない。
 
-前回の`8ab9bdf`では、次の検証に成功している。今回の差分でR2以外の公開契約とビルド構成が変わっていないことも確認した。
+以前の`8ab9bdf`では、次の検証に成功している。今回の差分で、regex以外の公開契約とビルド構成が変わっていないことも確認した。
 
 | 実行した確認 | 結果と範囲 |
 | --- | --- |
@@ -256,7 +284,7 @@ developにはIBusに加え、直接fcitx 5／4へ接続する経路と診断が�
 | `test-posix-spawn` | 起動失敗と終了127、非ブロッキング診断、親準備・子setupの失敗、資源回収の試験に成功 |
 | `test-accessible-snapshot`、`test-gtk3-accessible` | 本文、変更通知のsnapshot、破棄を含む試験に成功 |
 
-今回の`19be168`では、変更したAPIと共有成果物を次の範囲で再確認した。
+直前の`19be168`では、名前照会APIと共有成果物を次の範囲で確認した。この版では`\p{L}`はまだ非対応だった。
 
 | 実行した確認 | 結果と範囲 |
 | --- | --- |
@@ -264,38 +292,50 @@ developにはIBusに加え、直接fcitx 5／4へ接続する経路と診断が�
 | 移動後のSDKからC99・C++20の上流consumer、GTK3公開ヘッダーを利用 | 名前の存在・不在を照合前に取得し、`LD_LIBRARY_PATH`なしで実行成功。新symbolの`BOXRIG_0`公開も確認 |
 | `test-regex`と、共有ライブラリへリンクした[capture試験][boxrig-captures-test] | 名前・番号、大小文字、無効名、NULL、optional・反復0回、最大group数、既存capture取得に成功 |
 | 現行ソースから取得した既定リンク4ルール | GUI・matcherなしでgroup数、`path`・`line`・`column`の番号、未定義名の不在をC++20の共有consumerから確認 |
-| 共通regex試験の`\p{L}`を含む式 | CLIが構文エラーとして拒否することを確認。既存のUnicode文字種指定は文法差として残る |
+| 共通regex試験の`\p{L}`を含む式 | この版のCLIが構文エラーとして拒否することを確認。現在の固定版では後述のとおり対応済み |
 | GTK3共有ドライバー、Xvfb・Mesa | PreferredでOpenGL描画に成功。GL初期化失敗を注入した場合はCairoへ移り、描画完了を確認 |
 | 変更されたGTK3 fcitx試験 | 専用D-Busの試験サーバーでpreedit・commit・fallback・focusの試験に成功。実fcitx daemonの結合試験ではない |
 
+今回の`4b664b8`では、mergeを含む4コミット・7ファイルの差分を調べ、次の検証に成功した。
+
+| 実行した確認 | 結果と範囲 |
+| --- | --- |
+| 新しい外部`BUILD_DIR`で`shared-gtk3`と`install-shared-gtk3`、`GTK_OPENGL=1` | 共有5本の生成・インストール成功。追加の外部依存・公開関数はなく、ビルド警告もなし |
+| SDKを別ディレクトリへ移動し、C99・C++20の上流consumerを実行 | `LD_LIBRARY_PATH`なしで実行成功。名前照会、core・UI・session・POSIXとprivate codecの分離を確認 |
+| `test-regex`、共有版にリンクしたregex・capture試験 | 一般カテゴリ・否定・和集合・診断・線形の処理量・仕事量制限に成功。日本語と結合符号を含むcaptureは独立matcherと通常／代替画面のrecognizerで一致 |
+| 現行共通regex試験から取得した元の式と入力 | C++20の共有consumerで事前の名前照会、全体`[5, 30)`、`scheme`と`host`の本文・相対位置を確認 |
+| 既定HTTPの2ルールにUnicode空白を明示する案 | 現行elder-termsの共有regexとboxrigを比較し、26種類の空白で画面用の終端とOSC 8用の拒否が一致。日本語・絵文字・結合符号を含むパスの取得も一致 |
+| GTK3共有ドライバー、Xvfb・Mesa | PreferredでOpenGL描画に成功。GL初期化失敗を注入した場合はCairoへ移り、描画完了を確認 |
+
 上流の全platform試験、実GPU、elder-termsへ接続したIME・AT-SPI・非同期起動・通信・レイアウト・配布は今回の実測に含まれない。上流の完了記録を、アプリへの結合試験の代用にはしない。アプリ全体テストと文書検査の結果は[計画の確認結果](plans/plan2-boxrig-migration.md#今回の確認結果)に記す。
 
-R1・R2・I1・K1・W1・P1・B1・A1の不足は公開契約上解消した。boxrigの文法と責任分担を採用する本計画では、必須の追加API待ちはない。regexの文法差、対象外platformの依存照会、実GPUやIMEを含むアプリの結合検証は引き続き残る。設定検証も現在の固定版で実装する計画へ変更した。
+R1・R2・I1・K1・W1・P1・B1・A1の不足は公開契約上解消しており、今回の更新で`\p{L}`の非対応も解消した。boxrigの文法と責任分担を採用する本計画では、必須の追加API待ちはない。略記のASCII範囲や書記素境界などの意味差、対象外platformの依存照会、実GPUやIMEを含むアプリの結合検証は引き続き残る。通常のサイズ・フォントはboxrigの単一経路、描画はOpenGL Preferred、共有ライブラリは親ビルド中の5本生成という方針を維持する。
 
-[boxrig-text]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/text.md
-[boxrig-core]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/terminal.h
-[boxrig-core-regex]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/terminal.h
-[boxrig-gtk]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk3/terminal_widget.h
-[boxrig-gtk-layout]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk3/terminal_widget.h
-[boxrig-io]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/terminal-io.md
-[boxrig-ui-input]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/ui/input.h
-[boxrig-host-items]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/terminal.h
-[boxrig-session]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/session.h
-[boxrig-native-host]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/examples/boxrig_term/gtk3/native_host.c
-[boxrig-posix]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/posix.h
-[boxrig-building]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/building.md
-[boxrig-font]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk3/terminal_widget.h
-[boxrig-font-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/fonts-and-layout.md
-[boxrig-rendering]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk/rendering.h
-[boxrig-regex-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/regex.md
-[boxrig-regex-api]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/regex.h
-[boxrig-gtk-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/platforms/gtk.md
-[boxrig-host-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/host-integration.md
-[boxrig-session-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/sessions.md
-[boxrig-spawn-example]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/examples/pty_spawn/operation.cpp
-[boxrig-shared-make]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/packaging/linux/rules.mk
-[boxrig-feedback-results]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/plans/step1-feedback-progress.md#段階11
-[boxrig-ime-guide]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/docs/ja/input-ime.md
-[boxrig-input-method]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/include/boxrig/gtk/input.h
-[boxrig-fcitx-test]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/tests/gtk/test_fcitx_widget.c
-[boxrig-captures-test]: https://github.com/kekyo/boxrig/blob/19be168c464d0509c3388bdc7bb3bef4c2717d3d/tests/test_regex_captures.c
+[boxrig-text]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/text.md
+[boxrig-core]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/terminal.h
+[boxrig-core-regex]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/terminal.h
+[boxrig-gtk]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/gtk3/terminal_widget.h
+[boxrig-gtk-layout]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/gtk3/terminal_widget.h
+[boxrig-io]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/terminal-io.md
+[boxrig-ui-input]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/ui/input.h
+[boxrig-host-items]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/terminal.h
+[boxrig-session]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/session.h
+[boxrig-native-host]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/examples/boxrig_term/gtk3/native_host.c
+[boxrig-posix]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/posix.h
+[boxrig-building]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/building.md
+[boxrig-font]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/gtk3/terminal_widget.h
+[boxrig-font-guide]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/fonts-and-layout.md
+[boxrig-rendering]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/gtk/rendering.h
+[boxrig-regex-guide]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/regex.md
+[boxrig-regex-api]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/regex.h
+[boxrig-gtk-guide]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/platforms/gtk.md
+[boxrig-host-guide]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/host-integration.md
+[boxrig-session-guide]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/sessions.md
+[boxrig-spawn-example]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/examples/pty_spawn/operation.cpp
+[boxrig-shared-make]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/packaging/linux/rules.mk
+[boxrig-feedback-results]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/plans/step1-feedback-progress.md#段階11
+[boxrig-ime-guide]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/input-ime.md
+[boxrig-input-method]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/include/boxrig/gtk/input.h
+[boxrig-fcitx-test]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/tests/gtk/test_fcitx_widget.c
+[boxrig-captures-test]: https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/tests/test_regex_captures.c
+[pcre2-pattern]: https://www.pcre.org/current/doc/html/pcre2pattern.html#genericchartypes
