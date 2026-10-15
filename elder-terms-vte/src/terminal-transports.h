@@ -33,8 +33,8 @@ TerminalTransportRequest make_ssh_transport_request(SshConnectionSettings settin
  * @param encoding Peer character encoding.
  * @param callbacks Receive and send activity notifications.
  * @return Reusable factory; each open resolves and configures a fresh descriptor.
- * @remarks This factory opens one port. Device and carrier recovery policy is
- * separate from its bounded stream operations.
+ * @remarks Device notifications permit runtime recovery after a failed open or
+ * unplug. The monitor is joined when the user disconnects or replaces the target.
  */
 TerminalTransportRequest make_serial_transport_request(SerialConnectionSettings settings,
     std::string encoding, TerminalSessionCallbacks callbacks);

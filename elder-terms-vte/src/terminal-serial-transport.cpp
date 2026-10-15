@@ -2,6 +2,7 @@
 #include "terminal-sessions/serial-session/serial-termios.h"
 
 #include <elder-terms/serial-device.h>
+#include <elder-terms/serial-device-event-monitor.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <cerrno>
@@ -89,10 +90,35 @@ static cardio::promise<TerminalTransport> open_serial(SerialConnectionSettings s
       [channel](cardio::cancellation stop) { return break_serial(channel.get(), stop); }};
 }
 
+static cardio::promise<void> watch_serial_device(std::string device,
+    std::function<void()> notify, cardio::cancellation cancellation) {
+  cardio::primitives::conditional ready;
+  bool changed = false;
+  SerialDeviceEventMonitor monitor(std::move(device), [&] {
+    changed = true;
+    ready.trigger();
+  });
+  monitor.start();
+  if (!monitor.has_event_sources()) co_return;
+  try {
+    for (;;) {
+      while (!changed) co_await ready.wait(cancellation);
+      cancellation.throw_if_cancellation_requested();
+      changed = false;
+      notify();
+    }
+  } catch (const cardio::canceled_exception &) {
+  }
+  monitor.stop();
+}
+
 TerminalTransportRequest make_serial_transport_request(SerialConnectionSettings settings,
     std::string encoding, TerminalSessionCallbacks callbacks) {
   TerminalTransportRequest request;
   request.encoding = std::move(encoding);
+  request.watch_availability = [device = settings.device](std::function<void()> notify, cardio::cancellation cancellation) {
+    return watch_serial_device(device, std::move(notify), cancellation);
+  };
   request.open = [settings = std::move(settings), callbacks = std::move(callbacks)](
       std::size_t, std::size_t, cardio::cancellation cancellation) {
     return open_serial(settings, callbacks, cancellation);

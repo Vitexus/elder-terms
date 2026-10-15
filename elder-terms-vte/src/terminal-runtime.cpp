@@ -20,6 +20,12 @@ struct TerminalRuntime {
   TerminalConnection *connection = nullptr;
   std::function<void(std::span<const unsigned char>, std::span<const unsigned char>)> output;
   std::optional<std::variant<TerminalLocalCommand, TerminalTransportRequest>> pending_connection;
+  std::optional<TerminalTransportRequest> recovery_request;
+  std::optional<cardio::promise<void>> recovery_completion;
+  cardio::cancellation_source recovery_stop;
+  std::uint64_t recovery_epoch = 0;
+  std::uint64_t attempted_recovery_epoch = 0;
+  bool pending_recovery = false;
   std::optional<TerminalTextSettings> pending_input;
   std::optional<std::string> pending_encoding;
   std::optional<cardio::promise<void>> encoding_completion;
@@ -134,6 +140,8 @@ static bool ui_result(boxrig_ui_status status, const char *operation) {
 static void fail_ui(TerminalRuntime *runtime) {
   runtime->ui_failed = true;
   runtime->pending_connection.reset();
+  runtime->recovery_request.reset();
+  runtime->recovery_stop.cancel();
   runtime->pending_encoding.reset();
   terminal_runtime_cancel_transfer(runtime);
   terminal_connection_stop(runtime->connection);
@@ -142,7 +150,10 @@ static void fail_ui(TerminalRuntime *runtime) {
 }
 
 static cardio::promise<void> change_encoding(TerminalRuntime *runtime, std::string encoding) {
-  co_await terminal_connection_change_encoding(runtime->connection, std::move(encoding));
+  if (co_await terminal_connection_change_encoding(runtime->connection, std::move(encoding))) {
+    if (runtime->recovery_request)
+      runtime->recovery_request->encoding = terminal_connection_state(runtime->connection).encoding;
+  }
   runtime->encoding_active = false;
   request_frame(runtime);
 }
@@ -196,6 +207,22 @@ static cardio::promise<void> send_break(TerminalRuntime *runtime, TerminalBreakR
   if (request.finished) request.finished(succeeded);
 }
 
+static cardio::promise<void> watch_availability(TerminalRuntime *runtime,
+    TerminalTransportRequest request, cardio::cancellation cancellation) {
+  try {
+    co_await request.watch_availability([runtime, cancellation] {
+      if (cancellation.is_cancellation_requested()) return;
+      ++runtime->recovery_epoch;
+      request_frame(runtime);
+    }, cancellation);
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::exception &error) {
+    g_printerr("Terminal device monitoring: %s\n", error.what());
+  }
+  if (!cancellation.is_cancellation_requested()) runtime->recovery_request.reset();
+  request_frame(runtime);
+}
+
 static bool process_input_policy(TerminalRuntime *runtime) {
   if (runtime->pending_input) {
     const auto &settings = *runtime->pending_input;
@@ -221,7 +248,15 @@ static bool process_input_policy(TerminalRuntime *runtime) {
     }
   }
   const auto connection = terminal_connection_state(runtime->connection);
+  if (connection.phase != TerminalConnectionPhase::connected) runtime->pending_encoding.reset();
   if (runtime->auto_selecting && connection.receive_ended) terminal_runtime_cancel_transfer(runtime);
+  if (connection.phase == TerminalConnectionPhase::closed && !connection.cancelled && runtime->recovery_request &&
+      runtime->recovery_epoch != runtime->attempted_recovery_epoch && !runtime->pending_connection &&
+      !runtime->pending_service && !runtime->service_active && !runtime->encoding_active && !runtime->break_active) {
+    runtime->pending_connection = *runtime->recovery_request;
+    runtime->pending_recovery = true;
+    runtime->input_allowed = true;
+  }
   const bool enabled = runtime->input_allowed && !runtime->pending_connection &&
       !runtime->pending_encoding && !runtime->encoding_active &&
       !runtime->pending_service && !runtime->service_active &&
@@ -235,9 +270,20 @@ static bool process_input_policy(TerminalRuntime *runtime) {
     if (status != BOXRIG_UI_BUSY && !ui_result(status, "input inhibition")) return false;
     if (!ui_result(boxrig_gtk3_terminal_widget_get_input_state(runtime->widget, &input), "input state")) return false;
   }
-  if (runtime->pending_connection && input.phase == BOXRIG_UI_INPUT_DISABLED) {
+  if (runtime->pending_connection && input.phase == BOXRIG_UI_INPUT_DISABLED &&
+      (runtime->pending_recovery || !runtime->recovery_completion || runtime->recovery_completion->is_ready())) {
     auto command = std::move(*runtime->pending_connection);
     runtime->pending_connection.reset();
+    if (!runtime->pending_recovery && std::holds_alternative<TerminalTransportRequest>(command)) {
+      const auto &request = std::get<TerminalTransportRequest>(command);
+      if (request.watch_availability) {
+        runtime->recovery_request = request;
+        runtime->recovery_stop = {};
+        runtime->recovery_completion.emplace(watch_availability(runtime, request, runtime->recovery_stop.get_cancellation()));
+      }
+    }
+    runtime->pending_recovery = false;
+    runtime->attempted_recovery_epoch = runtime->recovery_epoch;
     if (!std::visit([runtime](auto request) {
       if constexpr (std::is_same_v<decltype(request), TerminalLocalCommand>)
         return terminal_connection_start_local(runtime->connection, std::move(request));
@@ -626,6 +672,9 @@ bool terminal_runtime_connect_local(TerminalRuntime *runtime, TerminalLocalComma
   if (runtime->stopped || runtime->pending_connection || runtime->pending_service || runtime->service_active ||
       (phase != TerminalConnectionPhase::idle && phase != TerminalConnectionPhase::closed)) return false;
   if (runtime->ui_failed && !attach_widget(runtime)) return false;
+  runtime->recovery_request.reset();
+  runtime->recovery_stop.cancel();
+  runtime->pending_recovery = false;
   runtime->pending_connection = std::move(command);
   runtime->input_allowed = true;
   request_frame(runtime);
@@ -637,6 +686,9 @@ bool terminal_runtime_connect_transport(TerminalRuntime *runtime, TerminalTransp
   if (runtime->stopped || runtime->pending_connection || runtime->pending_service || runtime->service_active ||
       (phase != TerminalConnectionPhase::idle && phase != TerminalConnectionPhase::closed)) return false;
   if (runtime->ui_failed && !attach_widget(runtime)) return false;
+  runtime->recovery_request.reset();
+  runtime->recovery_stop.cancel();
+  runtime->pending_recovery = false;
   runtime->pending_connection = std::move(request);
   runtime->input_allowed = true;
   request_frame(runtime);
@@ -645,6 +697,8 @@ bool terminal_runtime_connect_transport(TerminalRuntime *runtime, TerminalTransp
 
 cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
   runtime->pending_connection.reset();
+  runtime->recovery_request.reset();
+  runtime->recovery_stop.cancel();
   runtime->pending_encoding.reset();
   terminal_runtime_cancel_transfer(runtime);
   runtime->input_allowed = false;
@@ -655,6 +709,7 @@ cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
   terminal_connection_stop(runtime->connection);
   request_frame(runtime);
   co_await terminal_connection_wait_stopped(runtime->connection);
+  if (runtime->recovery_completion) co_await *runtime->recovery_completion;
   if (runtime->encoding_completion) co_await *runtime->encoding_completion;
   if (runtime->service_completion) co_await *runtime->service_completion;
   if (runtime->break_completion) co_await *runtime->break_completion;

@@ -20,6 +20,10 @@ struct Fixture {
   cardio::primitives::conditional write_ready;
   cardio::primitives::conditional break_ready;
   cardio::primitives::conditional selection_ready;
+  cardio::primitives::conditional availability;
+  std::function<void()> notify_available;
+  bool monitoring = false;
+  bool device_available = false;
   std::string incoming;
   std::string outgoing;
   std::string normal_output;
@@ -397,6 +401,50 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::closed)
     co_await fixture->changed.wait();
   expect(fixture->normal_output == before_eof + "**\x18" "B0000", "EOF releases an incomplete header as ordinary data exactly once");
+
+  const auto retained_display = text(fixture);
+  auto recovering = request(fixture);
+  recovering.open = [fixture, open = recovering.open](std::size_t rows, std::size_t columns, cardio::cancellation stop)
+      -> cardio::promise<TerminalTransport> {
+    if (!fixture->device_available) throw std::system_error(ENOENT, std::generic_category(), "device is absent");
+    co_return co_await open(rows, columns, stop);
+  };
+  recovering.watch_availability = [fixture](std::function<void()> notify, cardio::cancellation stop) -> cardio::promise<void> {
+    fixture->monitoring = true;
+    fixture->notify_available = std::move(notify);
+    fixture->changed.trigger();
+    try { co_await fixture->availability.wait(stop); }
+    catch (const cardio::canceled_exception &) {}
+    fixture->monitoring = false;
+    fixture->notify_available = {};
+    fixture->changed.trigger();
+  };
+  auto generation = terminal_runtime_connection_state(fixture->runtime).generation;
+  expect(terminal_runtime_connect_transport(fixture->runtime, recovering), "monitor a temporarily absent device");
+  while (terminal_runtime_connection_state(fixture->runtime).generation == generation ||
+      terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::closed)
+    co_await fixture->changed.wait();
+  expect(fixture->monitoring && terminal_runtime_connection_state(fixture->runtime).operation_error == ENOENT,
+      "failed open remains observable while device monitoring continues");
+  fixture->device_available = true;
+  fixture->notify_available();
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  expect(terminal_runtime_request_encoding(fixture->runtime, "CP932"), "change encoding before reattachment");
+  while (terminal_runtime_encoding_pending(fixture->runtime)) co_await fixture->changed.wait();
+  generation = terminal_runtime_connection_state(fixture->runtime).generation;
+  fixture->peer_eof = true;
+  fixture->notify_available();
+  fixture->received.trigger();
+  while (terminal_runtime_connection_state(fixture->runtime).generation == generation ||
+      terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  expect(terminal_runtime_connection_state(fixture->runtime).encoding == "CP932",
+      "recovery retains applied encoding and an event received before teardown");
+  expect(text(fixture) == retained_display, "device recovery retains the same terminal history");
+  co_await terminal_runtime_disconnect(fixture->runtime);
+  expect(!fixture->monitoring && !fixture->notify_available,
+      "explicit disconnect joins the monitor and releases its callback");
 }
 
 static cardio::promise<void> run(Fixture *fixture, std::exception_ptr *failure) {

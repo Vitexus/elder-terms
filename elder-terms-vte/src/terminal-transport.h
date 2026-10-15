@@ -44,6 +44,12 @@ struct TerminalTransportRequest {
   std::size_t queue_capacity = 64 * 1024;
   /** Maximum source bytes converted per asynchronous operation. */
   std::size_t io_chunk_size = 4096;
+  /**
+   * Optional event-driven availability monitor, retained across generations.
+   * The first argument notifies a possible device change; the second stops
+   * monitoring. Return only after releasing callbacks. No timer retries are used.
+   */
+  std::function<cardio::promise<void>(std::function<void()>, cardio::cancellation)> watch_availability = {};
 };
 
 }
