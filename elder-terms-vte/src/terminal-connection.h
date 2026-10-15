@@ -63,6 +63,8 @@ struct TerminalConnectionState {
   std::size_t receive_peak = 0;
   /** Largest observed application send queue occupancy. */
   std::size_t send_peak = 0;
+  /** Currently applied peer encoding; empty before conversion is prepared. */
+  std::string encoding;
 };
 
 /** Owns a boxrig session and its asynchronous transport on one dispatcher. */
@@ -134,6 +136,17 @@ bool terminal_connection_dispatch(TerminalConnection *connection);
  * @return False on transport or core failure; the connection then stops.
  */
 cardio::promise<bool> terminal_connection_resize(TerminalConnection *connection, std::size_t rows, std::size_t columns);
+
+/**
+ * Exchanges the stream converters after draining already accepted output.
+ * @param connection Connected owner, retained until completion.
+ * @param encoding Desired iconv encoding name.
+ * @return False when inactive, busy, cancelled, or the encoding is unavailable.
+ * @remarks The caller inhibits user input first. The receive boundary is the
+ * last completed transport read. Its partial character is finalized once;
+ * neither display state nor connection generation is replaced.
+ */
+cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *connection, std::string encoding);
 
 /**
  * Gets an observable lifecycle snapshot.

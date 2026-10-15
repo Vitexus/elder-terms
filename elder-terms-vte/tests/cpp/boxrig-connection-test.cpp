@@ -6,6 +6,7 @@
 #include <exception>
 #include <stdexcept>
 #include <string>
+#include <utility>
 
 using namespace elder_terms;
 
@@ -153,6 +154,89 @@ static cardio::promise<void> scenarios(Test *test) {
   co_await terminal_connection_wait_stopped(test->connection);
   state = terminal_connection_state(test->connection);
   expect(state.operation_error == EINVAL && state.child == 0, "invalid conversion fails before spawning a child");
+
+  std::vector<unsigned char> live_input{0x93, 0xfa, 0x82};
+  std::string live_output;
+  cardio::primitives::conditional live_received;
+  cardio::primitives::conditional release_write;
+  bool live_eof = false;
+  bool first_write = true;
+  TerminalTransportRequest live;
+  live.encoding = "CP932";
+  live.queue_capacity = 1;
+  live.io_chunk_size = 1;
+  live.open = [&](std::size_t, std::size_t, cardio::cancellation) -> cardio::promise<TerminalTransport> {
+    co_return TerminalTransport{
+        [&](std::span<unsigned char> bytes, cardio::cancellation stop) -> cardio::promise<std::size_t> {
+          while (live_input.empty() && !live_eof) co_await live_received.wait(stop);
+          if (live_input.empty()) co_return 0;
+          bytes[0] = live_input.front();
+          live_input.erase(live_input.begin());
+          co_return 1;
+        },
+        [&](std::span<const unsigned char> bytes, cardio::cancellation stop) -> cardio::promise<void> {
+          live_output.append(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+          test->changed.trigger();
+          if (std::exchange(first_write, false)) co_await release_write.wait(stop);
+        },
+        [](std::size_t, std::size_t, cardio::cancellation) -> cardio::promise<void> { co_return; },
+        []() -> cardio::promise<void> { co_return; }};
+  };
+  const auto live_raw_start = test->raw.size();
+  const auto live_cooked_start = test->cooked.size();
+  expect(terminal_connection_start_transport(test->connection, std::move(live)), "start live encoding peer");
+  while (test->raw.size() < live_raw_start + 3) co_await test->changed.wait();
+  const auto live_generation = terminal_connection_state(test->connection).generation;
+  expect(boxrig_terminal_send_text(test->core, "日", 3) == BOXRIG_STATUS_OK, "queue old-encoding text");
+  wake(test);
+  while (live_output.empty()) co_await test->changed.wait();
+  auto exchange_encoding = terminal_connection_change_encoding(test->connection, "UTF-8");
+  expect(terminal_connection_state(test->connection).encoding == "CP932", "encoding exchange waits for an in-flight write");
+  release_write.trigger();
+  expect(co_await exchange_encoding, "encoding exchange completes after the old write");
+  expect(live_output == std::string("\x93\xfa", 2), "old output is completely encoded before exchange");
+  expect(terminal_connection_state(test->connection).generation == live_generation, "encoding exchange preserves the connection generation");
+  expect(!(co_await terminal_connection_change_encoding(test->connection, "ELDER_TERMS_INVALID_ENCODING")), "invalid live encoding is rejected");
+  expect(terminal_connection_state(test->connection).encoding == "UTF-8", "rejected encoding leaves the old converters usable");
+  expect(boxrig_terminal_send_text(test->core, "語", 3) == BOXRIG_STATUS_OK, "queue new-encoding text");
+  wake(test);
+  while (live_output.size() != 5) co_await test->changed.wait();
+  expect(live_output == std::string("\x93\xfa", 2) + "語", "later output uses the new encoding exactly once");
+  const std::string live_tail = "語";
+  live_input.assign(live_tail.begin(), live_tail.end());
+  live_eof = true;
+  live_received.trigger();
+  co_await terminal_connection_wait_stopped(test->connection);
+  expect(test->cooked.substr(live_cooked_start) == "日�語", "live exchange flushes the old partial input before the new stream");
+
+  const auto cancelled_exchange_start = test->cooked.size();
+  bool cancelling_write_started = false;
+  TerminalTransportRequest cancelling_exchange;
+  cancelling_exchange.encoding = "ISO-2022-JP";
+  cancelling_exchange.open = [&](std::size_t, std::size_t, cardio::cancellation) -> cardio::promise<TerminalTransport> {
+    co_return TerminalTransport{
+        [&](std::span<unsigned char>, cardio::cancellation stop) -> cardio::promise<std::size_t> {
+          co_await live_received.wait(stop);
+          co_return 0;
+        },
+        [&](std::span<const unsigned char>, cardio::cancellation stop) -> cardio::promise<void> {
+          cancelling_write_started = true;
+          test->changed.trigger();
+          co_await release_write.wait(stop);
+        },
+        [](std::size_t, std::size_t, cardio::cancellation) -> cardio::promise<void> { co_return; },
+        []() -> cardio::promise<void> { co_return; }};
+  };
+  expect(terminal_connection_start_transport(test->connection, std::move(cancelling_exchange)), "start cancelled encoding peer");
+  while (terminal_connection_state(test->connection).phase != TerminalConnectionPhase::connected) co_await test->changed.wait();
+  expect(boxrig_terminal_send_text(test->core, "日", 3) == BOXRIG_STATUS_OK, "queue text before cancelling encoding exchange");
+  wake(test);
+  while (!cancelling_write_started) co_await test->changed.wait();
+  auto cancelled_exchange = terminal_connection_change_encoding(test->connection, "UTF-8");
+  terminal_connection_stop(test->connection);
+  expect(!(co_await cancelled_exchange), "disconnect cancels an encoding exchange waiting for output");
+  co_await terminal_connection_wait_stopped(test->connection);
+  expect(test->cooked.size() == cancelled_exchange_start, "cancelled empty input has no duplicate finalization");
 
   for (int attempt = 0; attempt < 4; ++attempt) {
     expect(terminal_connection_start_local(test->connection, command("trap '' HUP TERM; read value")), "start cancellable child");

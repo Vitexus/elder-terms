@@ -131,6 +131,23 @@ void terminal_runtime_request_input_settings(TerminalRuntime *runtime, TerminalT
 bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime);
 
 /**
+ * Requests a live encoding exchange after widget input has stopped.
+ * @param runtime Connected runtime.
+ * @param encoding Desired peer encoding.
+ * @return False when inactive or an exchange is already running.
+ * @remarks A pending request may be replaced before it starts. Invalid
+ * encodings leave the active conversion and connection unchanged.
+ */
+bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string encoding);
+
+/**
+ * Reports whether widget inhibition or stream exchange is still pending.
+ * @param runtime Live runtime.
+ * @return True until the requested encoding exchange finishes.
+ */
+bool terminal_runtime_encoding_pending(const TerminalRuntime *runtime);
+
+/**
  * Requests input inhibition or resumption while preserving selection and display.
  * @param runtime Live runtime.
  * @param enabled Whether application policy permits terminal input.

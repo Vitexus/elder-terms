@@ -22,11 +22,19 @@ struct Driver {
   bool closing = false;
   std::string last_report;
   std::string last_connection_report;
+  std::string last_encoding_report;
 };
 
 static void report_connection(Driver *driver) {
   if (!driver->connection_mode) return;
   const auto state = elder_terms::terminal_runtime_connection_state(driver->runtime);
+  const auto encoding_report = "encoding=" + state.encoding + " pending=" +
+      (elder_terms::terminal_runtime_encoding_pending(driver->runtime) ? "1" : "0");
+  if (encoding_report != driver->last_encoding_report) {
+    driver->last_encoding_report = encoding_report;
+    std::printf("%s\n", encoding_report.c_str());
+    std::fflush(stdout);
+  }
   const char *phase = state.phase == elder_terms::TerminalConnectionPhase::starting ? "starting" :
       state.phase == elder_terms::TerminalConnectionPhase::connected ? "connected" :
       state.phase == elder_terms::TerminalConnectionPhase::stopping ? "stopping" :
@@ -169,6 +177,16 @@ static void input_enabled_changed(GtkButton *button, gpointer context) {
   auto *driver = static_cast<Driver *>(context);
   elder_terms::terminal_runtime_request_input_enabled(driver->runtime,
       g_object_get_data(G_OBJECT(button), "enabled") != nullptr);
+  gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
+}
+
+static void encoding_changed(GtkButton *button, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  const auto *encoding = static_cast<const char *>(g_object_get_data(G_OBJECT(button), "encoding"));
+  if (elder_terms::terminal_runtime_request_encoding(driver->runtime, encoding)) {
+    driver->command.encoding = encoding;
+    if (driver->transport) driver->transport->encoding = encoding;
+  }
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
@@ -318,6 +336,13 @@ int main(int argc, char **argv) {
     gestament_gtk_assign_accessible_id(paste, "driver_paste");
     gtk_box_pack_start(GTK_BOX(sending), paste, FALSE, FALSE, 0);
     g_signal_connect(paste, "clicked", G_CALLBACK(paste_clipboard), &driver);
+    for (const auto *encoding : {"UTF-8", "CP932"}) {
+      auto *button = gtk_button_new_with_label(encoding);
+      gestament_gtk_assign_accessible_id(button, std::string_view(encoding) == "UTF-8" ? "driver_utf8" : "driver_cp932");
+      g_object_set_data(G_OBJECT(button), "encoding", const_cast<char *>(encoding));
+      gtk_box_pack_start(GTK_BOX(sending), button, FALSE, FALSE, 0);
+      g_signal_connect(button, "clicked", G_CALLBACK(encoding_changed), &driver);
+    }
   }
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }

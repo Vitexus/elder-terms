@@ -60,6 +60,14 @@ struct ConnectionOperation {
   std::vector<unsigned char> decoded;
   std::size_t decoded_offset = 0;
   bool decoder_finished = false;
+  bool changing_encoding = false;
+  bool read_paused = false;
+  bool read_active = false;
+  bool write_active = false;
+  bool write_paused = false;
+  cardio::cancellation_source read_interrupt;
+  cardio::primitives::conditional read_resumed;
+  cardio::primitives::conditional stream_changed;
   std::size_t pending_operations = 0;
   cardio::cancellation_source stop;
   cardio::cancellation_source io_stop;
@@ -123,6 +131,7 @@ static boxrig_transport_status send(
   // A failed write must not close the session's receive side: a PTY can still
   // contain its final output after the child has gone away.
   if (operation.write_closed) return BOXRIG_TRANSPORT_WOULD_BLOCK;
+  if (operation.write_paused) return BOXRIG_TRANSPORT_WOULD_BLOCK;
   *written = std::min(length, operation.outgoing.storage.size() - operation.outgoing.length);
   if (*written == 0) return BOXRIG_TRANSPORT_WOULD_BLOCK;
   append(operation.outgoing, {bytes, *written});
@@ -180,10 +189,24 @@ static cardio::promise<void> read_stream(TerminalConnection *connection) {
   try {
     for (;;) {
       cancellation.throw_if_cancellation_requested();
+      operation.read_active = false;
+      operation.stream_changed.trigger();
+      while (operation.read_paused) co_await operation.read_resumed.wait(cancellation);
       while (operation.incoming.length == operation.incoming.storage.size())
         co_await operation.receive_space.wait(cancellation);
+      // A settings request can arrive while queue space is unavailable.
+      if (operation.read_paused) continue;
       const auto capacity = std::min(buffer.size(), operation.incoming.storage.size() - operation.incoming.length);
-      const auto count = co_await operation.transport.read(std::span(buffer).first(capacity), cancellation);
+      operation.read_interrupt = cardio::cancellations::any(cancellation);
+      operation.read_active = true;
+      std::size_t count = 0;
+      try {
+        count = co_await operation.transport.read(std::span(buffer).first(capacity), operation.read_interrupt.get_cancellation());
+      } catch (const cardio::canceled_exception &) {
+        cancellation.throw_if_cancellation_requested();
+        if (operation.read_paused) continue;
+        throw;
+      }
       if (count > 0) {
         const std::span<const unsigned char> bytes(buffer.data(), static_cast<std::size_t>(count));
         auto converted = convert_terminal_text(operation.decoder.get(), bytes);
@@ -206,6 +229,8 @@ static cardio::promise<void> read_stream(TerminalConnection *connection) {
   } catch (...) {
     fail(connection, ENOMEM);
   }
+  operation.read_active = false;
+  operation.stream_changed.trigger();
 }
 
 static cardio::promise<void> write_stream(TerminalConnection *connection) {
@@ -215,6 +240,7 @@ static cardio::promise<void> write_stream(TerminalConnection *connection) {
     for (;;) {
       cancellation.throw_if_cancellation_requested();
       while (operation.outgoing.length == 0) co_await operation.send_ready.wait(cancellation);
+      operation.write_active = true;
       const auto bytes = front(operation.outgoing).first(std::min(front(operation.outgoing).size(), operation.chunk_size));
       auto converted = convert_terminal_text(operation.encoder.get(), bytes);
       consume(operation.outgoing, bytes.size());
@@ -225,6 +251,8 @@ static cardio::promise<void> write_stream(TerminalConnection *connection) {
         co_await operation.transport.write(std::span(converted.bytes).subspan(offset, count), cancellation);
         offset += count;
       }
+      operation.write_active = false;
+      operation.stream_changed.trigger();
     }
   } catch (const cardio::canceled_exception &) {
   } catch (const std::system_error &error) {
@@ -235,6 +263,8 @@ static cardio::promise<void> write_stream(TerminalConnection *connection) {
   } catch (...) {
     fail(connection, ENOMEM);
   }
+  operation.write_active = false;
+  operation.stream_changed.trigger();
 }
 
 static cardio::promise<std::size_t> read_pty(boxrig_posix_pty *pty,
@@ -338,6 +368,7 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
   try {
     operation.decoder = create_terminal_text_decoder(command.encoding);
     operation.encoder = create_terminal_text_encoder(command.encoding);
+    connection->state.encoding = command.encoding;
     size_t rows = 0, columns = 0;
     boxrig_terminal_size(connection->terminal, &rows, &columns);
     const auto spawned = co_await cardio::promises::start_new([command = std::move(command), rows, columns]() mutable {
@@ -436,6 +467,7 @@ static cardio::promise<void> run_transport(TerminalConnection *connection, Termi
   try {
     operation.decoder = create_terminal_text_decoder(request.encoding);
     operation.encoder = create_terminal_text_encoder(request.encoding);
+    connection->state.encoding = request.encoding;
     size_t rows = 0, columns = 0;
     boxrig_terminal_size(connection->terminal, &rows, &columns);
     operation.transport = co_await request.open(rows, columns, cancellation);
@@ -560,6 +592,7 @@ bool terminal_connection_dispatch(TerminalConnection *connection) {
     operation.drained.trigger();
   }
   const auto interests = boxrig_session_interests(operation.session);
+  operation.stream_changed.trigger();
   return result.terminal_bytes_fed != 0 || result.transport_bytes_written != 0 ||
       ((interests & BOXRIG_SESSION_INTEREST_READ) && operation.incoming.length != 0);
 }
@@ -588,5 +621,62 @@ cardio::promise<bool> terminal_connection_resize(TerminalConnection *connection,
 }
 
 TerminalConnectionState terminal_connection_state(const TerminalConnection *connection) { return connection->state; }
+
+cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *connection, std::string encoding) {
+  if (connection->state.phase != TerminalConnectionPhase::connected ||
+      connection->operation->changing_encoding) co_return false;
+  if (connection->state.encoding == encoding) co_return true;
+  TerminalTextStreamPtr decoder{nullptr, destroy_terminal_text_stream};
+  TerminalTextStreamPtr encoder{nullptr, destroy_terminal_text_stream};
+  try {
+    decoder = create_terminal_text_decoder(encoding);
+    encoder = create_terminal_text_encoder(encoding);
+  } catch (const std::system_error &) {
+    co_return false;
+  }
+  auto &operation = *connection->operation;
+  ++operation.pending_operations;
+  operation.changing_encoding = true;
+  operation.read_paused = true;
+  operation.read_interrupt.cancel();
+  operation.receive_space.trigger();
+  const auto cancellation = operation.io_stop.get_cancellation();
+  bool changed = false;
+  try {
+    while (operation.read_active) co_await operation.stream_changed.wait(cancellation);
+    cancellation.throw_if_cancellation_requested();
+    if (operation.eof) throw cardio::canceled_exception();
+    co_await queue_decoded(connection, finish_decoder(connection), cancellation);
+    connection->wake();
+    while (operation.write_active || operation.outgoing.length != 0 ||
+        (boxrig_session_interests(operation.session) & BOXRIG_SESSION_INTEREST_WRITE) != 0) {
+      if (operation.write_closed)
+        throw std::system_error(EPIPE, std::generic_category(), "encoding exchange on a closed writer");
+      co_await operation.stream_changed.wait(cancellation);
+    }
+    operation.write_paused = true;
+    auto tail = finish_terminal_text(operation.encoder.get());
+    if (!tail.bytes.empty()) co_await operation.transport.write(tail.bytes, cancellation);
+    cancellation.throw_if_cancellation_requested();
+    operation.decoder = std::move(decoder);
+    operation.encoder = std::move(encoder);
+    operation.decoder_finished = false;
+    connection->state.encoding = std::move(encoding);
+    changed = true;
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::system_error &error) {
+    fail(connection, error.code().value());
+  } catch (...) {
+    fail(connection, EIO);
+  }
+  operation.changing_encoding = false;
+  operation.write_paused = false;
+  operation.read_paused = false;
+  operation.read_resumed.trigger();
+  --operation.pending_operations;
+  operation.drained.trigger();
+  connection->wake();
+  co_return changed;
+}
 
 }
