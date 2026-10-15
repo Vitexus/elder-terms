@@ -40,9 +40,9 @@ import {
   terminalInvalidValuesConfigPath,
   terminalTextGrid80x24Path,
   telnetMissingAddressConfigPath,
-  terminalTextGrid80x24FontScale11Path,
+  terminalTextGrid80x24Font145Path,
   terminalTextGrid81x25Path,
-  terminalZoom11ConfigPath,
+  terminalFont145ConfigPath,
   telnetLocalhostConfigPath,
   withTemporaryDirectory,
 } from './gtk-test-helpers';
@@ -1157,7 +1157,7 @@ describe.concurrent('elder-terms-vte settings', () => {
       const startupConfig = '[terminal]\nwidth=82\nheight=26\n';
       await writeFile(
         configPath,
-        '[terminal]\nwidth=81\nheight=25\nzoom=1.0\nunknown=removed\n',
+        '[terminal]\nwidth=81\nheight=25\nfont_size_dip=12\nunknown=removed\n',
         'utf8'
       );
       await writeFile(startupConfigPath, startupConfig, 'utf8');
@@ -1194,7 +1194,7 @@ describe.concurrent('elder-terms-vte settings', () => {
             const config = await readFile(configPath, 'utf8');
             expect(config).toContain('width=82');
             expect(config).toContain('height=26');
-            expect(config).toContain('zoom=1');
+            expect(config).toContain('font_size_dip=12');
             expect(config).not.toContain('unknown=');
             expect(await readFile(startupConfigPath, 'utf8')).toBe(
               startupConfig
@@ -1215,10 +1215,14 @@ describe.concurrent('elder-terms-vte settings', () => {
       await mkdir(globalDirectory, { recursive: true });
       await writeFile(
         globalConfigPath,
-        '[terminal]\nwidth=83\nheight=27\nzoom=1.1\nbackspace_code=bs\n',
+        '[terminal]\nwidth=83\nheight=27\nfont_size_dip=14.5\nbackspace_code=bs\n',
         'utf8'
       );
-      await writeFile(configPath, '[terminal]\nwidth=84\nzoom=1.2\n', 'utf8');
+      await writeFile(
+        configPath,
+        '[terminal]\nwidth=84\nfont_size_dip=16.25\n',
+        'utf8'
+      );
       await writeFile(startupConfigPath, '[terminal]\nwidth=85\n', 'utf8');
 
       await runGtkTest(
@@ -1248,11 +1252,11 @@ describe.concurrent('elder-terms-vte settings', () => {
           expect(
             await numericEntryValue(
               expectElementKind(
-                await app.getById('settings_terminal_zoom_entry'),
+                await app.getById('settings_terminal_font_size_dip_entry'),
                 'entry'
               )
             )
-          ).toBeCloseTo(1.2);
+          ).toBeCloseTo(16.25);
           await expectSelectedComboValue(
             app,
             'settings_terminal_backspace_code_combo',
@@ -1276,7 +1280,7 @@ describe.concurrent('elder-terms-vte settings', () => {
       const configPath = join(directory, 'connection.ini');
       const startupConfigPath = join(directory, 'startup.ini');
       const globalConfig = '[terminal]\nheight=29\nbackspace_code=bs\n';
-      const startupConfig = '[terminal]\nzoom=1.1\n';
+      const startupConfig = '[terminal]\nfont_size_dip=14.5\n';
       await mkdir(globalDirectory, { recursive: true });
       await writeFile(globalConfigPath, globalConfig, 'utf8');
       await writeFile(configPath, '[terminal]\nwidth=81\n', 'utf8');
@@ -1302,7 +1306,7 @@ describe.concurrent('elder-terms-vte settings', () => {
           await toPass(async () => {
             const savedConfig = await readFile(configPath, 'utf8');
             expect(savedConfig).toContain('width=81');
-            expect(savedConfig).toContain('zoom=1.1');
+            expect(savedConfig).toContain('font_size_dip=14.5');
             expect(savedConfig).not.toContain('height=');
             expect(savedConfig).not.toContain('backspace_code=');
             expect(await readFile(globalConfigPath, 'utf8')).toBe(globalConfig);
@@ -1334,10 +1338,10 @@ describe.concurrent('elder-terms-vte settings', () => {
     });
   });
 
-  it('uses the configured terminal zoom from an INI file', async (context) => {
+  it('uses the configured terminal font size in DIP from an INI file', async (context) => {
     await runGtkTest(
       context,
-      ['--test-fixture', '-c', terminalZoom11ConfigPath],
+      ['--test-fixture', '-c', terminalFont145ConfigPath],
       async (app, evidence) => {
         const layout = await waitForResult(async () => {
           const currentLayout = await readTerminalGridLayout(app);
@@ -1353,7 +1357,7 @@ describe.concurrent('elder-terms-vte settings', () => {
         await assertTerminalTextGridMatches(
           layout.terminal,
           'fixture-terminal-configured-zoom',
-          terminalTextGrid80x24FontScale11Path,
+          terminalTextGrid80x24Font145Path,
           evidence
         );
       }
@@ -1406,7 +1410,7 @@ describe.concurrent('elder-terms-vte settings', () => {
           'Warning: invalid configuration value [terminal] height:'
         );
         expect(output.stderr).toContain(
-          'Warning: invalid configuration value [terminal] zoom:'
+          'Warning: invalid configuration value [terminal] font_size_dip:'
         );
         expect(output.stderr).toContain(
           'Warning: invalid configuration value [general] auto_close:'
@@ -2291,7 +2295,7 @@ describe.concurrent('elder-terms-vte settings', () => {
       ).toBe('');
       expect(
         await expectElementKind(
-          await app.getById('settings_terminal_zoom_entry'),
+          await app.getById('settings_terminal_font_size_dip_entry'),
           'entry'
         ).text()
       ).toBe('');
@@ -2343,7 +2347,7 @@ describe.concurrent('elder-terms-vte settings', () => {
         const layout = await readTerminalGridLayout(app);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
-        expect(layout.hints.baseWidth).toBe(initialLayout.hints.baseWidth + 8);
+        expect(layout.chromeWidth).toBe(initialLayout.chromeWidth + 8);
         expect(layout.mainBounds.width).toBe(
           initialLayout.mainBounds.width + 8
         );
@@ -2382,7 +2386,7 @@ describe.concurrent('elder-terms-vte settings', () => {
         const layout = await readTerminalGridLayout(app);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
-        expect(layout.hints.baseWidth).toBe(initialLayout.hints.baseWidth + 14);
+        expect(layout.chromeWidth).toBe(initialLayout.chromeWidth + 14);
         expect(layout.mainBounds.width).toBe(
           initialLayout.mainBounds.width + 14
         );
@@ -2413,7 +2417,7 @@ describe.concurrent('elder-terms-vte settings', () => {
         const layout = await readTerminalGridLayout(app);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
-        expect(layout.hints.baseWidth).toBe(initialLayout.hints.baseWidth);
+        expect(layout.chromeWidth).toBe(initialLayout.chromeWidth);
         expect(layout.mainBounds.width).toBe(initialLayout.mainBounds.width);
       });
       expect((await startBorder.info()).states).not.toContain('showing');
@@ -2685,8 +2689,8 @@ describe.concurrent('elder-terms-vte settings', () => {
       });
 
       await initialLayout.mainWindow.resizeTo(
-        initialLayout.mainBounds.width + initialLayout.hints.widthIncrement,
-        initialLayout.mainBounds.height + initialLayout.hints.heightIncrement
+        initialLayout.mainBounds.width + initialLayout.cellWidth,
+        initialLayout.mainBounds.height + initialLayout.cellHeight
       );
 
       await toPass(async () => {
@@ -2736,12 +2740,7 @@ describe.concurrent('elder-terms-vte settings', () => {
       await scrollWheelWithControl(app, -1);
       await toPass(async () => {
         const layout = await readWindowCellLayout(app);
-        expect(layout.hints.widthIncrement).not.toBe(
-          initialLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).not.toBe(
-          initialLayout.hints.heightIncrement
-        );
+        expect(layout.fontSizeDip).not.toBe(initialLayout.fontSizeDip);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
       });
@@ -2751,11 +2750,11 @@ describe.concurrent('elder-terms-vte settings', () => {
       expect(
         await numericEntryValue(
           expectElementKind(
-            await app.getById('settings_terminal_zoom_entry'),
+            await app.getById('settings_terminal_font_size_dip_entry'),
             'entry'
           )
         )
-      ).toBeCloseTo(1.1);
+      ).toBeGreaterThan(12);
     });
   });
 
@@ -2801,20 +2800,14 @@ describe.concurrent('elder-terms-vte settings', () => {
       await pressKeyWithModifiers(app, ['alt'], 'Up');
       await waitForResult(async () => {
         const layout = await readWindowCellLayout(app);
-        expect(layout.hints.widthIncrement).not.toBe(
-          initialLayout.hints.widthIncrement
-        );
+        expect(layout.fontSizeDip).not.toBe(initialLayout.fontSizeDip);
       });
 
       await pressKeyWithModifiers(app, ['alt'], 'Down');
       await waitForResult(async () => {
         const layout = await readWindowCellLayout(app);
-        expect(layout.hints.widthIncrement).toBe(
-          initialLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).toBe(
-          initialLayout.hints.heightIncrement
-        );
+        expect(layout.cellWidth).toBe(initialLayout.cellWidth);
+        expect(layout.cellHeight).toBe(initialLayout.cellHeight);
       });
 
       await pressKeyWithModifiers(app, ['alt'], 'F12');
@@ -3100,15 +3093,15 @@ describe.concurrent('elder-terms-vte settings', () => {
     });
   });
 
-  it('does not apply runtime terminal zoom changes when cancelled', async (context) => {
+  it('does not apply runtime terminal font size changes when cancelled', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app, evidence) => {
       await openSettingsDialog(app);
       await showTerminalSettingsPage(app);
 
       await expectElementKind(
-        await app.getById('settings_terminal_zoom_entry'),
+        await app.getById('settings_terminal_font_size_dip_entry'),
         'entry'
-      ).setText('1.1');
+      ).setText('14.5');
       await expectElementKind(
         await app.getById('settings_cancel_button'),
         'button'
@@ -3297,16 +3290,16 @@ describe.concurrent('elder-terms-vte settings', () => {
     });
   });
 
-  it('applies runtime terminal zoom changes', async (context) => {
+  it('applies runtime terminal font size changes', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app, evidence) => {
       await openSettingsDialog(app);
       await showTerminalSettingsPage(app);
 
       const zoom = expectElementKind(
-        await app.getById('settings_terminal_zoom_entry'),
+        await app.getById('settings_terminal_font_size_dip_entry'),
         'entry'
       );
-      await setNumericEntryValue(zoom, 1.1);
+      await setNumericEntryValue(zoom, 14.5);
       await expectElementKind(
         await app.getById('settings_apply_button'),
         'button'
@@ -3323,7 +3316,7 @@ describe.concurrent('elder-terms-vte settings', () => {
       await assertTerminalTextGridMatches(
         layout.terminal,
         'fixture-terminal-runtime-zoom',
-        terminalTextGrid80x24FontScale11Path,
+        terminalTextGrid80x24Font145Path,
         evidence
       );
     });

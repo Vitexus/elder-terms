@@ -14,6 +14,7 @@ namespace elder_terms {
 struct TelnetChannel {
   std::shared_ptr<SshProxyConnection> route;
   TelnetProtocol protocol;
+  TerminalSessionCallbacks callbacks;
   cardio::primitives::mutex write_lock;
   std::vector<unsigned char> pending;
   std::size_t offset = 0;
@@ -30,7 +31,10 @@ static cardio::promise<void> write_wire(TelnetChannel *channel,
   while (offset < bytes.size()) {
     co_await cardio::from_fd(fd, cardio::fd_event::write, cancellation);
     const auto count = ::send(fd, bytes.data() + offset, bytes.size() - offset, MSG_DONTWAIT | MSG_NOSIGNAL);
-    if (count > 0) offset += static_cast<std::size_t>(count);
+    if (count > 0) {
+      offset += static_cast<std::size_t>(count);
+      if (channel->callbacks.activity) channel->callbacks.activity(ActivityIndicatorId::sd);
+    }
     else if (count == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
       throw std::system_error(count == 0 ? EPIPE : errno, std::generic_category(), "write TELNET");
   }
@@ -52,6 +56,7 @@ static cardio::promise<std::size_t> read_telnet(TelnetChannel *channel,
       if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) continue;
       throw std::system_error(errno, std::generic_category(), "read TELNET");
     }
+    if (channel->callbacks.activity) channel->callbacks.activity(ActivityIndicatorId::rd);
     auto result = channel->protocol.receive(bytes.first(static_cast<std::size_t>(count)));
     channel->pending = std::move(result.terminal_data);
     channel->offset = 0;
@@ -87,6 +92,7 @@ static cardio::promise<TerminalTransport> open_telnet(TelnetConnectionSettings s
   if (settings.port <= 0 || settings.port > 65535 || settings.address.empty())
     throw std::system_error(EINVAL, std::generic_category(), "TELNET destination");
   auto channel = std::make_shared<TelnetChannel>(settings.terminal_type);
+  channel->callbacks = callbacks;
   channel->route = co_await connect_ssh_proxy_async(options.proxy, settings.address,
       static_cast<std::uint16_t>(settings.port), callbacks, options, cancellation);
   std::exception_ptr failure;

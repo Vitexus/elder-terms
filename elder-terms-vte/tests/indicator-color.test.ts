@@ -544,6 +544,8 @@ describe.concurrent('terminal indicator color', () => {
                   '0:v',
                   '-c:v',
                   'ffv1',
+                  '-threads',
+                  '1',
                   '-pix_fmt',
                   'bgr0',
                   '-fps_mode',
@@ -553,6 +555,8 @@ describe.concurrent('terminal indicator color', () => {
                   '0:v',
                   '-c:v',
                   'rawvideo',
+                  '-threads',
+                  '1',
                   '-pix_fmt',
                   'bgr0',
                   '-fps_mode',
@@ -584,37 +588,45 @@ describe.concurrent('terminal indicator color', () => {
               const states: {
                 readonly frame: number;
                 readonly state: VideoIndicatorState;
+                readonly indicator: number;
               }[] = [];
               const expectNextFrame = async (
                 state: VideoIndicatorState
               ): Promise<void> => {
-                const previous = frameNumber;
-                const matched = await waitForResult(
-                  async () => {
-                    if (recordingError !== undefined) throw recordingError;
-                    expect(recorder.exitCode, stderr).toBeNull();
-                    expect(frameNumber).toBeGreaterThan(previous);
-                    const pixels = bounds.map((area) => {
-                      const offset =
-                        ((area.y + 9) * screen.width + area.x + 9) * 4;
-                      return [
-                        frame[offset + 2],
-                        frame[offset + 1],
-                        frame[offset],
-                      ];
-                    });
-                    for (const pixel of pixels.slice(0, 2)) {
-                      expectVideoPixel(pixel, state, pixels[2], pixels[3]);
+                // Send and receive activity have independent blink clocks.
+                // Observe each transition without requiring equal phases.
+                for (const indicator of [0, 1]) {
+                  const previous = frameNumber;
+                  const matched = await waitForResult(
+                    async () => {
+                      if (recordingError !== undefined) throw recordingError;
+                      expect(recorder.exitCode, stderr).toBeNull();
+                      expect(frameNumber).toBeGreaterThan(previous);
+                      const pixels = bounds.map((area) => {
+                        const offset =
+                          ((area.y + 9) * screen.width + area.x + 9) * 4;
+                        return [
+                          frame[offset + 2],
+                          frame[offset + 1],
+                          frame[offset],
+                        ];
+                      });
+                      expectVideoPixel(
+                        pixels[indicator],
+                        state,
+                        pixels[2],
+                        pixels[3]
+                      );
+                      return frameNumber;
+                    },
+                    {
+                      message: `video should show ${indicator === 0 ? 'SD' : 'RD'} ${state}`,
+                      timeoutMs: 10_000,
+                      intervalMs: 10,
                     }
-                    return frameNumber;
-                  },
-                  {
-                    message: `video should show both SD and RD ${state}`,
-                    timeoutMs: 10_000,
-                    intervalMs: 10,
-                  }
-                );
-                states.push({ frame: matched, state });
+                  );
+                  states.push({ frame: matched, state, indicator });
+                }
               };
               try {
                 await waitForResult(async () => {
@@ -694,14 +706,12 @@ describe.concurrent('terminal indicator color', () => {
                   const offset = ((area.y + 9) * saved.width + area.x + 9) * 4;
                   return Array.from(saved.data.subarray(offset, offset + 3));
                 });
-                for (const pixel of pixels.slice(0, 2)) {
-                  expectVideoPixel(
-                    pixel,
-                    states[index].state,
-                    pixels[2],
-                    pixels[3]
-                  );
-                }
+                expectVideoPixel(
+                  pixels[states[index].indicator],
+                  states[index].state,
+                  pixels[2],
+                  pixels[3]
+                );
                 if (index > 0)
                   expect(states[index].frame).toBeGreaterThan(
                     states[index - 1].frame
@@ -720,6 +730,6 @@ describe.concurrent('terminal indicator color', () => {
           });
         }
       });
-    });
+    }, 120_000);
   }
 });

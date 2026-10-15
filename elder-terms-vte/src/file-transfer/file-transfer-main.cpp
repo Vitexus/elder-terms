@@ -198,13 +198,9 @@ start_sftp_application_async(SftpApplicationState *state) {
     const cardio::cancellation cancellation =
         state->stop_source.get_cancellation();
     elder_terms::TerminalSessionCallbacks callbacks{
-        .ended = {},
         .activity = {},
         .indicator_state = {},
         .connection_phase = {},
-        .failure = {},
-        .output = {},
-        .zmodem_auto_start = {},
         .ssh_prompt =
             [state](const elder_terms::SshUserPrompt &prompt,
                     cardio::cancellation prompt_cancellation) {

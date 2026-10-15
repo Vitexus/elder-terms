@@ -109,7 +109,7 @@
                     <property name="hexpand">True</property>
                     <property name="vexpand">True</property>
                     <child>
-                      <object class="VteTerminal" id="terminal_view">
+                      <object class="GtkBox" id="terminal_attachment">
                         <property name="visible">True</property>
                         <property name="can-focus">True</property>
                         <property name="hexpand">True</property>
@@ -408,18 +408,6 @@
                 <property name="position">0</property>
               </packing>
             </child>
-            <child>
-              <object class="GtkScrollbar" id="terminal_scrollbar">
-                <property name="visible">True</property>
-                <property name="can-focus">False</property>
-                <property name="orientation">vertical</property>
-              </object>
-              <packing>
-                <property name="expand">False</property>
-                <property name="fill">True</property>
-                <property name="position">1</property>
-              </packing>
-            </child>
           </object>
           <packing>
             <property name="expand">True</property>
@@ -439,6 +427,7 @@
                 <property name="orientation">horizontal</property>
                 <child>
                   <object class="GtkLabel" id="status_label">
+                    <property name="max_width_chars">1</property>
                     <property name="visible">True</property>
                     <property name="can-focus">False</property>
                     <property name="label" translatable="yes">Terminal</property>
@@ -493,6 +482,13 @@
             <property name="fill">True</property>
             <property name="position">2</property>
           </packing>
+        </child>
+        <child>
+          <object class="GtkLabel" id="fixture_terminal_state_label">
+            <property name="visible">False</property>
+            <property name="no-show-all">True</property>
+            <property name="label">initializing</property>
+          </object>
         </child>
         <child>
           <object class="GtkLabel" id="fixture_grid_size_label">

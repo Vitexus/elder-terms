@@ -498,7 +498,7 @@ static void open_global_defaults_dialog(ApplicationState *state) {
   }
 
   elder_terms::SettingsLoadResult loaded =
-      elder_terms::load_global_settings(state->global_config_path, 1.0);
+      elder_terms::load_global_settings(state->global_config_path, 12.0);
   print_warnings(loaded.warnings);
   GtkWidget *dialog = gtk_dialog_new();
   gestament_gtk_assign_accessible_id(dialog, "global_defaults_dialog");
@@ -764,7 +764,7 @@ static void open_application_dialog(ApplicationState *state,
   }
 
   elder_terms::SettingsLoadResult loaded =
-      elder_terms::load_global_settings(state->global_config_path, 1.0);
+      elder_terms::load_global_settings(state->global_config_path, 12.0);
   print_warnings(loaded.warnings);
   state->application_initial_ui_language =
       elder_terms::application_ui_language(loaded.store);
@@ -1130,7 +1130,7 @@ static void replace_registered_hotkeys(
 
 static void reload_hotkey_actions(ApplicationState *state) {
   const elder_terms::SettingsLoadResult global =
-      elder_terms::load_global_settings(state->global_config_path, 1.0);
+      elder_terms::load_global_settings(state->global_config_path, 12.0);
   print_warnings(global.warnings);
   replace_registered_hotkeys(state, global.store);
 }
@@ -1186,7 +1186,7 @@ static void replace_new_window_connection_reference(ApplicationState *state,
                                                      const std::string &original,
                                                      const std::string &replacement) {
   const auto global =
-      elder_terms::load_global_settings(state->global_config_path, 1.0);
+      elder_terms::load_global_settings(state->global_config_path, 12.0);
   print_warnings(global.warnings);
   if (elder_terms::application_new_window_connection(global.store) == original) {
     (void)persist_new_window_connection(state, replacement);
@@ -1293,9 +1293,9 @@ static void begin_new_connection(ApplicationState *state) {
   state->suppress_selection = false;
 
   elder_terms::SettingsStore store = elder_terms::create_default_settings(
-      elder_terms::default_terminal_display_settings(1.0), state->draft_name);
+      elder_terms::default_terminal_display_settings(12.0), state->draft_name);
   const elder_terms::SettingsLoadResult global_defaults =
-      elder_terms::load_global_settings(state->global_config_path, 1.0);
+      elder_terms::load_global_settings(state->global_config_path, 12.0);
   print_warnings(global_defaults.warnings);
   elder_terms::rebase_settings_store_fallbacks(&store,
                                                global_defaults.store);
@@ -2398,7 +2398,7 @@ static bool save_current_connection(ApplicationState *state) {
     return false;
   }
   const auto global =
-      elder_terms::load_global_settings(state->global_config_path, 1.0);
+      elder_terms::load_global_settings(state->global_config_path, 12.0);
   const auto selected =
       elder_terms::application_new_window_connection(global.store);
   const auto next =
@@ -2715,7 +2715,7 @@ static bool initialize_main_window(ApplicationState *state) {
   callbacks.changed = [state]() { update_action_sensitivity(state); };
   state->settings_widget = elder_terms::create_settings_widget({
       .store = elder_terms::create_default_settings(
-          elder_terms::default_terminal_display_settings(1.0),
+          elder_terms::default_terminal_display_settings(12.0),
           "elder-terms"),
       .is_runtime = false,
       .show_actions = false,
@@ -3066,7 +3066,7 @@ static void on_application_startup(GApplication *,
           state->connection_directory);
   print_warnings(initial_profile.warnings);
   elder_terms::SettingsLoadResult global_settings =
-      elder_terms::load_global_settings(state->global_config_path, 1.0);
+      elder_terms::load_global_settings(state->global_config_path, 12.0);
   print_warnings(global_settings.warnings);
   state->startup_mode =
       elder_terms::application_startup_mode(global_settings.store);

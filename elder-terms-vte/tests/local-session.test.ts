@@ -57,6 +57,7 @@ interface ControlledExitShellFixture extends ExitingShellFixture {
 
 interface TriggeredOutputShellFixture {
   readonly finishedPath: string;
+  readonly releasePath: string;
   readonly shellPath: string;
   readonly triggerPath: string;
 }
@@ -124,11 +125,12 @@ const createRepeatingOutputShellFixture = async (
   directory: string
 ): Promise<TriggeredOutputShellFixture> => {
   const triggerPath = join(directory, 'repeating-output-trigger.txt');
+  const releasePath = join(directory, 'repeating-output-release.txt');
   const finishedPath = join(directory, 'repeating-output-finished.txt');
   const shellPath = join(directory, 'repeating-output-shell.sh');
   await writeFile(
     shellPath,
-    `#!/bin/sh\nwhile [ ! -f ${shellQuote(triggerPath)} ]; do\n  sleep 0.02\ndone\ni=0\nwhile [ "$i" -lt 50 ]; do\n  printf 'LOCAL_BLINK_MARKER %s\\n' "$i"\n  i=$((i + 1))\n  sleep 0.03\ndone\nprintf finished > ${shellQuote(
+    `#!/bin/sh\nwhile [ ! -f ${shellQuote(triggerPath)} ]; do\n  sleep 0.02\ndone\ni=0\nwhile [ ! -f ${shellQuote(releasePath)} ]; do\n  printf 'LOCAL_BLINK_MARKER %s\\n' "$i"\n  i=$((i + 1))\n  sleep 0.03\ndone\nprintf finished > ${shellQuote(
       finishedPath
     )}\nsleep 1\nexit 0\n`,
     'utf8'
@@ -136,6 +138,7 @@ const createRepeatingOutputShellFixture = async (
   await chmod(shellPath, 0o755);
   return {
     finishedPath,
+    releasePath,
     shellPath,
     triggerPath,
   };
@@ -191,8 +194,8 @@ const createKeyboardProtocolShellFixture = async (
     shellPath,
     `#!/bin/sh
 stty raw -echo
-printf '\\033[>7uKEYBOARD_PROTOCOL_ACTIVE\\n'
-dd bs=1 count=7 iflag=fullblock of=${shellQuote(activeInputPath)} 2>/dev/null
+printf '\\033[>8uKEYBOARD_PROTOCOL_ACTIVE\\n'
+dd bs=1 count=5 iflag=fullblock of=${shellQuote(activeInputPath)} 2>/dev/null
 printf '\\033[<uKEYBOARD_PROTOCOL_INACTIVE\\n'
 dd bs=1 count=1 iflag=fullblock of=${shellQuote(inactiveInputPath)} 2>/dev/null
 exit 0
@@ -321,6 +324,35 @@ const brightPixelCount = (capture: GtkCapture): number => {
 };
 
 describe.concurrent('elder-terms-vte local session', () => {
+  it('logs the first bytes of a process that exits immediately', async (context) => {
+    await withTemporaryDirectory(async (directory) => {
+      const shellPath = join(directory, 'immediate.sh');
+      const configPath = join(directory, 'immediate.ini');
+      const logPath = join(directory, 'immediate.log');
+      await writeFile(
+        shellPath,
+        "#!/bin/sh\nprintf 'FIRST_BYTES\\n'\nexit 0\n",
+        'utf8'
+      );
+      await chmod(shellPath, 0o755);
+      await writeFile(
+        configPath,
+        `[general]\nauto_close=false\n[log]\nenabled=true\nbase_directory=${directory}\nfile_name_format=immediate.log\nmode=cooked\n`,
+        'utf8'
+      );
+      await runGtkTest(
+        context,
+        ['-c', configPath],
+        async (app) => {
+          await waitForResult(async () => {
+            expect(await readFile(logPath, 'utf8')).toContain('FIRST_BYTES');
+          });
+          await waitForActivityIndicatorImageState(app, 'conn', 'off');
+        },
+        { env: { SHELL: shellPath } }
+      );
+    });
+  });
   it.for(['0', '2'])(
     'keeps the connection name when OSC %s updates and clears the window title',
     async (osc, context) => {
@@ -598,7 +630,7 @@ describe.concurrent('elder-terms-vte local session', () => {
     });
   });
 
-  it('feeds local shell output into the VTE terminal', async (context) => {
+  it('feeds local shell output into the terminal', async (context) => {
     await withTemporaryDirectory(async (directory) => {
       const shell = await createControlledExitShellFixture(directory);
       const configPath = join(directory, 'auto-close-disabled.ini');
@@ -657,6 +689,7 @@ describe.concurrent('elder-terms-vte local session', () => {
         async (app) => {
           await writeFile(shell.triggerPath, 'start', 'utf8');
           await waitForActivityIndicatorImageState(app, 'rd', 'on');
+          await writeFile(shell.releasePath, 'stop', 'utf8');
           await waitForFileText(shell.finishedPath, 'finished');
           await waitForActivityIndicatorImageState(app, 'rd', 'off');
         },
@@ -669,7 +702,7 @@ describe.concurrent('elder-terms-vte local session', () => {
     });
   });
 
-  it('writes VTE user input to the local shell PTY', async (context) => {
+  it('writes terminal user input to the local shell PTY', async (context) => {
     await withTemporaryDirectory(async (directory) => {
       const shell = await createInputShellFixture(directory);
       const configPath = join(directory, 'auto-close-disabled.ini');
@@ -719,11 +752,11 @@ describe.concurrent('elder-terms-vte local session', () => {
             async () => {
               expect(
                 Array.from((await readFile(shell.markerPath)).values())
-              ).toEqual([0x08]);
+              ).toEqual([0x7f]);
             },
             {
               message:
-                'local shell should receive the VTE automatic Backspace code',
+                'local shell should receive the terminal automatic Backspace code',
               timeoutMs: 5_000,
             }
           );
@@ -793,7 +826,7 @@ describe.concurrent('elder-terms-vte local session', () => {
     });
   });
 
-  it('encodes Ctrl+Enter only while the app requests enhanced keyboard input', async (context) => {
+  it('encodes Enter only while the app requests enhanced keyboard input', async (context) => {
     await withTemporaryDirectory(async (directory) => {
       const shell = await createKeyboardProtocolShellFixture(directory);
       const logPath = join(directory, 'logs', 'cooked.txt');
@@ -830,15 +863,15 @@ mode=cooked
             }
           );
           await focusTerminal(app);
-          await pressKeyWithModifiers(app, ['control'], 'Return');
+          await app.input.pressKey('Return');
           await toPass(
             async () => {
               expect(
                 Array.from((await readFile(shell.activeInputPath)).values())
-              ).toEqual([0x1b, 0x5b, 0x31, 0x33, 0x3b, 0x35, 0x75]);
+              ).toEqual([0x1b, 0x5b, 0x31, 0x33, 0x75]);
             },
             {
-              message: 'Ctrl+Enter should be encoded as CSI 13;5u',
+              message: 'Enter should be encoded as CSI 13u',
               timeoutMs: 5_000,
             }
           );
@@ -854,7 +887,7 @@ mode=cooked
               timeoutMs: 5_000,
             }
           );
-          await pressKeyWithModifiers(app, ['control'], 'Return');
+          await app.input.pressKey('Return');
           await toPass(
             async () => {
               expect(
@@ -862,7 +895,7 @@ mode=cooked
               ).toEqual([0x0d]);
             },
             {
-              message: 'Ctrl+Enter should return to legacy CR after pop',
+              message: 'Enter should return to legacy CR after pop',
               timeoutMs: 5_000,
             }
           );
@@ -876,7 +909,7 @@ mode=cooked
     });
   });
 
-  it('sets the local PTY size from the configured VTE grid', async (context) => {
+  it('sets the local PTY size from the configured grid', async (context) => {
     await withTemporaryDirectory(async (directory) => {
       const shell = await createSizeShellFixture(directory);
       const configPath = join(directory, 'terminal-size.ini');

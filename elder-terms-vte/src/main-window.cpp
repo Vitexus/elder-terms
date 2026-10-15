@@ -12,9 +12,7 @@
 #include <gdk/gdk.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gestament/gtk.h>
-#define PCRE2_CODE_UNIT_WIDTH 8
-#include <pcre2.h>
-#include <vte/vte.h>
+#include "terminal-runtime.h"
 
 #define GETTEXT_PACKAGE "elder-terms"
 #include <glib/gi18n-lib.h>
@@ -86,13 +84,8 @@ static constexpr const char *terminal_context_menu_state_key =
 static constexpr const char *terminal_context_paste_query_generation_key =
     "terminal-context-paste-query-generation";
 
-struct TerminalTextMatcher {
-  std::size_t candidate_index = 0;
-  VteRegex *regex = nullptr;
-};
-
 struct TerminalContextMenuState {
-  VteTerminal *terminal = nullptr;
+  BoxrigGtk3TerminalWidget *terminal = nullptr;
   GtkWidget *menu = nullptr;
   GtkWidget *copy_item = nullptr;
   GtkWidget *paste_item = nullptr;
@@ -100,9 +93,6 @@ struct TerminalContextMenuState {
   guint paste_query_generation = 0;
   MainWindowTerminalPasteCallbacks paste_callbacks;
   MainWindowTerminalBreakCallbacks break_callbacks;
-  MainWindowTerminalHyperlinkCallbacks hyperlink_callbacks;
-  std::size_t terminal_text_candidate_count = 0;
-  std::vector<TerminalTextMatcher> terminal_text_matchers;
 };
 
 struct ClipboardTargetsRequest {
@@ -136,8 +126,9 @@ static std::string format_translated_string(const char *format,
 }
 
 static void on_terminal_context_copy_activate(GtkMenuItem *, gpointer data) {
-  auto *terminal = VTE_TERMINAL(data);
-  vte_terminal_copy_clipboard_format(terminal, VTE_FORMAT_TEXT);
+  auto *state = static_cast<TerminalContextMenuState *>(data);
+  const boxrig_ui_view_action copy{BOXRIG_UI_VIEW_ACTION_COPY, BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD};
+  boxrig_gtk3_terminal_widget_apply_view_action(state->terminal, &copy);
 }
 
 static void on_clipboard_targets_received(GtkClipboard *, GdkAtom *atoms,
@@ -236,113 +227,64 @@ static void on_terminal_context_break_activate(GtkMenuItem *, gpointer data) {
   }
 }
 
-static void on_terminal_paste_clipboard(VteTerminal *terminal,
-                                        gpointer data) {
-  g_signal_stop_emission_by_name(terminal, "paste-clipboard");
-  request_terminal_paste(static_cast<TerminalContextMenuState *>(data),
-                         GDK_SELECTION_CLIPBOARD);
-}
-
-static gboolean on_terminal_paste_key_press(GtkWidget *, GdkEventKey *event,
-                                            gpointer data) {
-  if (event->keyval != GDK_KEY_Insert &&
-      event->keyval != GDK_KEY_KP_Insert) {
-    return GDK_EVENT_PROPAGATE;
-  }
-
-  constexpr GdkModifierType relevant_modifiers = static_cast<GdkModifierType>(
-      GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SUPER_MASK |
-      GDK_HYPER_MASK | GDK_META_MASK);
-  if ((event->state & relevant_modifiers) != GDK_SHIFT_MASK) {
-    return GDK_EVENT_PROPAGATE;
-  }
-
-  request_terminal_paste(static_cast<TerminalContextMenuState *>(data),
-                         GDK_SELECTION_CLIPBOARD);
-  return GDK_EVENT_STOP;
-}
-
-static gboolean on_terminal_button_press(GtkWidget *, GdkEventButton *event,
-                                         gpointer data) {
-  if (event->type != GDK_BUTTON_PRESS) {
-    return GDK_EVENT_PROPAGATE;
-  }
-
-  auto *state = static_cast<TerminalContextMenuState *>(data);
-  constexpr GdkModifierType relevant_modifiers = static_cast<GdkModifierType>(
-      GDK_SHIFT_MASK | GDK_CONTROL_MASK | GDK_MOD1_MASK | GDK_SUPER_MASK |
-      GDK_HYPER_MASK | GDK_META_MASK);
-  const bool hyperlink_activation =
-      event->button == GDK_BUTTON_PRIMARY &&
-      (event->state & relevant_modifiers) == GDK_CONTROL_MASK;
-  if (hyperlink_activation && state->hyperlink_callbacks.activate) {
-    gchar *osc8_target = vte_terminal_hyperlink_check_event(
-        state->terminal, reinterpret_cast<GdkEvent *>(event));
-    std::vector<std::optional<std::string>> terminal_text(
-        state->terminal_text_candidate_count);
-    if (!state->terminal_text_matchers.empty()) {
-      std::vector<VteRegex *> regexes;
-      regexes.reserve(state->terminal_text_matchers.size());
-      for (const TerminalTextMatcher &matcher :
-           state->terminal_text_matchers) {
-        regexes.push_back(matcher.regex);
-      }
-      std::vector<char *> matches(regexes.size(), nullptr);
-      (void)vte_terminal_event_check_regex_simple(
-          state->terminal, reinterpret_cast<GdkEvent *>(event),
-          regexes.data(), regexes.size(), 0, matches.data());
-      for (std::size_t index = 0; index < matches.size(); ++index) {
-        if (matches[index] != nullptr) {
-          terminal_text[state->terminal_text_matchers[index]
-                            .candidate_index] = matches[index];
-        }
-        g_free(matches[index]);
-      }
-    }
-    MainWindowTerminalHyperlinkCandidates candidates{
-        .osc8_target = osc8_target == nullptr
-                           ? std::nullopt
-                           : std::optional<std::string>(osc8_target),
-        .terminal_text = std::move(terminal_text),
-    };
-    g_free(osc8_target);
-    if (candidates.osc8_target.has_value() ||
-        std::any_of(candidates.terminal_text.begin(),
-                    candidates.terminal_text.end(),
-                    [](const std::optional<std::string> &candidate) {
-                      return candidate.has_value();
-                    })) {
-      const bool activated =
-          state->hyperlink_callbacks.activate(std::move(candidates));
-      if (activated) {
-        return GDK_EVENT_STOP;
-      }
-    }
-  }
-  if (event->button == GDK_BUTTON_MIDDLE) {
-    request_terminal_paste(state, GDK_SELECTION_PRIMARY);
-    return GDK_EVENT_STOP;
-  }
-  if (event->button != GDK_BUTTON_SECONDARY) {
-    return GDK_EVENT_PROPAGATE;
-  }
-  gtk_widget_set_sensitive(
-      state->copy_item, vte_terminal_get_has_selection(state->terminal));
+static void show_terminal_context_menu(TerminalContextMenuState *state, const boxrig_mouse_event &event) {
+  auto *accessible = gtk_widget_get_accessible(GTK_WIDGET(state->terminal));
+  gtk_widget_set_sensitive(state->copy_item, atk_text_get_n_selections(ATK_TEXT(accessible)) != 0);
   update_terminal_context_paste_sensitivity(state);
-  gtk_widget_set_sensitive(
-      state->break_item,
-      state->break_callbacks.can_send && state->break_callbacks.send &&
-          state->break_callbacks.can_send());
-  gtk_menu_popup_at_pointer(
-      GTK_MENU(state->menu), reinterpret_cast<GdkEvent *>(event));
-  return GDK_EVENT_STOP;
+  gtk_widget_set_sensitive(state->break_item,
+      state->break_callbacks.can_send && state->break_callbacks.send && state->break_callbacks.can_send());
+  // Portable mouse delivery runs after the original GDK event has returned.
+  // Supply its accepted location and the seat explicitly to the popup API.
+  auto *widget = GTK_WIDGET(state->terminal);
+  auto *window = gtk_widget_get_window(widget);
+  if (!window) return;
+  const auto scale = gtk_widget_get_scale_factor(widget);
+  const GdkRectangle anchor{static_cast<int>(event.x / scale), static_cast<int>(event.y / scale), 1, 1};
+  auto *trigger = gdk_event_new(GDK_BUTTON_RELEASE);
+  trigger->button.window = GDK_WINDOW(g_object_ref(window));
+  trigger->button.time = GDK_CURRENT_TIME;
+  trigger->button.button = GDK_BUTTON_SECONDARY;
+  gdk_event_set_device(trigger, gdk_seat_get_pointer(gdk_display_get_default_seat(gtk_widget_get_display(widget))));
+  gtk_menu_popup_at_rect(GTK_MENU(state->menu), window, &anchor,
+      GDK_GRAVITY_SOUTH_EAST, GDK_GRAVITY_NORTH_WEST, trigger);
+  gdk_event_free(trigger);
+}
+
+boxrig_input_key_route route_main_window_terminal_key(MainWindow *main_window, const boxrig_key_event &event) {
+  auto *state = static_cast<TerminalContextMenuState *>(g_object_get_data(
+      G_OBJECT(main_window->terminal_overlay), terminal_context_menu_state_key));
+  const auto modifiers = event.modifiers & (BOXRIG_MODIFIER_CONTROL | BOXRIG_MODIFIER_SHIFT |
+      BOXRIG_MODIFIER_ALT | BOXRIG_MODIFIER_SUPER | BOXRIG_MODIFIER_META | BOXRIG_MODIFIER_HYPER);
+  const bool clipboard = modifiers == (BOXRIG_MODIFIER_CONTROL | BOXRIG_MODIFIER_SHIFT);
+  const bool copy = clipboard && (event.codepoint == 'c' || event.codepoint == 'C');
+  const bool paste = (clipboard && (event.codepoint == 'v' || event.codepoint == 'V')) ||
+      (modifiers == BOXRIG_MODIFIER_SHIFT && event.key == BOXRIG_KEY_INSERT);
+  if (!copy && !paste) return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
+  if (event.action == BOXRIG_KEY_PRESS) {
+    if (copy) on_terminal_context_copy_activate(nullptr, state);
+    else request_terminal_paste(state, GDK_SELECTION_CLIPBOARD);
+  }
+  return BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
+}
+
+boxrig_input_mouse_route route_main_window_terminal_mouse(MainWindow *main_window, const boxrig_mouse_event &event) {
+  if (event.action != BOXRIG_MOUSE_PRESS && event.action != BOXRIG_MOUSE_RELEASE)
+    return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
+  auto *state = static_cast<TerminalContextMenuState *>(g_object_get_data(
+      G_OBJECT(main_window->terminal_overlay), terminal_context_menu_state_key));
+  if (event.button == BOXRIG_MOUSE_BUTTON_MIDDLE) {
+    if (event.action == BOXRIG_MOUSE_PRESS) request_terminal_paste(state, GDK_SELECTION_PRIMARY);
+  } else if (event.button == BOXRIG_MOUSE_BUTTON_RIGHT) {
+    // The original button release has already reached GTK by frame dispatch.
+    // Opening here prevents that release from immediately dismissing the menu.
+    if (event.action == BOXRIG_MOUSE_RELEASE) show_terminal_context_menu(state, event);
+  }
+  else return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
+  return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
 }
 
 static void destroy_terminal_context_menu_state(gpointer data) {
   auto *state = static_cast<TerminalContextMenuState *>(data);
-  for (const TerminalTextMatcher &matcher : state->terminal_text_matchers) {
-    vte_regex_unref(matcher.regex);
-  }
   gtk_widget_destroy(state->menu);
   g_object_unref(state->menu);
   delete state;
@@ -351,7 +293,7 @@ static void destroy_terminal_context_menu_state(gpointer data) {
 static void install_terminal_context_menu(GtkWidget *terminal_widget,
                                           GtkWidget *terminal_overlay) {
   auto *state = new TerminalContextMenuState();
-  state->terminal = VTE_TERMINAL(terminal_widget);
+  state->terminal = BOXRIG_GTK3_TERMINAL_WIDGET(terminal_widget);
   state->menu = gtk_menu_new();
   g_object_ref_sink(state->menu);
   state->copy_item = gtk_menu_item_new_with_label(_("Copy"));
@@ -371,23 +313,11 @@ static void install_terminal_context_menu(GtkWidget *terminal_widget,
   gtk_widget_show_all(state->menu);
 
   g_signal_connect(state->copy_item, "activate",
-                   G_CALLBACK(on_terminal_context_copy_activate),
-                   terminal_widget);
+                   G_CALLBACK(on_terminal_context_copy_activate), state);
   g_signal_connect(state->paste_item, "activate",
                    G_CALLBACK(on_terminal_context_paste_activate), state);
   g_signal_connect(state->break_item, "activate",
                    G_CALLBACK(on_terminal_context_break_activate), state);
-  g_signal_connect(terminal_widget, "paste-clipboard",
-                   G_CALLBACK(on_terminal_paste_clipboard), state);
-  gtk_widget_add_events(terminal_widget, GDK_KEY_PRESS_MASK);
-  g_signal_connect(terminal_widget, "key-press-event",
-                   G_CALLBACK(on_terminal_paste_key_press), state);
-  gtk_widget_add_events(terminal_widget, GDK_BUTTON_PRESS_MASK);
-  g_signal_connect(terminal_widget, "button-press-event",
-                   G_CALLBACK(on_terminal_button_press), state);
-  gtk_widget_add_events(terminal_overlay, GDK_BUTTON_PRESS_MASK);
-  g_signal_connect(terminal_overlay, "button-press-event",
-                   G_CALLBACK(on_terminal_button_press), state);
   g_object_set_data_full(G_OBJECT(terminal_overlay),
                          terminal_context_menu_state_key, state,
                          destroy_terminal_context_menu_state);
@@ -479,7 +409,6 @@ static bool main_window_has_required_widgets(const MainWindow &main_window) {
          main_window.transfer_progress_notice_label != nullptr &&
          main_window.transfer_progress_bar != nullptr &&
          main_window.transfer_cancel_button != nullptr &&
-         main_window.terminal_scrollbar != nullptr &&
          main_window.status_bar != nullptr &&
          main_window.status_label != nullptr &&
          main_window.fixture_grid_size_label != nullptr &&
@@ -1021,41 +950,56 @@ static void set_main_window_settings_background(
   add_main_window_settings_background(main_window);
 }
 
-static void set_main_window_terminal_background(
-    MainWindow *main_window, const std::optional<RgbColor> &color) {
+static boxrig_ui_color_filter_result terminal_colors(const boxrig_ui_color_filter_input *input, void *context) {
+  const auto &color = *static_cast<const RgbColor *>(context);
+  const auto text = contrasting_foreground(color);
+  auto result = boxrig_ui_color_filter_result_default(input);
+  const auto override_color = [&](boxrig_rgb value, boxrig_ui_color_source_role role) {
+    if (role == BOXRIG_UI_COLOR_DEFAULT_BACKGROUND) return boxrig_rgb{color.red, color.green, color.blue};
+    if (role == BOXRIG_UI_COLOR_DEFAULT_FOREGROUND || role == BOXRIG_UI_COLOR_DEFAULT_CURSOR)
+      return boxrig_rgb{text.red, text.green, text.blue};
+    return value;
+  };
+  result.foreground = override_color(result.foreground, input->foreground_source.role);
+  result.background = override_color(result.background, input->background_source.role);
+  result.underline = override_color(result.underline, input->underline_source.role);
+  result.marker = override_color(result.marker, input->marker_source.role);
+  return result;
+}
+
+static void set_main_window_terminal_background(MainWindow *main_window, const std::optional<RgbColor> &color) {
   set_main_window_settings_background(main_window, color);
   set_main_window_overlay_background(main_window, color);
   set_main_window_component_background(main_window, color);
-  if (main_window->terminal == nullptr) {
-    return;
-  }
+  main_window->terminal_color = color;
+  if (!main_window->runtime) return;
+  auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(main_window->runtime));
+  boxrig_ui_view_set_color_filter(view, color ? terminal_colors : nullptr,
+      color ? &*main_window->terminal_color : nullptr);
+  boxrig_ui_view_invalidate_colors(view);
+  terminal_runtime_refresh(main_window->runtime);
+}
 
-  VteTerminal *terminal = VTE_TERMINAL(main_window->terminal);
-  if (!color.has_value()) {
-    if (main_window->terminal_background_overridden) {
-      vte_terminal_set_default_colors(terminal);
-      main_window->terminal_background_overridden = false;
-    }
-    return;
-  }
+static void align_terminal_notices(GtkWidget *terminal, GtkAllocation *, gpointer context) {
+  auto *window = static_cast<MainWindow *>(context);
+  const auto sibling_width = std::max(0, gtk_widget_get_allocated_width(window->terminal_attachment) -
+      gtk_widget_get_allocated_width(terminal));
+  gtk_widget_set_margin_end(window->disconnected_notice, 10 + sibling_width);
+  gtk_widget_set_margin_end(window->transfer_progress_notice, 10 + sibling_width);
+  gtk_widget_set_margin_end(window->transfer_cancel_button, 10 + sibling_width);
+}
 
-  static constexpr gdouble channel_maximum = 255.0;
-  const GdkRGBA background{
-      .red = static_cast<gdouble>(color->red) / channel_maximum,
-      .green = static_cast<gdouble>(color->green) / channel_maximum,
-      .blue = static_cast<gdouble>(color->blue) / channel_maximum,
-      .alpha = 1.0,
-  };
-  vte_terminal_set_color_background(terminal, &background);
-  const RgbColor text_color = contrasting_foreground(*color);
-  const GdkRGBA foreground{
-      .red = static_cast<gdouble>(text_color.red) / channel_maximum,
-      .green = static_cast<gdouble>(text_color.green) / channel_maximum,
-      .blue = static_cast<gdouble>(text_color.blue) / channel_maximum,
-      .alpha = 1.0,
-  };
-  vte_terminal_set_color_foreground(terminal, &foreground);
-  main_window->terminal_background_overridden = true;
+void attach_main_window_terminal(MainWindow *main_window) {
+  main_window->terminal = GTK_WIDGET(terminal_runtime_widget(main_window->runtime));
+  gestament_gtk_assign_accessible_id(main_window->terminal, "terminal_view");
+  auto *scroll = gtk_widget_get_ancestor(main_window->terminal, GTK_TYPE_SCROLLED_WINDOW);
+  if (scroll) gestament_gtk_assign_accessible_id(
+      gtk_scrolled_window_get_vscrollbar(GTK_SCROLLED_WINDOW(scroll)), "terminal_scrollbar");
+  g_signal_connect(main_window->terminal, "size-allocate", G_CALLBACK(align_terminal_notices), main_window);
+  auto *state = static_cast<TerminalContextMenuState *>(g_object_get_data(
+      G_OBJECT(main_window->terminal_overlay), terminal_context_menu_state_key));
+  state->terminal = terminal_runtime_widget(main_window->runtime);
+  set_main_window_terminal_background(main_window, main_window->terminal_color);
 }
 
 static void apply_main_window_style(MainWindow *main_window) {
@@ -1266,8 +1210,8 @@ std::optional<MainWindow> load_main_window() {
       required_widget(main_window.builder, "terminal_scroller");
   main_window.terminal_overlay =
       required_widget(main_window.builder, "terminal_overlay");
-  main_window.terminal =
-      required_widget(main_window.builder, "terminal_view");
+  main_window.terminal_attachment =
+      required_widget(main_window.builder, "terminal_attachment");
   main_window.terminal_dim_overlay =
       required_widget(main_window.builder, "terminal_dim_overlay");
   main_window.ssh_prompt_panel =
@@ -1310,8 +1254,6 @@ std::optional<MainWindow> load_main_window() {
       required_widget(main_window.builder, "transfer_progress_bar");
   main_window.transfer_cancel_button =
       required_widget(main_window.builder, "transfer_cancel_button");
-  main_window.terminal_scrollbar =
-      required_widget(main_window.builder, "terminal_scrollbar");
   main_window.status_bar = required_widget(main_window.builder, "status_bar");
   main_window.status_label =
       required_widget(main_window.builder, "status_label");
@@ -1319,6 +1261,8 @@ std::optional<MainWindow> load_main_window() {
       required_widget(main_window.builder, "fixture_grid_size_label");
   main_window.fixture_scrollback_lines_label =
       required_widget(main_window.builder, "fixture_scrollback_lines_label");
+  main_window.fixture_terminal_state_label =
+      required_widget(main_window.builder, "fixture_terminal_state_label");
   main_window.activity_indicator_bar =
       required_widget(main_window.builder, "activity_indicator_bar");
   if (main_window.header_bar == nullptr) {
@@ -1337,6 +1281,9 @@ std::optional<MainWindow> load_main_window() {
   gtk_label_set_single_line_mode(GTK_LABEL(main_window.header_title_label), TRUE);
   gtk_label_set_ellipsize(GTK_LABEL(main_window.header_title_label),
                           PANGO_ELLIPSIZE_END);
+  // Ellipsizing alone still advertises the full title as its natural width.
+  // Let the terminal determine the window width and use the available space.
+  gtk_label_set_max_width_chars(GTK_LABEL(main_window.header_title_label), 1);
   gtk_style_context_add_class(
       gtk_widget_get_style_context(main_window.header_title_label), "title");
   gtk_box_pack_start(GTK_BOX(main_window.header_title_box),
@@ -1344,6 +1291,11 @@ std::optional<MainWindow> load_main_window() {
   gtk_header_bar_set_custom_title(GTK_HEADER_BAR(main_window.header_bar),
                                   main_window.header_title_box);
   gtk_widget_show_all(main_window.header_title_box);
+  if (main_window.window && main_window.root_box && main_window.terminal_attachment) {
+    main_window.runtime = create_terminal_runtime(GTK_WINDOW(main_window.window), GTK_BOX(main_window.root_box),
+        GTK_BOX(main_window.terminal_attachment));
+    if (main_window.runtime) main_window.terminal = GTK_WIDGET(terminal_runtime_widget(main_window.runtime));
+  }
   if (!main_window_has_required_widgets(main_window)) {
     release_main_window(&main_window);
     return std::nullopt;
@@ -1363,6 +1315,7 @@ std::optional<MainWindow> load_main_window() {
   pango_attr_list_unref(status_attributes);
   install_terminal_context_menu(main_window.terminal,
                                 main_window.terminal_overlay);
+  gestament_gtk_assign_accessible_id(main_window.terminal, "terminal_view");
   install_terminal_dim_overlay_input_pass_through(
       main_window.terminal_dim_overlay);
   main_window.ssh_prompt = create_inline_prompt_controller(
@@ -1511,48 +1464,6 @@ void set_main_window_terminal_break_callbacks(
   }
 }
 
-void set_main_window_terminal_hyperlink_callbacks(
-    MainWindow *main_window,
-    const std::vector<std::string> &terminal_text_patterns,
-    MainWindowTerminalHyperlinkCallbacks callbacks) {
-  if (main_window == nullptr || main_window->terminal_overlay == nullptr) {
-    return;
-  }
-
-  auto *state = static_cast<TerminalContextMenuState *>(g_object_get_data(
-      G_OBJECT(main_window->terminal_overlay),
-      terminal_context_menu_state_key));
-  if (state != nullptr) {
-    vte_terminal_match_remove_all(state->terminal);
-    for (const TerminalTextMatcher &matcher : state->terminal_text_matchers) {
-      vte_regex_unref(matcher.regex);
-    }
-    state->terminal_text_matchers.clear();
-    state->terminal_text_candidate_count = terminal_text_patterns.size();
-    for (std::size_t index = 0; index < terminal_text_patterns.size();
-         ++index) {
-      const std::string &pattern = terminal_text_patterns[index];
-      GError *error = nullptr;
-      VteRegex *regex = vte_regex_new_for_match(
-          pattern.c_str(), static_cast<gssize>(pattern.size()),
-          PCRE2_MULTILINE | PCRE2_UCP | PCRE2_NEVER_BACKSLASH_C,
-          &error);
-      g_clear_error(&error);
-      if (regex == nullptr) {
-        continue;
-      }
-      const int tag =
-          vte_terminal_match_add_regex(state->terminal, regex, 0);
-      vte_terminal_match_set_cursor_name(state->terminal, tag, "pointer");
-      state->terminal_text_matchers.push_back({
-          .candidate_index = index,
-          .regex = regex,
-      });
-    }
-    state->hyperlink_callbacks = std::move(callbacks);
-  }
-}
-
 void note_main_window_activity(MainWindow *main_window,
                                ActivityIndicatorId indicator) {
   if (main_window == nullptr) {
@@ -1647,8 +1558,7 @@ void set_main_window_terminal_interactive(MainWindow *main_window,
     return;
   }
 
-  vte_terminal_set_input_enabled(VTE_TERMINAL(main_window->terminal),
-                                 interactive);
+  terminal_runtime_request_input_enabled(main_window->runtime, interactive);
   set_main_window_terminal_dim_visible(main_window, !interactive);
 }
 
@@ -1964,6 +1874,7 @@ void release_main_window(MainWindow *main_window) {
   g_clear_object(&main_window->indicator_off_icon);
   g_clear_object(&main_window->indicator_default_on_icon);
   g_clear_object(&main_window->indicator_default_off_icon);
+  destroy_terminal_runtime(main_window->runtime);
   if (main_window->builder != nullptr) {
     g_object_unref(main_window->builder);
   }

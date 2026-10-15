@@ -146,8 +146,8 @@ const focusTerminal = async (app: GtkApp): Promise<void> => {
   const terminalCapture = await terminal.capture();
   const terminalBounds = terminalCapture.bounds;
   await app.input.moveMouseTo(
-    terminalBounds.x + terminalBounds.width / 2,
-    terminalBounds.y + terminalBounds.height / 2
+    Math.round(terminalBounds.x + terminalBounds.width / 2),
+    Math.round(terminalBounds.y + terminalBounds.height / 2)
   );
   await app.input.setMouseButton('left', true);
   await app.input.setMouseButton('left', false);
@@ -264,7 +264,7 @@ describe.concurrent('elder-terms-vte serial session', () => {
     });
   });
 
-  it('keeps an ignored carrier session active without modem-line polling', async (context) => {
+  it('keeps an ignored carrier session active when modem-line monitoring is unavailable', async (context) => {
     await withTemporaryDirectory(async (directory) => {
       const helper = await startSerialPtyHelper();
       try {
@@ -292,7 +292,9 @@ describe.concurrent('elder-terms-vte serial session', () => {
             expect(output.stderr).not.toContain(
               'invalid configuration value [serial] carrier_detect'
             );
-            expect(output.stderr).not.toContain('serial carrier detection');
+            expect(output.stderr).toContain(
+              'serial carrier detection unavailable'
+            );
           }
         );
       } finally {

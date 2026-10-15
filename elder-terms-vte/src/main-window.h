@@ -8,6 +8,7 @@
 #include <vector>
 
 #include <gtk/gtk.h>
+#include <boxrig/gtk3.h>
 
 #include <cardio.h>
 
@@ -21,6 +22,7 @@
 
 namespace elder_terms {
 
+struct TerminalRuntime;
 struct InlinePromptController;
 struct MainWindowTransferProgressState;
 
@@ -47,25 +49,6 @@ struct MainWindowTerminalBreakCallbacks {
   std::function<bool()> can_send;
   /** Requests one terminal BREAK action. */
   std::function<void()> send;
-};
-
-/** Candidate link values at one Ctrl+left-click position. */
-struct MainWindowTerminalHyperlinkCandidates {
-  /** Complete OSC 8 target at the pointer, when present. */
-  std::optional<std::string> osc8_target;
-  /** Visible substrings in configured terminal-text pattern order. */
-  std::vector<std::optional<std::string>> terminal_text;
-};
-
-/** Handles activation of a recognized terminal link. */
-struct MainWindowTerminalHyperlinkCallbacks {
-  /**
-   * Receives OSC 8 and visible-text candidates under a Ctrl+left click.
-   *
-   * @returns True when a candidate was accepted and the event was consumed.
-   */
-  std::function<bool(MainWindowTerminalHyperlinkCandidates candidates)>
-      activate;
 };
 
 /**
@@ -102,9 +85,13 @@ struct MainWindow {
   GtkWidget *terminal_scroller = nullptr;
   /** Overlay stacking disconnected status on top of the terminal. */
   GtkWidget *terminal_overlay = nullptr;
-  /** VTE terminal widget. */
+  /** Owned boxrig runtime; disconnect before releasing the window. */
+  TerminalRuntime *runtime = nullptr;
+  /** Box receiving the standard boxrig scroll container. */
+  GtkWidget *terminal_attachment = nullptr;
+  /** Current native terminal widget. */
   GtkWidget *terminal = nullptr;
-  /** Overlay used to dim the terminal without changing the VTE background. */
+  /** Overlay used to dim the terminal without changing the terminal background. */
   GtkWidget *terminal_dim_overlay = nullptr;
   /** Inline panel used for every SSH host-key and authentication prompt. */
   GtkWidget *ssh_prompt_panel = nullptr;
@@ -144,16 +131,16 @@ struct MainWindow {
   GtkWidget *transfer_progress_bar = nullptr;
   /** Button that requests cancellation of the active transfer. */
   GtkWidget *transfer_cancel_button = nullptr;
-  /** Scrollbar bound to the terminal vadjustment. */
-  GtkWidget *terminal_scrollbar = nullptr;
   /** Status bar container. */
   GtkWidget *status_bar = nullptr;
   /** Status text label. */
   GtkWidget *status_label = nullptr;
   /** Hidden fixture-only terminal grid-size label. */
   GtkWidget *fixture_grid_size_label = nullptr;
-  /** Hidden fixture-only VTE scrollback-size label. */
+  /** Hidden fixture-only terminal scrollback-size label. */
   GtkWidget *fixture_scrollback_lines_label = nullptr;
+  /** Hidden fixture-only native render and layout state. */
+  GtkWidget *fixture_terminal_state_label = nullptr;
   /** Activity indicators shown in the status bar or title bar. */
   GtkWidget *activity_indicator_bar = nullptr;
   /** True while indicators occupy the title bar. */
@@ -179,8 +166,8 @@ struct MainWindow {
   GtkCssProvider *component_background_provider = nullptr;
   /** Screen provider applying background-derived colors to popups. */
   GtkCssProvider *popup_component_background_provider = nullptr;
-  /** True after overriding VTE's default background color. */
-  bool terminal_background_overridden = false;
+  /** Configured terminal background, retained across attachment changes. */
+  std::optional<RgbColor> terminal_color;
   /** Activity indicator containers. */
   std::array<GtkWidget *, activity_indicator_count()> indicator_boxes{};
   /** Activity indicator images. */
@@ -209,7 +196,7 @@ struct MainWindow {
   std::string base_title = "elder-terms-vte";
   /** True while the backend connection is currently active. */
   bool connection_active = false;
-  /** True when the VTE may accept input and own keyboard focus. */
+  /** True when the terminal may accept input and own keyboard focus. */
   bool terminal_interactive = false;
   /** Current backend connection lifecycle phase. */
   TerminalSessionConnectionPhase connection_phase =
@@ -228,7 +215,7 @@ struct MainWindow {
 std::optional<MainWindow> load_main_window();
 
 /**
- * Applies optional connection colors to the window and VTE.
+ * Applies optional connection colors to the window and terminal.
  *
  * @param main_window Main window containing the exterior and terminal widgets.
  * @param settings Effective optional RGB colors.
@@ -276,17 +263,26 @@ void set_main_window_terminal_break_callbacks(
     MainWindow *main_window, MainWindowTerminalBreakCallbacks callbacks);
 
 /**
- * Configures Ctrl+left-click terminal link recognition and activation.
- *
- * @param main_window Main window containing the VTE terminal.
- * @param terminal_text_patterns Ordered PCRE2 patterns used by the VTE
- * adapter for visible-text highlighting and candidate extraction.
- * @param callbacks Hyperlink activation callback.
+ * Restores widget identity, context menu and colors after runtime attachment.
+ * @param main_window Stable application window state.
  */
-void set_main_window_terminal_hyperlink_callbacks(
-    MainWindow *main_window,
-    const std::vector<std::string> &terminal_text_patterns,
-    MainWindowTerminalHyperlinkCallbacks callbacks);
+void attach_main_window_terminal(MainWindow *main_window);
+
+/**
+ * Routes application clipboard shortcuts at the native key transition boundary.
+ * @param main_window Window owning clipboard callbacks.
+ * @param event Borrowed portable key event.
+ * @return Application for a clipboard shortcut, otherwise terminal routing.
+ */
+boxrig_input_key_route route_main_window_terminal_key(MainWindow *main_window, const boxrig_key_event &event);
+
+/**
+ * Routes middle-button paste and the terminal context menu.
+ * @param main_window Window owning clipboard and menu callbacks.
+ * @param event Borrowed portable pointer event.
+ * @return Application for a handled button, otherwise terminal routing.
+ */
+boxrig_input_mouse_route route_main_window_terminal_mouse(MainWindow *main_window, const boxrig_mouse_event &event);
 
 /**
  * Records activity against one status-bar activity indicator.
@@ -311,7 +307,7 @@ void set_main_window_indicator_state(MainWindow *main_window,
 /**
  * Updates the terminal presentation for a backend connection phase.
  *
- * @param main_window Main window containing the VTE terminal.
+ * @param main_window Main window containing the terminal terminal.
  * @param phase Current backend connection phase.
  */
 void set_main_window_connection_phase(MainWindow *main_window,
@@ -339,22 +335,22 @@ void set_main_window_reconnect_presentation(
 /**
  * Updates only the terminal interactive/read-only presentation.
  *
- * @param main_window Main window containing the VTE terminal.
- * @param interactive True when VTE input should be accepted and fully bright.
+ * @param main_window Main window containing the terminal terminal.
+ * @param interactive True when terminal input should be accepted and fully bright.
  */
 void set_main_window_terminal_interactive(MainWindow *main_window,
                                           bool interactive);
 
 /**
- * Gives keyboard focus to VTE when its current presentation is interactive.
+ * Gives keyboard focus to terminal when its current presentation is interactive.
  *
- * @param main_window Main window containing the VTE terminal.
+ * @param main_window Main window containing the terminal terminal.
  * @remarks Hidden, unmapped, and read-only terminal states are left unchanged.
  */
 void focus_main_window_terminal_if_interactive(MainWindow *main_window);
 
 /**
- * Displays one SSH question as an overlay on the dimmed VTE surface.
+ * Displays one SSH question as an overlay on the dimmed terminal surface.
  *
  * @param main_window Main window containing the terminal overlay.
  * @param prompt Host-key or authentication question to display.

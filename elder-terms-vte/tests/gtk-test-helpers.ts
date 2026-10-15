@@ -59,10 +59,15 @@ export const terminalTextGrid81x25Path = fileURLToPath(
   new URL('./fixtures/terminal-text-grid-81x25.png', import.meta.url)
 );
 
-/** Expected 80x24 terminal fixture PNG with 1.1 font scale. */
-export const terminalTextGrid80x24FontScale11Path = fileURLToPath(
+/** Expected 80x24 terminal fixture PNG with a direct 14.5 DIP font size. */
+export const terminalTextGrid80x24Font145Path = fileURLToPath(
+  new URL('./fixtures/terminal-text-grid-80x24-font-14.5.png', import.meta.url)
+);
+
+/** Expected grid after one native visual zoom step from the default size. */
+export const terminalTextGrid80x24VisualStepPath = fileURLToPath(
   new URL(
-    './fixtures/terminal-text-grid-80x24-font-scale-1.1.png',
+    './fixtures/terminal-text-grid-80x24-visual-step.png',
     import.meta.url
   )
 );
@@ -140,9 +145,9 @@ export const terminalGrid81x25ConfigPath = fileURLToPath(
   new URL('./fixtures/terminal-grid-81x25.ini', import.meta.url)
 );
 
-/** INI fixture that configures the terminal zoom to 1.1. */
-export const terminalZoom11ConfigPath = fileURLToPath(
-  new URL('./fixtures/terminal-zoom-1.1.ini', import.meta.url)
+/** INI fixture that configures a direct font size of 14.5 DIP. */
+export const terminalFont145ConfigPath = fileURLToPath(
+  new URL('./fixtures/terminal-font-14.5.ini', import.meta.url)
 );
 
 /** INI fixture that contains invalid terminal values. */
@@ -164,8 +169,20 @@ export const telnetLocalhostConfigPath = fileURLToPath(
  * Captured geometry and widget handles for terminal grid assertions.
  */
 export interface TerminalGridLayout {
-  /** Window geometry hints. */
-  readonly hints: GtkWindowResizeHints;
+  /** Effective cell width in GTK logical pixels. */
+  readonly cellWidth: number;
+  /** Effective cell height in GTK logical pixels. */
+  readonly cellHeight: number;
+  /** Actual non-terminal width of the window. */
+  readonly chromeWidth: number;
+  /** Actual non-terminal height of the window. */
+  readonly chromeHeight: number;
+  /** Committed terminal columns. */
+  readonly columns: number;
+  /** Committed terminal rows. */
+  readonly rows: number;
+  /** Requested font size in device-independent pixels. */
+  readonly fontSizeDip: number;
   /** Main window element. */
   readonly mainWindow: GtkWindowElement;
   /** Main window bounds. */
@@ -191,8 +208,20 @@ export interface TerminalGridLayout {
  * Captured geometry and widget handle for window cell sizing assertions.
  */
 export interface WindowCellLayout {
-  /** Window geometry hints. */
-  readonly hints: GtkWindowResizeHints;
+  /** Effective cell width in GTK logical pixels. */
+  readonly cellWidth: number;
+  /** Effective cell height in GTK logical pixels. */
+  readonly cellHeight: number;
+  /** Actual non-terminal width of the window. */
+  readonly chromeWidth: number;
+  /** Actual non-terminal height of the window. */
+  readonly chromeHeight: number;
+  /** Committed terminal columns. */
+  readonly columns: number;
+  /** Committed terminal rows. */
+  readonly rows: number;
+  /** Requested font size in device-independent pixels. */
+  readonly fontSizeDip: number;
   /** Main window bounds. */
   readonly mainBounds: {
     readonly height: number;
@@ -208,9 +237,9 @@ export interface WindowCellLayout {
  * Terminal grid size reported by the hidden fixture measurement label.
  */
 export interface TerminalGridSize {
-  /** VTE column count. */
+  /** Terminal column count. */
   readonly columns: number;
-  /** VTE row count. */
+  /** Terminal row count. */
   readonly rows: number;
 }
 
@@ -495,6 +524,12 @@ export const expectTransferProgressNoticeVisibleAtTerminalTopRight = async (
   expect(rightGap).toBeGreaterThanOrEqual(0);
   expect(rightGap).toBeLessThanOrEqual(16);
   expect(topGap).toBeLessThanOrEqual(16);
+  const cancel = await app.getById('transfer_cancel_button');
+  const cancelBounds = (await cancel.capture()).bounds;
+  expect(cancelBounds.x + cancelBounds.width).toBe(noticeRight);
+  expect(cancelBounds.y).toBeGreaterThanOrEqual(
+    noticeCapture.bounds.y + noticeCapture.bounds.height
+  );
 };
 
 /**
@@ -830,9 +865,9 @@ export const assertTerminalTextGridMatches = async (
 };
 
 /**
- * Asserts that a window size maps to the expected VTE cell count.
+ * Asserts that a window size maps to the expected terminal cell count.
  *
- * @param layout Layout with window bounds and resize hints.
+ * @param layout Layout with window bounds and effective metrics.
  * @param columns Expected columns.
  * @param rows Expected rows.
  */
@@ -841,14 +876,16 @@ export const expectWindowCellSize = (
   columns: number,
   rows: number
 ): void => {
-  expect(
-    (layout.mainBounds.width - layout.hints.baseWidth) /
-      layout.hints.widthIncrement
-  ).toBe(columns);
-  expect(
-    (layout.mainBounds.height - layout.hints.baseHeight) /
-      layout.hints.heightIncrement
-  ).toBe(rows);
+  expect(layout.columns).toBe(columns);
+  expect(layout.rows).toBe(rows);
+  const remainderWidth =
+    layout.mainBounds.width - layout.chromeWidth - columns * layout.cellWidth;
+  const remainderHeight =
+    layout.mainBounds.height - layout.chromeHeight - rows * layout.cellHeight;
+  expect(remainderWidth).toBeGreaterThanOrEqual(0);
+  expect(remainderWidth).toBeLessThan(layout.cellWidth);
+  expect(remainderHeight).toBeGreaterThanOrEqual(0);
+  expect(remainderHeight).toBeLessThan(layout.cellHeight);
 };
 
 /**
@@ -912,7 +949,7 @@ export const readFixtureVteScrollbackLines = async (
 };
 
 /**
- * Reads main window geometry and resize hints.
+ * Reads main window geometry and effective metrics.
  *
  * @param app Running GTK app.
  * @returns Window cell layout.
@@ -924,24 +961,33 @@ export const readWindowCellLayout = async (
     await app.getById('main_window'),
     'window'
   );
-  const [hints, mainBounds] = await Promise.all([
-    mainWindow.resizeHints(),
-    mainWindow.bounds(),
-  ]);
-
-  expect(hints.widthIncrement).toBeGreaterThan(0);
-  expect(hints.heightIncrement).toBeGreaterThan(0);
-  expect(hints.baseWidth).toBeGreaterThan(0);
-  expect(hints.baseHeight).toBeGreaterThan(0);
-  expect((mainBounds.width - hints.baseWidth) % hints.widthIncrement).toBe(0);
-  expect((mainBounds.height - hints.baseHeight) % hints.heightIncrement).toBe(
-    0
+  const status = expectElementKind(
+    await app.getById('fixture_terminal_state_label'),
+    'label'
   );
-
+  const report = await status.text();
+  expect(report).toContain('ready=1');
+  const grid = /grid=(\d+)x(\d+)/.exec(report);
+  const metrics = /cell=(\d+)x(\d+)/.exec(report);
+  if (!grid || !metrics) throw new Error('Missing native terminal metrics');
+  const scale = Number(/scale=(\d+)/.exec(report)?.[1] ?? 1);
+  const cellWidth = Number(metrics[1]) / scale;
+  const cellHeight = Number(metrics[2]) / scale;
+  expect(cellWidth).toBeGreaterThan(0);
+  expect(cellHeight).toBeGreaterThan(0);
+  const mainBounds = await mainWindow.bounds();
+  const terminalBounds = (await (await app.getById('terminal_view')).capture())
+    .bounds;
   return {
-    hints,
     mainBounds,
     mainWindow,
+    cellWidth,
+    cellHeight,
+    chromeWidth: mainBounds.width - terminalBounds.width,
+    chromeHeight: mainBounds.height - terminalBounds.height,
+    columns: Number(grid[1]),
+    rows: Number(grid[2]),
+    fontSizeDip: Number(/font=([\d.]+)/.exec(report)?.[1]),
   };
 };
 
@@ -954,45 +1000,23 @@ export const readWindowCellLayout = async (
 export const readTerminalGridLayout = async (
   app: GtkApp
 ): Promise<TerminalGridLayout> => {
-  const mainWindow = expectElementKind(
-    await app.getById('main_window'),
-    'window'
-  );
+  const geometry = await readWindowCellLayout(app);
   const terminalScroller = await app.getById('terminal_scroller');
   const terminal = await app.getById('terminal_view');
   const terminalScrollbar = await app.getById('terminal_scrollbar');
   const statusBar = await app.getById('status_bar');
 
   const [
-    hints,
-    mainBounds,
     terminalScrollerCapture,
     terminalCapture,
     terminalScrollbarCapture,
     statusBarCapture,
   ] = await Promise.all([
-    mainWindow.resizeHints(),
-    mainWindow.bounds(),
     terminalScroller.capture(),
     terminal.capture(),
     terminalScrollbar.capture(),
     statusBar.capture(),
   ]);
-
-  expect(hints.widthIncrement).toBeGreaterThan(0);
-  expect(hints.heightIncrement).toBeGreaterThan(0);
-  expect(hints.baseWidth).toBeGreaterThan(0);
-  expect(hints.baseHeight).toBeGreaterThan(0);
-  expect(hints.minWidth).toBeGreaterThanOrEqual(
-    hints.baseWidth + hints.widthIncrement * 4
-  );
-  expect(hints.minHeight).toBeGreaterThanOrEqual(
-    hints.baseHeight + hints.heightIncrement
-  );
-  expect((mainBounds.width - hints.baseWidth) % hints.widthIncrement).toBe(0);
-  expect((mainBounds.height - hints.baseHeight) % hints.heightIncrement).toBe(
-    0
-  );
 
   expect(terminalCapture.bounds.x).toBe(terminalScrollerCapture.bounds.x);
   expect(terminalCapture.bounds.y).toBe(terminalScrollerCapture.bounds.y);
@@ -1015,9 +1039,7 @@ export const readTerminalGridLayout = async (
   );
 
   return {
-    hints,
-    mainWindow,
-    mainBounds,
+    ...geometry,
     statusBarCapture,
     terminal,
     terminalCapture,
@@ -1058,7 +1080,7 @@ export const saveTerminalGridLayoutEvidence = async (
     ),
   ]);
   await evidence.log('terminal grid layout verified', {
-    hints: layout.hints,
+    cell: [layout.cellWidth, layout.cellHeight],
     mainBounds: layout.mainBounds,
     name,
   });

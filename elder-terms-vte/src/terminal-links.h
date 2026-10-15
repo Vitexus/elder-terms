@@ -1,7 +1,7 @@
 #pragma once
 
 #include <boxrig/ui.h>
-#include "terminal-hyperlink-resolver.h"
+#include "terminal-hyperlink-action.h"
 
 namespace elder_terms {
 

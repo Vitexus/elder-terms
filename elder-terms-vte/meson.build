@@ -59,7 +59,7 @@ ssh_transport_dep = declare_dependency(link_with: ssh_transport_library,
 
 boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
   ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp',
-   'src/terminal-links.cpp', 'src/terminal-hyperlink-resolver.cpp',
+   'src/terminal-links.cpp', 'src/terminal-hyperlink-action.cpp',
    'src/terminal-received-macros.cpp',
    'src/terminal-text-send.cpp', 'src/terminal-text-send-runner.cpp',
    'src/terminal-transfer.cpp', 'src/terminal-transfer-runner.cpp',
@@ -114,29 +114,9 @@ elder_terms_sources = [
   'src/terminal-connection-phase.cpp',
   'src/terminal-bell.cpp',
   'src/terminal-bell-player.cpp',
-  'src/terminal-font.cpp',
-  'src/terminal-hyperlink-resolver.cpp',
   'src/terminal-log.cpp',
-  'src/terminal-macro-runner.cpp',
-  'src/terminal-text-send.cpp',
-  'src/terminal-text-send-runner.cpp',
-  'src/terminal-transfer.cpp',
-  'src/terminal-transfer-runner.cpp',
-  'src/terminal-zmodem-auto-start.cpp',
-  'src/terminal-sessions/local-session/local-session.cpp',
-  'src/terminal-sessions/serial-session/serial-line-monitor.cpp',
-  'src/terminal-sessions/serial-session/serial-session.cpp',
-  'src/terminal-sessions/serial-session/serial-termios.cpp',
-  'src/terminal-sessions/ssh-session/ssh-session.cpp',
-  telnet_protocol_source,
-  'src/terminal-sessions/telnet-session/telnet-session.cpp',
-  'src/terminal-sessions/terminal-keyboard-protocol.cpp',
-  'src/terminal-sessions/terminal-text-codec.cpp',
-  'src/terminal-sessions/terminal-text-stream.cpp',
-  'src/terminal-sessions/terminal-view-io.cpp',
-  'src/terminal-layout.cpp',
-  'src/terminal-session.cpp',
   'src/widget-background.cpp',
+  'src/terminal-presentation.cpp',
 ]
 
 executable(
@@ -155,7 +135,7 @@ executable(
     liburing_dep,
     ssh_transport_dep,
     libudev_dep,
-    vte_dep,
+    boxrig_runtime_dep,
   ],
   link_with: [
     libxyzm_async_static_library,
@@ -226,7 +206,7 @@ test('boxrig-macros-test', boxrig_macros_test)
 
 boxrig_links_test = executable('boxrig-links-test',
   ['tests/cpp/boxrig-links-test.cpp', 'src/terminal-links.cpp',
-   'src/terminal-hyperlink-resolver.cpp'],
+   'src/terminal-hyperlink-action.cpp'],
   dependencies: [boxrig_deps['boxrig-ui'], elder_terms_dep])
 test('boxrig-links-test', boxrig_links_test)
 
@@ -514,11 +494,10 @@ test('widget-background-test', xvfb_run,
 test('file-transfer-window-lifetime', xvfb_run,
   args: ['-a', file_transfer_window_lifetime_test], timeout: 120)
 
-terminal_text_codec_test = executable(
-  'terminal-text-codec-test',
+terminal_text_stream_test = executable(
+  'terminal-text-stream-test',
   [
-    'tests/cpp/terminal-text-codec-test.cpp',
-    'src/terminal-sessions/terminal-text-codec.cpp',
+    'tests/cpp/terminal-text-stream-test.cpp',
     'src/terminal-sessions/terminal-text-stream.cpp',
   ],
   dependencies: [
@@ -526,31 +505,9 @@ terminal_text_codec_test = executable(
   ],
 )
 
-test('terminal-text-codec-test', terminal_text_codec_test)
+test('terminal-text-stream-test', terminal_text_stream_test)
 
-terminal_keyboard_protocol_test = executable(
-  'terminal-keyboard-protocol-test',
-  [
-    'tests/cpp/terminal-keyboard-protocol-test.cpp',
-    'src/terminal-sessions/terminal-keyboard-protocol.cpp',
-  ],
-)
 
-test('terminal-keyboard-protocol-test', terminal_keyboard_protocol_test)
-
-terminal_font_test = executable(
-  'terminal-font-test',
-  [
-    'tests/cpp/terminal-font-test.cpp',
-    'src/terminal-font.cpp',
-  ],
-  dependencies: [
-    elder_terms_dep,
-    gtk_dep,
-  ],
-)
-
-test('terminal-font-test', terminal_font_test)
 
 terminal_bell_test = executable(
   'terminal-bell-test',
@@ -566,31 +523,19 @@ terminal_bell_test = executable(
 
 test('terminal-bell-test', terminal_bell_test)
 
-terminal_macro_runner_test = executable(
-  'terminal-macro-runner-test',
+
+terminal_hyperlink_action_test = executable(
+  'terminal-hyperlink-action-test',
   [
-    'tests/cpp/terminal-macro-runner-test.cpp',
-    'src/terminal-macro-runner.cpp',
+    'tests/cpp/terminal-hyperlink-action-test.cpp',
+    'src/terminal-hyperlink-action.cpp',
   ],
   dependencies: [
     elder_terms_dep,
   ],
 )
 
-test('terminal-macro-runner-test', terminal_macro_runner_test)
-
-terminal_hyperlink_resolver_test = executable(
-  'terminal-hyperlink-resolver-test',
-  [
-    'tests/cpp/terminal-hyperlink-resolver-test.cpp',
-    'src/terminal-hyperlink-resolver.cpp',
-  ],
-  dependencies: [
-    elder_terms_dep,
-  ],
-)
-
-test('terminal-hyperlink-resolver-test', terminal_hyperlink_resolver_test)
+test('terminal-hyperlink-action-test', terminal_hyperlink_action_test)
 
 terminal_text_send_runner_test = executable(
   'terminal-text-send-runner-test',
@@ -678,16 +623,6 @@ terminal_connection_phase_test = executable(
 
 test('terminal-connection-phase-test', terminal_connection_phase_test)
 
-terminal_session_reconnect_test = executable(
-  'terminal-session-reconnect-test',
-  [
-    'tests/cpp/terminal-session-reconnect-test.cpp',
-    'src/terminal-session.cpp',
-  ],
-  dependencies: [elder_terms_dep, gtk_dep, cardio_dep, gio_dep],
-)
-
-test('terminal-session-reconnect-test', terminal_session_reconnect_test)
 
 ssh_channel_connection_test = executable(
   'ssh-channel-connection-test',

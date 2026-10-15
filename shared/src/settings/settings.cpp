@@ -723,10 +723,10 @@ std::filesystem::path default_global_config_path() {
 
 SettingsLoadResult
 load_global_settings(const std::filesystem::path &global_config_path,
-                     gdouble default_terminal_zoom) {
+                     gdouble default_terminal_font_size_dip) {
   SettingsLoadResult result{
       .store = create_global_default_settings(
-          default_terminal_display_settings(default_terminal_zoom)),
+          default_terminal_display_settings(default_terminal_font_size_dip)),
       .loaded = true,
       .warnings = {},
   };
@@ -747,10 +747,10 @@ load_global_settings(const std::filesystem::path &global_config_path,
 }
 
 SettingsLoadResult
-load_settings(const SettingsLoadOptions &options, gdouble default_terminal_zoom) {
+load_settings(const SettingsLoadOptions &options, gdouble default_terminal_font_size_dip) {
   SettingsLoadResult result{
       .store = create_default_settings(
-          default_terminal_display_settings(default_terminal_zoom),
+          default_terminal_display_settings(default_terminal_font_size_dip),
           default_connection_name(options)),
       .loaded = true,
       .warnings = {},
@@ -759,7 +759,7 @@ load_settings(const SettingsLoadOptions &options, gdouble default_terminal_zoom)
   if (options.global_config_path.has_value()) {
     SettingsLoadResult global =
         load_global_settings(options.global_config_path.value(),
-                             default_terminal_zoom);
+                             default_terminal_font_size_dip);
     rebase_settings_store_fallbacks(&result.store, global.store);
     result.warnings.insert(result.warnings.end(), global.warnings.begin(),
                            global.warnings.end());
@@ -885,7 +885,7 @@ SettingsSaveResult save_new_window_connection(
     const std::string &connection,
     const std::filesystem::path &global_config_path) {
   auto store = create_global_default_settings(
-      default_terminal_display_settings(1.0));
+      default_terminal_display_settings(12.0));
   const auto key = application_new_window_setting_key();
   if (!connection.empty()) {
     set_explicit_setting_value(&store, key, SettingValue{connection});

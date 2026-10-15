@@ -126,6 +126,7 @@ static cardio::promise<void> watch_serial_carrier(SerialChannel *channel,
 static cardio::promise<void> break_serial(SerialChannel *channel, cardio::cancellation cancellation) {
   cancellation.throw_if_cancellation_requested();
   set_serial_break_state(channel->descriptor, true);
+  if (channel->callbacks.activity) channel->callbacks.activity(ActivityIndicatorId::sd);
   std::exception_ptr failure;
   try { co_await cardio::promises::delay(500, cancellation); }
   catch (...) { failure = std::current_exception(); }

@@ -378,12 +378,16 @@ static cardio::promise<void> write_stream(TerminalConnection *connection) {
 }
 
 static cardio::promise<std::size_t> read_pty(boxrig_posix_pty *pty,
-    std::span<unsigned char> bytes, cardio::cancellation cancellation) {
+    std::span<unsigned char> bytes, const std::function<void(bool)> &activity,
+    cardio::cancellation cancellation) {
   const auto fd = boxrig_posix_pty_descriptor(pty);
   for (;;) {
     co_await cardio::from_fd(fd, cardio::fd_event::read, cancellation);
     const auto count = ::read(fd, bytes.data(), bytes.size());
-    if (count >= 0) co_return static_cast<std::size_t>(count);
+    if (count >= 0) {
+      if (count > 0 && activity) activity(false);
+      co_return static_cast<std::size_t>(count);
+    }
     if (errno == EIO) co_return 0;
     if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)
       throw std::system_error(errno, std::generic_category(), "read PTY");
@@ -391,13 +395,17 @@ static cardio::promise<std::size_t> read_pty(boxrig_posix_pty *pty,
 }
 
 static cardio::promise<void> write_pty(boxrig_posix_pty *pty,
-    std::span<const unsigned char> bytes, cardio::cancellation cancellation) {
+    std::span<const unsigned char> bytes, const std::function<void(bool)> &activity,
+    cardio::cancellation cancellation) {
   const auto fd = boxrig_posix_pty_descriptor(pty);
   std::size_t offset = 0;
   while (offset < bytes.size()) {
     co_await cardio::from_fd(fd, cardio::fd_event::write, cancellation);
     const auto count = ::write(fd, bytes.data() + offset, bytes.size() - offset);
-    if (count > 0) offset += static_cast<std::size_t>(count);
+    if (count > 0) {
+      offset += static_cast<std::size_t>(count);
+      if (activity) activity(true);
+    }
     else if (count == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR))
       throw std::system_error(count == 0 ? EPIPE : errno, std::generic_category(), "write PTY");
   }
@@ -500,6 +508,7 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
     connection->state.encoding = command.encoding;
     size_t rows = 0, columns = 0;
     boxrig_terminal_size(connection->terminal, &rows, &columns);
+    auto activity = std::move(command.activity);
     const auto spawned = co_await cardio::promises::start_new([command = std::move(command), rows, columns]() mutable {
       std::vector<char *> arguments;
       for (auto &argument : command.arguments) arguments.push_back(argument.data());
@@ -527,11 +536,11 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
       boxrig_terminal_size(connection->terminal, &rows, &columns);
       if (boxrig_posix_pty_resize(operation.pty, rows, columns) != 0)
         throw std::system_error(errno, std::generic_category(), "initial PTY grid");
-      operation.transport.read = [pty = operation.pty](std::span<unsigned char> bytes, cardio::cancellation stop) {
-        return read_pty(pty, bytes, stop);
+      operation.transport.read = [pty = operation.pty, activity](std::span<unsigned char> bytes, cardio::cancellation stop) {
+        return read_pty(pty, bytes, activity, stop);
       };
-      operation.transport.write = [pty = operation.pty](std::span<const unsigned char> bytes, cardio::cancellation stop) {
-        return write_pty(pty, bytes, stop);
+      operation.transport.write = [pty = operation.pty, activity](std::span<const unsigned char> bytes, cardio::cancellation stop) {
+        return write_pty(pty, bytes, activity, stop);
       };
       operation.transport.resize = [pty = operation.pty](std::size_t height, std::size_t width,
           cardio::cancellation stop) -> cardio::promise<void> {
@@ -556,6 +565,7 @@ static cardio::promise<void> run_local(TerminalConnection *connection, TerminalL
   } catch (const cardio::canceled_exception &) {
   } catch (const std::system_error &error) {
     connection->state.operation_error = error.code().value();
+    connection->state.operation_error_message = error.what();
   } catch (...) {
     connection->state.operation_error = ENOMEM;
   }
@@ -647,6 +657,10 @@ static cardio::promise<void> run_transport(TerminalConnection *connection, Termi
   } catch (const cardio::canceled_exception &) {
   } catch (const std::system_error &error) {
     connection->state.operation_error = error.code().value();
+    connection->state.operation_error_message = error.what();
+  } catch (const std::exception &error) {
+    connection->state.operation_error = EIO;
+    connection->state.operation_error_message = error.what();
   } catch (...) {
     connection->state.operation_error = EIO;
   }
@@ -793,8 +807,9 @@ cardio::promise<bool> terminal_connection_resize(TerminalConnection *connection,
 TerminalConnectionState terminal_connection_state(const TerminalConnection *connection) { return connection->state; }
 
 cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *connection, std::string encoding) {
-  if (connection->state.phase != TerminalConnectionPhase::connected ||
-      !connection->state.carrier_connected ||
+  const bool starting = connection->state.phase == TerminalConnectionPhase::starting;
+  if ((!starting && (connection->state.phase != TerminalConnectionPhase::connected ||
+      !connection->state.carrier_connected)) ||
       connection->operation->changing_encoding || connection->operation->service_active) co_return false;
   if (connection->state.encoding == encoding) co_return true;
   TerminalTextStreamPtr decoder{nullptr, destroy_terminal_text_stream};
@@ -806,6 +821,14 @@ cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *co
     co_return false;
   }
   auto &operation = *connection->operation;
+  if (starting) {
+    // Open/spawn has not started either stream runner. Replace the unused
+    // converters now so the first peer byte observes the latest preference.
+    operation.decoder = std::move(decoder);
+    operation.encoder = std::move(encoder);
+    connection->state.encoding = std::move(encoding);
+    co_return true;
+  }
   ++operation.pending_operations;
   operation.changing_encoding = true;
   operation.read_paused = true;

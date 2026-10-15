@@ -91,6 +91,9 @@ describe('IP scan on an isolated multicast network', () => {
             // https://github.com/NVIDIA/libglvnd/blob/master/src/EGL/icd_enumeration.md
             '--env',
             '__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json',
+            // The development tree is mounted at a different absolute path.
+            '--env',
+            'LD_LIBRARY_PATH=/workspace/.build/boxrig/sdk/lib',
             '--name',
             name,
             '--hostname',

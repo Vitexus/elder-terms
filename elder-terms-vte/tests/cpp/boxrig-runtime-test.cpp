@@ -25,6 +25,9 @@ struct Fixture {
   cardio::primitives::conditional break_ready;
   cardio::primitives::conditional selection_ready;
   cardio::primitives::conditional availability;
+  cardio::primitives::conditional open_ready;
+  bool hold_open = false;
+  bool opening = false;
   std::function<void()> notify_available;
   bool monitoring = false;
   bool device_available = false;
@@ -90,6 +93,10 @@ static TerminalTransportRequest request(Fixture *fixture) {
   TerminalTransportRequest request;
   request.open = [fixture](std::size_t, std::size_t, cardio::cancellation cancellation) -> cardio::promise<TerminalTransport> {
     cancellation.throw_if_cancellation_requested();
+    fixture->opening = true;
+    fixture->changed.trigger();
+    if (fixture->hold_open) co_await fixture->open_ready.wait(cancellation);
+    fixture->opening = false;
     fixture->closed = false;
     fixture->peer_eof = false;
     co_return TerminalTransport{
@@ -534,6 +541,23 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
       "shutdown joins carrier observation before closing the physical channel");
 
   const auto retained_display = text(fixture);
+  fixture->hold_open = true;
+  auto pending = request(fixture);
+  expect(terminal_runtime_connect_transport(fixture->runtime, pending), "queue connection before dispatch");
+  expect(terminal_runtime_request_encoding(fixture->runtime, "CP932"), "change encoding before connection dispatch");
+  while (!fixture->opening)
+    co_await fixture->changed.wait();
+  expect(terminal_runtime_connection_state(fixture->runtime).encoding == "CP932",
+      "a queued connection uses the latest encoding before receiving bytes");
+  expect(terminal_runtime_request_encoding(fixture->runtime, "UTF-8"), "change encoding during asynchronous open");
+  while (terminal_runtime_encoding_pending(fixture->runtime)) co_await fixture->changed.wait();
+  fixture->hold_open = false;
+  fixture->open_ready.trigger();
+  while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
+    co_await fixture->changed.wait();
+  expect(terminal_runtime_connection_state(fixture->runtime).encoding == "UTF-8",
+      "an opening connection applies settings before receiving its first bytes");
+  co_await terminal_runtime_disconnect(fixture->runtime);
   auto recovering = request(fixture);
   recovering.open = [fixture, open = recovering.open](std::size_t rows, std::size_t columns, cardio::cancellation stop)
       -> cardio::promise<TerminalTransport> {
@@ -557,10 +581,16 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
     co_await fixture->changed.wait();
   expect(fixture->monitoring && terminal_runtime_connection_state(fixture->runtime).operation_error == ENOENT,
       "failed open remains observable while device monitoring continues");
+  expect(terminal_runtime_request_encoding(fixture->runtime, "CP932"),
+      "accept a new encoding while waiting for an absent device");
   fixture->device_available = true;
   fixture->notify_available();
   while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
     co_await fixture->changed.wait();
+  expect(terminal_runtime_connection_state(fixture->runtime).encoding == "CP932",
+      "the recovered device starts with the latest encoding preference");
+  expect(terminal_runtime_request_encoding(fixture->runtime, "UTF-8"), "reset encoding before exchange");
+  while (terminal_runtime_encoding_pending(fixture->runtime)) co_await fixture->changed.wait();
   expect(terminal_runtime_request_encoding(fixture->runtime, "CP932"), "change encoding before reattachment");
   while (terminal_runtime_encoding_pending(fixture->runtime)) co_await fixture->changed.wait();
   generation = terminal_runtime_connection_state(fixture->runtime).generation;

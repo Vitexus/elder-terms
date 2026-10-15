@@ -1329,7 +1329,6 @@ static int run_client_case(const ServerOptions &server_options,
   auto task_body = [&]() -> cardio::promise<void> {
     try {
       elder_terms::TerminalSessionCallbacks callbacks{
-          .ended = {},
           .activity = {},
           .indicator_state = {},
           .connection_phase =
@@ -1337,9 +1336,6 @@ static int run_client_case(const ServerOptions &server_options,
                   elder_terms::TerminalSessionConnectionPhase phase) {
                 phases.push_back(phase);
               },
-          .failure = {},
-          .output = {},
-          .zmodem_auto_start = {},
           .ssh_prompt =
               [&prompts,
                &server,

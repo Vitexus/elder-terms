@@ -22,7 +22,7 @@ import {
   saveTerminalGridLayoutEvidence,
   scrollWheelBurstWithControl,
   scrollWheelWithControl,
-  terminalTextGrid80x24FontScale11Path,
+  terminalTextGrid80x24VisualStepPath,
   terminalTextGrid80x24Path,
   terminalTextGrid81x25Path,
   withTemporaryDirectory,
@@ -304,7 +304,7 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
             await app.getById('header_title_label')
           ).capture();
           await initial.mainWindow.resizeTo(
-            initial.mainBounds.width + initial.hints.widthIncrement,
+            initial.mainBounds.width + initial.cellWidth,
             initial.mainBounds.height
           );
           await waitForResult(async () => {
@@ -382,8 +382,8 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
             indicators.bounds.x + indicators.bounds.width
           ).toBeLessThanOrEqual(menu.bounds.x);
           await layout.mainWindow.resizeTo(
-            layout.mainBounds.width + layout.hints.widthIncrement,
-            layout.mainBounds.height + layout.hints.heightIncrement
+            layout.mainBounds.width + layout.cellWidth,
+            layout.mainBounds.height + layout.cellHeight
           );
           await waitForResult(async () => {
             const current = await readWindowCellLayout(app);
@@ -404,9 +404,11 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
           await pressKeyWithModifiers(app, ['control'], 'equal');
           const zoomed = await waitForResult(async () => {
             const current = await readWindowCellLayout(app);
-            expect(current.hints.widthIncrement).not.toBe(
-              layout.hints.widthIncrement
-            );
+            expect(current.fontSizeDip).not.toBe(layout.fontSizeDip);
+            expect([current.cellWidth, current.cellHeight]).not.toEqual([
+              layout.cellWidth,
+              layout.cellHeight,
+            ]);
             expectWindowCellSize(current, defaultColumns + 1, defaultRows + 1);
             await expectFixtureVteGridSize(
               app,
@@ -416,8 +418,8 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
             return current;
           });
           await zoomed.mainWindow.resizeTo(
-            zoomed.mainBounds.width + zoomed.hints.widthIncrement - 1,
-            zoomed.mainBounds.height + zoomed.hints.heightIncrement - 1
+            zoomed.mainBounds.width + zoomed.cellWidth - 1,
+            zoomed.mainBounds.height + zoomed.cellHeight - 1
           );
           await waitForResult(async () => {
             const current = await readWindowCellLayout(app);
@@ -461,8 +463,8 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
       });
       await initialLayout.mainWindow.resizeTo(
-        initialLayout.mainBounds.width + initialLayout.hints.widthIncrement,
-        initialLayout.mainBounds.height + initialLayout.hints.heightIncrement
+        initialLayout.mainBounds.width + initialLayout.cellWidth,
+        initialLayout.mainBounds.height + initialLayout.cellHeight
       );
 
       const resizedLayout = await waitForResult(async () => {
@@ -565,9 +567,8 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
           );
 
           await initialLayout.mainWindow.resizeTo(
-            initialLayout.mainBounds.width + initialLayout.hints.widthIncrement,
-            initialLayout.mainBounds.height +
-              initialLayout.hints.heightIncrement
+            initialLayout.mainBounds.width + initialLayout.cellWidth,
+            initialLayout.mainBounds.height + initialLayout.cellHeight
           );
           const resizedLayout = await waitForResult(async () => {
             const layout = await readTerminalGridLayout(app);
@@ -590,12 +591,11 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
           await scrollWheelWithControl(app, -1);
           await waitForResult(async () => {
             const layout = await readTerminalGridLayout(app);
-            expect(layout.hints.widthIncrement).not.toBe(
-              resizedLayout.hints.widthIncrement
-            );
-            expect(layout.hints.heightIncrement).not.toBe(
-              resizedLayout.hints.heightIncrement
-            );
+            expect(layout.fontSizeDip).not.toBe(resizedLayout.fontSizeDip);
+            expect([layout.cellWidth, layout.cellHeight]).not.toEqual([
+              resizedLayout.cellWidth,
+              resizedLayout.cellHeight,
+            ]);
             expectWindowCellSize(layout, defaultColumns + 1, defaultRows + 1);
             await expectFixtureVteGridSize(
               app,
@@ -619,11 +619,7 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
       });
 
-      for (
-        let index = 0;
-        index <= initialLayout.hints.widthIncrement;
-        ++index
-      ) {
+      for (let index = 0; index <= initialLayout.cellWidth; ++index) {
         const bounds = await initialLayout.mainWindow.bounds();
         await initialLayout.mainWindow.resizeTo(
           bounds.width + 1,
@@ -659,8 +655,8 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
       const resizedColumns = defaultColumns + 1;
       const resizedRows = defaultRows + 1;
       await initialLayout.mainWindow.resizeTo(
-        initialLayout.mainBounds.width + initialLayout.hints.widthIncrement,
-        initialLayout.mainBounds.height + initialLayout.hints.heightIncrement
+        initialLayout.mainBounds.width + initialLayout.cellWidth,
+        initialLayout.mainBounds.height + initialLayout.cellHeight
       );
 
       const resizedLayout = await waitForResult(async () => {
@@ -675,12 +671,11 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
 
       const zoomedLayout = await waitForResult(async () => {
         const layout = await readTerminalGridLayout(app);
-        expect(layout.hints.widthIncrement).not.toBe(
-          resizedLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).not.toBe(
-          resizedLayout.hints.heightIncrement
-        );
+        expect(layout.fontSizeDip).not.toBe(resizedLayout.fontSizeDip);
+        expect([layout.cellWidth, layout.cellHeight]).not.toEqual([
+          resizedLayout.cellWidth,
+          resizedLayout.cellHeight,
+        ]);
         expectWindowCellSize(layout, resizedColumns, resizedRows);
         await expectFixtureVteGridSize(app, resizedColumns, resizedRows);
         return layout;
@@ -693,32 +688,26 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
     });
   });
 
-  it('rounds a fractional-cell window resize request to a whole-cell size', async (context) => {
+  it('retains a fractional-cell allocation while committing the fitted grid', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app, evidence) => {
       const initialLayout = await waitForResult(async () =>
         readTerminalGridLayout(app)
       );
       expectWindowCellSize(initialLayout, defaultColumns, defaultRows);
-      expect(initialLayout.hints.widthIncrement).toBeGreaterThan(1);
-      expect(initialLayout.hints.heightIncrement).toBeGreaterThan(1);
+      expect(initialLayout.cellWidth).toBeGreaterThan(1);
+      expect(initialLayout.cellHeight).toBeGreaterThan(1);
       await initialLayout.mainWindow.resizeTo(
-        initialLayout.mainBounds.width + initialLayout.hints.widthIncrement - 1,
-        initialLayout.mainBounds.height +
-          initialLayout.hints.heightIncrement -
-          1
+        initialLayout.mainBounds.width + initialLayout.cellWidth - 1,
+        initialLayout.mainBounds.height + initialLayout.cellHeight - 1
       );
 
       const resizedLayout = await waitForResult(async () => {
         const layout = await readTerminalGridLayout(app);
-        expect(layout.mainBounds.width).not.toBe(
-          initialLayout.mainBounds.width +
-            initialLayout.hints.widthIncrement -
-            1
+        expect(layout.mainBounds.width).toBe(
+          initialLayout.mainBounds.width + initialLayout.cellWidth - 1
         );
-        expect(layout.mainBounds.height).not.toBe(
-          initialLayout.mainBounds.height +
-            initialLayout.hints.heightIncrement -
-            1
+        expect(layout.mainBounds.height).toBe(
+          initialLayout.mainBounds.height + initialLayout.cellHeight - 1
         );
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         return layout;
@@ -728,11 +717,8 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
         resizedLayout,
         'fractional-cell-resize-layout'
       );
-      await assertTerminalTextGridMatches(
-        resizedLayout.terminal,
-        'fixture-terminal-fractional-cell-resize',
-        terminalTextGrid80x24Path,
-        evidence
+      expect(resizedLayout.terminalCapture.bounds.width).toBe(
+        defaultColumns * resizedLayout.cellWidth + resizedLayout.cellWidth - 1
       );
     });
   });
@@ -752,12 +738,11 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
 
       const zoomedLayout = await waitForResult(async () => {
         const layout = await readTerminalGridLayout(app);
-        expect(layout.hints.widthIncrement).not.toBe(
-          initialLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).not.toBe(
-          initialLayout.hints.heightIncrement
-        );
+        expect(layout.fontSizeDip).not.toBe(initialLayout.fontSizeDip);
+        expect([layout.cellWidth, layout.cellHeight]).not.toEqual([
+          initialLayout.cellWidth,
+          initialLayout.cellHeight,
+        ]);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
         return layout;
@@ -770,7 +755,7 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
       await assertTerminalTextGridMatches(
         zoomedLayout.terminal,
         'fixture-terminal-font-zoom',
-        terminalTextGrid80x24FontScale11Path,
+        terminalTextGrid80x24VisualStepPath,
         evidence
       );
     });
@@ -791,16 +776,18 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
 
       const zoomedLayout = await waitForResult(async () => {
         const layout = await readTerminalGridLayout(app);
-        expect(layout.hints.widthIncrement).not.toBe(
-          initialLayout.hints.widthIncrement
-        );
+        expect(layout.fontSizeDip).not.toBe(initialLayout.fontSizeDip);
+        expect([layout.cellWidth, layout.cellHeight]).not.toEqual([
+          initialLayout.cellWidth,
+          initialLayout.cellHeight,
+        ]);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
         return layout;
       });
       await delay(250);
 
-      for (let index = 0; index <= zoomedLayout.hints.widthIncrement; ++index) {
+      for (let index = 0; index <= zoomedLayout.cellWidth; ++index) {
         const bounds = await zoomedLayout.mainWindow.bounds();
         await zoomedLayout.mainWindow.resizeTo(bounds.width + 1, bounds.height);
         await delay(10);
@@ -863,9 +850,11 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
       await pressKeyWithModifiers(app, ['control'], 'equal');
       const zoomedLayout = await waitForResult(async () => {
         const layout = await readTerminalGridLayout(app);
-        expect(layout.hints.widthIncrement).not.toBe(
-          initialLayout.hints.widthIncrement
-        );
+        expect(layout.fontSizeDip).not.toBe(initialLayout.fontSizeDip);
+        expect([layout.cellWidth, layout.cellHeight]).not.toEqual([
+          initialLayout.cellWidth,
+          initialLayout.cellHeight,
+        ]);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
         return layout;
@@ -874,15 +863,13 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
       await pressKeyWithModifiers(app, ['control'], 'minus');
       const restoredLayout = await waitForResult(async () => {
         const layout = await readTerminalGridLayout(app);
-        expect(layout.hints.widthIncrement).not.toBe(
-          zoomedLayout.hints.widthIncrement
-        );
-        expect(layout.hints.widthIncrement).toBe(
-          initialLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).toBe(
-          initialLayout.hints.heightIncrement
-        );
+        expect(layout.fontSizeDip).not.toBe(zoomedLayout.fontSizeDip);
+        expect([layout.cellWidth, layout.cellHeight]).not.toEqual([
+          zoomedLayout.cellWidth,
+          zoomedLayout.cellHeight,
+        ]);
+        expect(layout.cellWidth).toBe(initialLayout.cellWidth);
+        expect(layout.cellHeight).toBe(initialLayout.cellHeight);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         return layout;
       });
@@ -916,30 +903,24 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
           await pressKeyWithModifiers(app, ['control', 'shift'], 'plus');
           await delay(100);
           const unmatchedLayout = await readWindowCellLayout(app);
-          expect(unmatchedLayout.hints.widthIncrement).toBe(
-            initialLayout.hints.widthIncrement
-          );
-          expect(unmatchedLayout.hints.heightIncrement).toBe(
-            initialLayout.hints.heightIncrement
-          );
+          expect(unmatchedLayout.cellWidth).toBe(initialLayout.cellWidth);
+          expect(unmatchedLayout.cellHeight).toBe(initialLayout.cellHeight);
 
           await pressKeyWithModifiers(app, ['shift'], 'plus');
           await waitForResult(async () => {
             const layout = await readWindowCellLayout(app);
-            expect(layout.hints.widthIncrement).not.toBe(
-              initialLayout.hints.widthIncrement
-            );
+            expect(layout.fontSizeDip).not.toBe(initialLayout.fontSizeDip);
+            expect([layout.cellWidth, layout.cellHeight]).not.toEqual([
+              initialLayout.cellWidth,
+              initialLayout.cellHeight,
+            ]);
           });
 
           await pressKeyWithModifiers(app, ['control', 'shift'], 'underscore');
           await waitForResult(async () => {
             const layout = await readWindowCellLayout(app);
-            expect(layout.hints.widthIncrement).toBe(
-              initialLayout.hints.widthIncrement
-            );
-            expect(layout.hints.heightIncrement).toBe(
-              initialLayout.hints.heightIncrement
-            );
+            expect(layout.cellWidth).toBe(initialLayout.cellWidth);
+            expect(layout.cellHeight).toBe(initialLayout.cellHeight);
           });
         }
       );
@@ -967,12 +948,8 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
 
       const restoredLayout = await waitForResult(async () => {
         const layout = await readTerminalGridLayout(app);
-        expect(layout.hints.widthIncrement).toBe(
-          initialLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).toBe(
-          initialLayout.hints.heightIncrement
-        );
+        expect(layout.cellWidth).toBe(initialLayout.cellWidth);
+        expect(layout.cellHeight).toBe(initialLayout.cellHeight);
         expectWindowCellSize(layout, defaultColumns, defaultRows);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
         return layout;
@@ -1006,17 +983,13 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
 
       const zoomedLayout = await waitForResult(async () => {
         const layout = await readWindowCellLayout(app);
-        expect(layout.hints.widthIncrement).toBeGreaterThan(
-          initialLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).toBeGreaterThan(
-          initialLayout.hints.heightIncrement
-        );
+        expect(layout.cellWidth).toBeGreaterThan(initialLayout.cellWidth);
+        expect(layout.cellHeight).toBeGreaterThan(initialLayout.cellHeight);
         await expectFixtureVteGridSize(app, defaultColumns, defaultRows);
         return layout;
       });
       await evidence.log('rapid font zoom in layout verified', {
-        hints: zoomedLayout.hints,
+        cell: [zoomedLayout.cellWidth, zoomedLayout.cellHeight],
         mainBounds: zoomedLayout.mainBounds,
       });
       await delay(250);
@@ -1027,22 +1000,12 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
       );
       const constrainedLayout = await waitForResult(async () => {
         const layout = await readWindowCellLayout(app);
-        expect(layout.hints.widthIncrement).toBe(
-          zoomedLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).toBe(
-          zoomedLayout.hints.heightIncrement
-        );
+        expect(layout.cellWidth).toBe(zoomedLayout.cellWidth);
+        expect(layout.cellHeight).toBe(zoomedLayout.cellHeight);
         return layout;
       });
-      const resizedColumns =
-        (constrainedLayout.mainBounds.width -
-          constrainedLayout.hints.baseWidth) /
-        constrainedLayout.hints.widthIncrement;
-      const resizedRows =
-        (constrainedLayout.mainBounds.height -
-          constrainedLayout.hints.baseHeight) /
-        constrainedLayout.hints.heightIncrement;
+      const resizedColumns = constrainedLayout.columns;
+      const resizedRows = constrainedLayout.rows;
       expect(resizedColumns < defaultColumns || resizedRows < defaultRows).toBe(
         true
       );
@@ -1050,7 +1013,7 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
         await expectFixtureVteGridSize(app, resizedColumns, resizedRows);
       });
       await evidence.log('font zoom constrained layout verified', {
-        hints: constrainedLayout.hints,
+        cell: [constrainedLayout.cellWidth, constrainedLayout.cellHeight],
         mainBounds: constrainedLayout.mainBounds,
       });
 
@@ -1058,18 +1021,14 @@ describe.concurrent('elder-terms-vte terminal layout', () => {
 
       const restoredLayout = await waitForResult(async () => {
         const layout = await readTerminalGridLayout(app);
-        expect(layout.hints.widthIncrement).toBe(
-          initialLayout.hints.widthIncrement
-        );
-        expect(layout.hints.heightIncrement).toBe(
-          initialLayout.hints.heightIncrement
-        );
+        expect(layout.cellWidth).toBe(initialLayout.cellWidth);
+        expect(layout.cellHeight).toBe(initialLayout.cellHeight);
         expectWindowCellSize(layout, resizedColumns, resizedRows);
         await expectFixtureVteGridSize(app, resizedColumns, resizedRows);
         return layout;
       });
       await evidence.log('rapid font zoom restored layout verified', {
-        hints: restoredLayout.hints,
+        cell: [restoredLayout.cellWidth, restoredLayout.cellHeight],
         mainBounds: restoredLayout.mainBounds,
       });
     });

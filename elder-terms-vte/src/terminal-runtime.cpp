@@ -1,6 +1,7 @@
 #include "terminal-runtime.h"
 #include "terminal-links.h"
 #include "terminal-received-macros.h"
+#include "terminal-sessions/terminal-text-stream.h"
 
 #include <cstdint>
 #include <limits>
@@ -148,6 +149,10 @@ static boxrig_input_mouse_route route_mouse(
     void *context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  if (runtime->host.mouse) {
+    const auto route = runtime->host.mouse(event, hit);
+    if (route != BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL) return route;
+  }
   if (runtime->links) {
     runtime->pointer_position = {hit->x, hit->y};
     update_link_cursor(runtime, *hit);
@@ -158,16 +163,23 @@ static boxrig_input_mouse_route route_mouse(
     if ((event->action == BOXRIG_MOUSE_MOTION || release) &&
         hit->inside_grid && hit->text_position_valid) {
       const auto status = boxrig_ui_view_update_selection(view, hit);
-      if (status == BOXRIG_UI_STALE) runtime->selection_drag_active = false;
-      else if (status != BOXRIG_UI_OK) return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+      // Output or a connection transition can remove the selection between
+      // queued pointer events. End that drag without failing native input.
+      if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) runtime->selection_drag_active = false;
+      else if (status != BOXRIG_UI_OK) {
+        g_warning("boxrig selection update failed: %d", status);
+        return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+      }
     }
     if (release) {
       runtime->selection_drag_active = false;
       const boxrig_ui_view_action copy{BOXRIG_UI_VIEW_ACTION_COPY,
           BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION};
       const auto status = boxrig_gtk3_terminal_widget_apply_view_action(runtime->widget, &copy);
-      if (status != BOXRIG_UI_OK && status != BOXRIG_UI_UNAVAILABLE)
+      if (status != BOXRIG_UI_OK && status != BOXRIG_UI_UNAVAILABLE && status != BOXRIG_UI_STALE) {
+        g_warning("boxrig primary selection failed: %d", status);
         return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+      }
     }
     request_frame(runtime);
     return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
@@ -194,7 +206,10 @@ static boxrig_input_mouse_route route_mouse(
         event->click_count == 2 ? BOXRIG_UI_SELECTION_WORD : BOXRIG_UI_SELECTION_CHARACTER;
     const auto status = boxrig_ui_view_begin_selection_with_options(view, &options, hit);
     if (status == BOXRIG_UI_STALE) return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
-    if (status != BOXRIG_UI_OK) return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+    if (status != BOXRIG_UI_OK) {
+      g_warning("boxrig selection start failed: %d", status);
+      return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+    }
     runtime->selection_drag_active = true;
     request_frame(runtime);
     return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
@@ -228,6 +243,11 @@ static bool ui_result(boxrig_ui_status status, const char *operation) {
 }
 
 static void fail_ui(TerminalRuntime *runtime) {
+  boxrig_ui_component_diagnostic diagnostic{};
+  if (boxrig_gtk3_terminal_widget_get_diagnostic(runtime->widget, &diagnostic) == BOXRIG_UI_OK)
+    g_warning("boxrig component failed: reason=%d input=%zu/%zu authority=%d",
+        diagnostic.failure_reason, diagnostic.native_input_queue_depth,
+        diagnostic.native_input_queue_capacity, diagnostic.layout_authority);
   runtime->ui_failed = true;
   runtime->pending_connection.reset();
   runtime->recovery_request.reset();
@@ -339,7 +359,8 @@ static bool process_input_policy(TerminalRuntime *runtime) {
   }
   const auto connection = terminal_connection_state(runtime->connection);
   const bool carrier_interrupted = runtime->handled_carrier_losses != connection.carrier_losses;
-  if (connection.phase != TerminalConnectionPhase::connected || !connection.carrier_connected || carrier_interrupted)
+  if (connection.phase != TerminalConnectionPhase::starting &&
+      (connection.phase != TerminalConnectionPhase::connected || !connection.carrier_connected || carrier_interrupted))
     runtime->pending_encoding.reset();
   if (!connection.carrier_connected || carrier_interrupted) terminal_runtime_cancel_transfer(runtime);
   if (runtime->auto_selecting && connection.receive_ended) terminal_runtime_cancel_transfer(runtime);
@@ -621,6 +642,9 @@ static gboolean dispatch_frame(gpointer context) {
     fail_ui(runtime);
     return G_SOURCE_REMOVE;
   }
+  // Native key and IME dispatch can create output without a visual change.
+  // Drain it now; a static Cairo view may have no subsequent paint or frame.
+  if (terminal_connection_dispatch(runtime->connection)) request_continuation(runtime);
   // A pending presentation may be waiting for GTK allocation or paint. Only
   // additional_dispatch requests another immediate pass through the main loop.
   if (result.additional_dispatch) request_frame(runtime);
@@ -659,7 +683,13 @@ static void allocated(GtkWidget *, GtkAllocation *, gpointer context) {
   request_frame(runtime);
 }
 
-static void mapped(GtkWidget *, gpointer context) { request_frame(context); }
+static void mapped(GtkWidget *, gpointer context) {
+  auto *runtime = static_cast<TerminalRuntime *>(context);
+  // An initial preferred grid can already fit its allocation and therefore
+  // need no content-size action. Install native hints on that path as well.
+  ui_result(boxrig_gtk3_terminal_widget_set_geometry_hints(runtime->widget, runtime->window, true), "geometry hints");
+  request_frame(runtime);
+}
 
 static void terminal_allocated(GtkWidget *, GtkAllocation *, gpointer context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
@@ -673,8 +703,10 @@ static gboolean window_state_changed(GtkWidget *, GdkEventWindowState *event, gp
   runtime->window_state = (flags & GDK_WINDOW_STATE_FULLSCREEN) ? BOXRIG_UI_WINDOW_FULLSCREEN :
       (flags & GDK_WINDOW_STATE_MAXIMIZED) ? BOXRIG_UI_WINDOW_MAXIMIZED :
       (flags & GDK_WINDOW_STATE_TILED) ? BOXRIG_UI_WINDOW_TILED : BOXRIG_UI_WINDOW_NORMAL;
-  if (!runtime->ui_failed)
+  if (!runtime->ui_failed) {
     ui_result(boxrig_gtk3_terminal_widget_set_window_state(runtime->widget, runtime->window_state), "window state");
+    ui_result(boxrig_gtk3_terminal_widget_set_geometry_hints(runtime->widget, runtime->window, true), "geometry hints");
+  }
   request_frame(runtime);
   return FALSE;
 }
@@ -899,6 +931,10 @@ bool terminal_runtime_connect_local(TerminalRuntime *runtime, TerminalLocalComma
   return true;
 }
 
+void terminal_runtime_refresh(TerminalRuntime *runtime) {
+  request_frame(runtime);
+}
+
 bool terminal_runtime_connect_transport(TerminalRuntime *runtime, TerminalTransportRequest request) {
   const auto phase = terminal_connection_state(runtime->connection).phase;
   if (runtime->stopped || runtime->pending_connection || runtime->pending_service || runtime->service_active ||
@@ -957,9 +993,21 @@ bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime) { r
 
 bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string encoding) {
   if (runtime->stopped || runtime->ui_failed || runtime->encoding_active ||
-      runtime->pending_service || runtime->service_active || runtime->break_active ||
-      terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected ||
-      !terminal_connection_state(runtime->connection).carrier_connected) return false;
+      runtime->pending_service || runtime->service_active || runtime->break_active) return false;
+  const auto connection = terminal_connection_state(runtime->connection);
+  if (runtime->pending_connection ||
+      (connection.phase == TerminalConnectionPhase::closed && runtime->recovery_request)) {
+    try {
+      const auto decoder = create_terminal_text_decoder(encoding);
+      const auto encoder = create_terminal_text_encoder(encoding);
+    } catch (const std::system_error &) { return false; }
+    if (runtime->pending_connection)
+      std::visit([&encoding](auto &request) { request.encoding = encoding; }, *runtime->pending_connection);
+    if (runtime->recovery_request) runtime->recovery_request->encoding = std::move(encoding);
+    return true;
+  }
+  if (connection.phase != TerminalConnectionPhase::starting &&
+      (connection.phase != TerminalConnectionPhase::connected || !connection.carrier_connected)) return false;
   runtime->pending_encoding = std::move(encoding);
   request_frame(runtime);
   return true;

@@ -29,6 +29,7 @@ import {
   defaultRows,
   expectFixtureVteGridSize,
   readTerminalGridLayout,
+  readWindowCellLayout,
   runGtkTest,
   withTemporaryDirectory,
 } from './gtk-test-helpers';
@@ -524,18 +525,9 @@ describe.concurrent('elder-terms-vte main window', () => {
       ).toBe(
         terminalScrollerCapture.bounds.x + terminalScrollerCapture.bounds.width
       );
-      expect((mainBounds.width - hints.baseWidth) % hints.widthIncrement).toBe(
-        0
-      );
-      expect(
-        (mainBounds.height - hints.baseHeight) % hints.heightIncrement
-      ).toBe(0);
-      expect((mainBounds.width - hints.baseWidth) / hints.widthIncrement).toBe(
-        defaultColumns
-      );
-      expect(
-        (mainBounds.height - hints.baseHeight) / hints.heightIncrement
-      ).toBe(defaultRows);
+      const geometry = await readWindowCellLayout(app);
+      expect(geometry.columns).toBe(defaultColumns);
+      expect(geometry.rows).toBe(defaultRows);
       expect(statusBarCapture.bounds.y).toBeGreaterThan(mainBounds.y);
       expect(
         statusBarCapture.bounds.y + statusBarCapture.bounds.height

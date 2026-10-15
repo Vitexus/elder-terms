@@ -219,18 +219,18 @@ ELDER_TERMS_API std::filesystem::path default_global_config_path();
  * Loads settings from optional INI files.
  *
  * @param options Global, persistent, and startup configuration paths.
- * @param default_terminal_zoom VTE's runtime default font scale.
+ * @param default_terminal_font_size_dip Default character size in device-independent pixels.
  * @returns Loaded settings and non-fatal warnings.
  */
 ELDER_TERMS_API SettingsLoadResult
 load_settings(const SettingsLoadOptions &options,
-              gdouble default_terminal_zoom);
+              gdouble default_terminal_font_size_dip);
 
 /**
  * Loads global defaults for editing.
  *
  * @param global_config_path Global defaults INI path.
- * @param default_terminal_zoom VTE's runtime default font scale.
+ * @param default_terminal_font_size_dip Default character size in device-independent pixels.
  * @returns Store whose global keys are represented as explicit overrides.
  *
  * @remarks A missing global file produces an empty, editable defaults store.
@@ -238,7 +238,7 @@ load_settings(const SettingsLoadOptions &options,
  */
 ELDER_TERMS_API SettingsLoadResult
 load_global_settings(const std::filesystem::path &global_config_path,
-                     gdouble default_terminal_zoom);
+                     gdouble default_terminal_font_size_dip);
 
 /**
  * Saves settings to an INI file.

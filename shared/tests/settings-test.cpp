@@ -120,7 +120,7 @@ using elder_terms::terminal_show_border_setting_key;
 using elder_terms::terminal_return_code_setting_key;
 using elder_terms::terminal_return_code_to_string;
 using elder_terms::terminal_width_setting_key;
-using elder_terms::terminal_zoom_setting_key;
+using elder_terms::terminal_font_size_dip_setting_key;
 using elder_terms::terminal_key_bindings;
 using elder_terms::terminal_send_break_key;
 using elder_terms::terminal_send_break_key_setting_key;
@@ -262,17 +262,17 @@ static void test_ssh_proxy_settings_round_trip_and_inheritance() {
 }
 
 static void test_default_settings() {
-  const gdouble default_zoom = 1.2;
+  const gdouble default_font_size_dip = 1.2;
   const SettingsStore store =
-      create_default_settings(default_terminal_display_settings(default_zoom),
+      create_default_settings(default_terminal_display_settings(default_font_size_dip),
                               "elder-terms");
   const TerminalDisplaySettings display = terminal_display_settings(store);
   expect_true(display.width == 80, "default terminal width should be 80");
   expect_true(display.height == 24, "default terminal height should be 24");
   expect_true(display.scrollback_lines == 10000,
               "default terminal scrollback should retain 10000 lines");
-  expect_true(display.zoom == default_zoom,
-              "default terminal zoom should be retained");
+  expect_true(display.font_size_dip == default_font_size_dip,
+              "default terminal font_size_dip should be retained");
   const TerminalFontFamilies fonts = terminal_font_families(store);
   expect_true(fonts.families == std::vector<std::string>{"Noto Sans Mono", "Monospace"},
               "the default font list should preserve the built-in order");
@@ -2484,7 +2484,7 @@ static void test_invalid_values_fall_back_to_defaults() {
                "[terminal]\n"
                "width=invalid\n"
                "height=-5\n"
-               "zoom=0\n"
+               "font_size_dip=0\n"
                "show_border=invalid\n"
                "\n"
                "[telnet]\n"
@@ -2506,8 +2506,8 @@ static void test_invalid_values_fall_back_to_defaults() {
               "invalid terminal width should fall back to default");
   expect_true(display.height == 24,
               "invalid terminal height should fall back to default");
-  expect_true(display.zoom == 1.0,
-              "invalid terminal zoom should fall back to default");
+  expect_true(display.font_size_dip == 1.0,
+              "invalid terminal font_size_dip should fall back to default");
   expect_true(general_auto_close(result.store),
               "invalid terminal auto-close should fall back to default");
   expect_true(!terminal_show_border(result.store),
@@ -2531,8 +2531,8 @@ static void test_invalid_values_fall_back_to_defaults() {
                                "invalid configuration value [terminal] height"),
               "invalid terminal height should emit a warning");
   expect_true(warnings_contain(result.warnings,
-                               "invalid configuration value [terminal] zoom"),
-              "invalid terminal zoom should emit a warning");
+                               "invalid configuration value [terminal] font_size_dip"),
+              "invalid terminal font_size_dip should emit a warning");
   expect_true(warnings_contain(
                   result.warnings,
                   "invalid configuration value [general] auto_close"),
@@ -2647,8 +2647,8 @@ static void test_public_setting_keys() {
                       "scrollback_lines",
               "terminal scrollback key should use [terminal] "
               "scrollback_lines");
-  expect_true(terminal_zoom_setting_key().name == "zoom",
-              "terminal zoom key should use the zoom name");
+  expect_true(terminal_font_size_dip_setting_key().name == "font_size_dip",
+              "terminal font_size_dip key should use the font_size_dip name");
   expect_true(terminal_font_families_setting_key().section == "terminal" &&
                   terminal_font_families_setting_key().name == "font_families",
               "the font list key should use [terminal] font_families");
@@ -2909,7 +2909,7 @@ static void test_save_settings_omits_default_values() {
                     elder_terms::SettingValue{gint64{81}});
   set_setting_value(&store, terminal_height_setting_key(),
                     elder_terms::SettingValue{gint64{24}});
-  set_setting_value(&store, terminal_zoom_setting_key(),
+  set_setting_value(&store, terminal_font_size_dip_setting_key(),
                     elder_terms::SettingValue{gdouble{1.0}});
   set_setting_value(&store, general_auto_close_setting_key(),
                     elder_terms::SettingValue{false});
@@ -2978,8 +2978,8 @@ static void test_save_settings_omits_default_values() {
               "saved settings should include text-send Return-code behavior");
   expect_true(content.find("height=") == std::string::npos,
               "saved settings should omit default terminal height");
-  expect_true(content.find("zoom=") == std::string::npos,
-              "saved settings should omit default terminal zoom");
+  expect_true(content.find("font_size_dip=") == std::string::npos,
+              "saved settings should omit default terminal font_size_dip");
   expect_true(content.find("zoom_out_key=") == std::string::npos,
               "saved settings should omit default zoom-out key");
   expect_true(content.find("port=") == std::string::npos,
@@ -3081,7 +3081,7 @@ static void test_save_explicit_value_equal_to_built_in() {
       create_default_settings(default_terminal_display_settings(1.0),
                               "elder-terms");
   set_explicit_setting_value(
-      &store, terminal_zoom_setting_key(),
+      &store, terminal_font_size_dip_setting_key(),
       elder_terms::SettingValue{gdouble{1.0}});
 
   const SettingsSaveResult result = save_settings(store, path);
@@ -3089,7 +3089,7 @@ static void test_save_explicit_value_equal_to_built_in() {
               "saving an explicit built-in value should succeed");
   const std::string content = read_config(path);
   remove_config(path);
-  expect_true(content.find("zoom=1") != std::string::npos,
+  expect_true(content.find("font_size_dip=1") != std::string::npos,
               "an explicit value equal to built-in should be persisted");
 }
 
@@ -3286,7 +3286,7 @@ static void test_global_settings_layer_priority_and_sources() {
   write_config(config_path,
                "[terminal]\n"
                "width=100\n"
-               "zoom=1.25\n");
+               "font_size_dip=1.25\n");
   write_config(startup_path,
                "[terminal]\n"
                "width=110\n");
@@ -3308,7 +3308,7 @@ static void test_global_settings_layer_priority_and_sources() {
               "startup settings should override connection and global values");
   expect_true(display.height == 30,
               "global settings should override built-in values");
-  expect_true(display.zoom == 1.25,
+  expect_true(display.font_size_dip == 1.25,
               "connection settings should override built-in values");
   expect_true(setting_value_source(result.store,
                                    terminal_width_setting_key()) ==

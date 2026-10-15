@@ -12,7 +12,7 @@
 namespace elder_terms {
 
 /**
- * Terminal display settings used to initialize VTE.
+ * Terminal grid, history and character size preferences.
  */
 struct TerminalDisplaySettings {
   /** Initial terminal columns. */
@@ -21,8 +21,8 @@ struct TerminalDisplaySettings {
   glong height;
   /** Maximum normal-screen scrollback history in lines. */
   glong scrollback_lines;
-  /** Initial VTE font scale. */
-  gdouble zoom;
+  /** Initial character size in 1/96-inch device-independent pixels. */
+  gdouble font_size_dip;
 };
 
 /**
@@ -32,8 +32,8 @@ struct TerminalDisplaySettings {
  * no size or style information.
  */
 struct TerminalFontFamilies {
-  /** Font family names in descending priority; an empty vector retains VTE's
-   * runtime family when used directly by the renderer. */
+  /** Font family names in descending priority; an empty vector selects the renderer
+   * default monospace family. */
   std::vector<std::string> families;
 };
 
@@ -60,11 +60,11 @@ struct TerminalKeyBindings {
 /**
  * Builds the default terminal display settings.
  *
- * @param default_zoom VTE's runtime default font scale.
+ * @param default_font_size_dip Default character size in device-independent pixels.
  * @returns Terminal display settings matching the current built-in behavior.
  */
 ELDER_TERMS_API TerminalDisplaySettings
-default_terminal_display_settings(gdouble default_zoom);
+default_terminal_display_settings(gdouble default_font_size_dip);
 
 /**
  * Returns the setting key for [terminal] width.
@@ -83,16 +83,16 @@ ELDER_TERMS_API SettingKey terminal_height_setting_key();
 /**
  * Returns the setting key for [terminal] scrollback_lines.
  *
- * @returns Setting key for the VTE scrollback buffer size.
+ * @returns Setting key for the terminal scrollback buffer size.
  */
 ELDER_TERMS_API SettingKey terminal_scrollback_lines_setting_key();
 
 /**
- * Returns the setting key for [terminal] zoom.
+ * Returns the setting key for [terminal] font_size_dip.
  *
- * @returns Setting key for terminal font scale.
+ * @returns Setting key for terminal character size in DIP.
  */
-ELDER_TERMS_API SettingKey terminal_zoom_setting_key();
+ELDER_TERMS_API SettingKey terminal_font_size_dip_setting_key();
 
 /**
  * Returns the setting key for [terminal] font_families.

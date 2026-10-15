@@ -39,6 +39,8 @@ struct TerminalLocalCommand {
   std::size_t io_chunk_size = 4096;
   /** iconv encoding at the peer boundary; the core always receives UTF-8. */
   std::string encoding = "UTF-8";
+  /** Observes completed local I/O; true denotes outgoing bytes. */
+  std::function<void(bool outgoing)> activity = {};
 };
 
 /** Snapshot separating spawn diagnostics, process exit, and resource recovery. */
@@ -57,6 +59,8 @@ struct TerminalConnectionState {
   int signal_number = 0;
   /** Communication or observation errno, separate from spawn errno. */
   int operation_error = 0;
+  /** Owned transport diagnostic, including authentication or device details. */
+  std::string operation_error_message;
   /** Whether cancellation was requested for this generation. */
   bool cancelled = false;
   /** Whether the sole child reaper completed. */
@@ -156,10 +160,11 @@ cardio::promise<bool> terminal_connection_resize(TerminalConnection *connection,
 
 /**
  * Exchanges the stream converters after draining already accepted output.
- * @param connection Connected owner, retained until completion.
+ * @param connection Opening or connected owner, retained until completion.
  * @param encoding Desired iconv encoding name.
  * @return False when inactive, busy, cancelled, or the encoding is unavailable.
- * @remarks The caller inhibits user input first. The receive boundary is the
+ * @remarks An opening connection replaces its unused converters directly.
+ * The caller inhibits user input first. The receive boundary is the
  * last completed transport read. Its partial character is finalized once;
  * neither display state nor connection generation is replaced.
  */

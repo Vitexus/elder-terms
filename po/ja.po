@@ -169,8 +169,8 @@ msgid "Scrollback lines"
 msgstr "スクロールバッファ行数"
 
 #: shared/src/settings-widget/settings-presentation.cpp:66
-msgid "Zoom factor"
-msgstr "拡大率"
+msgid "Font size (DIP)"
+msgstr "文字サイズ（DIP）"
 
 #: shared/src/settings-widget/settings-presentation.cpp:67
 msgid "Active indicator color"

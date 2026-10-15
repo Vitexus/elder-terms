@@ -15,7 +15,7 @@
 #include <vector>
 
 #include <gtk/gtk.h>
-#include <vte/vte.h>
+#include <type_traits>
 
 #define GETTEXT_PACKAGE "elder-terms"
 #include <glib/gi18n-lib.h>
@@ -38,13 +38,13 @@
 #include "sftp/sftp-fixture-client.h"
 #include "terminal-bell-player.h"
 #include "terminal-bell.h"
-#include "terminal-hyperlink-resolver.h"
-#include "terminal-layout.h"
+#include "terminal-hyperlink-action.h"
+#include "terminal-presentation.h"
+#include "terminal-runtime.h"
+#include "terminal-transports.h"
 #include "terminal-log.h"
-#include "terminal-macro-runner.h"
 #include "terminal-text-send.h"
 #include "terminal-transfer-runner.h"
-#include "terminal-session.h"
 #include "terminal-sessions/ssh-session/authenticated-ssh-transport.h"
 
 static constexpr char terminal_application_id[] =
@@ -52,14 +52,18 @@ static constexpr char terminal_application_id[] =
 
 struct ApplicationState {
   elder_terms::MainWindow *main_window = nullptr;
-  elder_terms::TerminalSessionState *session_state = nullptr;
-  elder_terms::TerminalLayoutState *layout_state = nullptr;
+  elder_terms::TerminalRuntime *runtime = nullptr;
+  elder_terms::TerminalPresentation *presentation = nullptr;
+  elder_terms::TerminalConnectionProfile active_profile;
+  std::optional<elder_terms::TerminalTransportRequest> transport;
+  std::uint64_t closed_generation = 0;
+  bool closing = false;
+  bool connect_when_ready = false;
+  bool audible_bell = true;
+  std::string terminal_title;
   elder_terms::TerminalLogState *log_state = nullptr;
-  elder_terms::TerminalMacroRunnerState *macro_runner = nullptr;
-  elder_terms::TerminalHyperlinkResolverState *hyperlink_resolver = nullptr;
   elder_terms::TerminalBellPlayer *bell_player = nullptr;
   elder_terms::TerminalBellState *bell_state = nullptr;
-  gulong bell_signal_id = 0;
   cardio::dispatcher_group_glib *dispatcher_group = nullptr;
   std::optional<cardio::promise<void>> shutdown_task;
   std::optional<cardio::promise<void>> ssh_prompt_fixture_task;
@@ -111,12 +115,8 @@ static void update_application_session_identity(ApplicationState *state);
 static void update_application_terminal_presentation(
     ApplicationState *state);
 
-static void on_terminal_bell(VteTerminal *, gpointer user_data) {
-  auto *state = static_cast<ApplicationState *>(user_data);
-  if (state != nullptr) {
-    elder_terms::ring_terminal_bell(state->bell_state);
-  }
-}
+static bool connect_application_terminal(ApplicationState *state);
+static void apply_zmodem_auto_start(ApplicationState *state);
 
 static void on_external_command_error_response(GtkDialog *dialog, gint,
                                                gpointer) {
@@ -237,64 +237,25 @@ static void spawn_macro_command(ApplicationState *state, std::string command,
 }
 
 static void apply_terminal_hyperlink_settings(ApplicationState *state) {
-  const std::vector<elder_terms::HyperlinkActionRule> rules =
-      elder_terms::effective_hyperlink_action_rules(state->settings_store);
-  elder_terms::destroy_terminal_hyperlink_resolver(
-      state->hyperlink_resolver);
-  state->hyperlink_resolver =
-      elder_terms::create_terminal_hyperlink_resolver(rules);
-
-  const bool osc8_actions_enabled =
-      std::any_of(rules.begin(), rules.end(),
-                  [](const elder_terms::HyperlinkActionRule &rule) {
-                    return rule.recognition_source ==
-                           elder_terms::HyperlinkRecognitionSource::osc8;
-                  });
-  vte_terminal_set_allow_hyperlink(
-      VTE_TERMINAL(state->main_window->terminal),
-      osc8_actions_enabled ? TRUE : FALSE);
-
-  std::vector<std::string> terminal_text_patterns;
-  for (const elder_terms::HyperlinkActionRule &rule : rules) {
-    if (rule.recognition_source ==
-        elder_terms::HyperlinkRecognitionSource::terminal_text) {
-      terminal_text_patterns.push_back(rule.pattern);
-    }
-  }
-  elder_terms::set_main_window_terminal_hyperlink_callbacks(
-      state->main_window, terminal_text_patterns,
-      {
-          .activate =
-              [state](elder_terms::MainWindowTerminalHyperlinkCandidates
-                          candidates) {
-                const std::optional<
-                    elder_terms::TerminalHyperlinkResolution>
-                    resolution = elder_terms::resolve_terminal_hyperlink(
-                        state->hyperlink_resolver,
-                        elder_terms::TerminalHyperlinkCandidates{
-                            .osc8_target =
-                                std::move(candidates.osc8_target),
-                            .terminal_text =
-                                std::move(candidates.terminal_text),
-                        });
-                if (!resolution.has_value()) {
-                  return false;
-                }
-                if (!resolution->action.has_value()) {
-                  show_external_command_error(
-                      state, "hyperlink command",
-                      _("Hyperlink command failed"),
-                      "hyperlink_command_error_dialog", resolution->error);
-                  return true;
-                }
-                (void)spawn_external_command(
-                    state, resolution->action->command,
-                    resolution->action->arguments, "hyperlink command",
-                    _("Hyperlink command failed"),
-                    "hyperlink_command_error_dialog");
-                return true;
-              },
+  elder_terms::terminal_runtime_set_hyperlink_rules(state->runtime,
+      elder_terms::effective_hyperlink_action_rules(state->settings_store),
+      [state](elder_terms::TerminalHyperlinkResolution resolution) {
+        if (!resolution.action) {
+          show_external_command_error(state, "hyperlink command", _("Hyperlink command failed"),
+              "hyperlink_command_error_dialog", resolution.error);
+          return;
+        }
+        spawn_external_command(state, resolution.action->command, resolution.action->arguments,
+            "hyperlink command", _("Hyperlink command failed"), "hyperlink_command_error_dialog");
       });
+}
+
+static void apply_received_macros(ApplicationState *state) {
+  elder_terms::terminal_runtime_set_macro_rules(state->runtime, state->settings_store.macro_rules,
+      elder_terms::transfer_text_send_follow_return_code(state->settings_store),
+      [state](std::string command, std::vector<std::string> arguments) {
+        spawn_macro_command(state, std::move(command), std::move(arguments));
+      }, [](std::string message) { std::cerr << "Warning: received macro: " << message << '\n'; });
 }
 
 static std::string format_translated_string(const char *format, ...) {
@@ -418,12 +379,29 @@ run_ssh_prompt_fixture_async(ApplicationState *state,
                               : _("SSH prompt cancelled"));
 }
 
+static gboolean destroy_terminal_window_idle(gpointer context) {
+  auto *state = static_cast<ApplicationState *>(context);
+  elder_terms::terminal_runtime_set_changed_callback(state->runtime, nullptr, nullptr);
+  elder_terms::terminal_runtime_set_host_callbacks(state->runtime, {});
+  elder_terms::destroy_terminal_presentation(state->presentation);
+  state->presentation = nullptr;
+  elder_terms::destroy_terminal_runtime(state->runtime);
+  state->runtime = nullptr;
+  state->main_window->runtime = nullptr;
+  state->main_window->terminal = nullptr;
+  state->terminal_shutdown_complete = true;
+  if (state->window) gtk_widget_destroy(state->window);
+  maybe_shutdown_application(state);
+  return G_SOURCE_REMOVE;
+}
+
 static cardio::promise<void>
 stop_application_async(ApplicationState *state) {
-  co_await elder_terms::stop_terminal_session_async(state->session_state);
+  co_await elder_terms::terminal_runtime_disconnect(state->runtime);
   co_await elder_terms::stop_terminal_log_async(state->log_state);
-  state->terminal_shutdown_complete = true;
-  maybe_shutdown_application(state);
+  // A close request may originate inside a runtime frame notification. Release
+  // its callbacks and widgets only after that dispatch has returned.
+  g_idle_add_full(G_PRIORITY_DEFAULT, destroy_terminal_window_idle, state, nullptr);
 }
 
 static cardio::promise<void> check_shared_sftp_connection_async(
@@ -490,7 +468,7 @@ static void update_application_reconnect_presentation(ApplicationState *state) {
       state->main_window,
       elder_terms::terminal_reconnect_presentation(
           profile->kind, state->auto_close, state->connection_phase,
-          elder_terms::terminal_session_can_reconnect(state->session_state),
+          (elder_terms::terminal_runtime_connection_state(state->runtime).phase == elder_terms::TerminalConnectionPhase::closed && !state->closing),
           false));
 }
 
@@ -499,7 +477,7 @@ static void on_reconnect_clicked(GtkButton *, gpointer user_data) {
   if (state == nullptr || state->window == nullptr || state->auto_close) {
     return;
   }
-  (void)elder_terms::reconnect_terminal_session(state->session_state);
+  (void)connect_application_terminal(state);
 }
 
 static void update_application_terminal_presentation(
@@ -530,36 +508,28 @@ static void on_parent_sensitivity_changed(GObject *, GParamSpec *, gpointer data
 }
 
 static void update_application_session_identity(ApplicationState *state) {
-  if (state == nullptr) {
-    return;
-  }
-
-  const char *terminal_title = nullptr;
-  if (state->main_window != nullptr && state->main_window->terminal != nullptr) {
-#if VTE_CHECK_VERSION(0, 78, 0)
-    terminal_title = vte_terminal_get_termprop_string(
-        VTE_TERMINAL(state->main_window->terminal),
-        VTE_TERMPROP_XTERM_TITLE, nullptr);
-#else
-    terminal_title = vte_terminal_get_window_title(
-        VTE_TERMINAL(state->main_window->terminal));
-#endif
-  }
-  elder_terms::set_main_window_title(
-      state->main_window,
-      elder_terms::terminal_session_window_title(
-          state->session_state, terminal_title != nullptr ? terminal_title : ""));
-  elder_terms::set_main_window_status_text(
-      state->main_window,
-      elder_terms::terminal_session_connection_detail(state->session_state));
-}
-
-#if VTE_CHECK_VERSION(0, 78, 0)
-static void on_terminal_title_changed(VteTerminal *, const char *, gpointer data) {
-#else
-static void on_terminal_title_changed(VteTerminal *, gpointer data) {
-#endif
-  update_application_session_identity(static_cast<ApplicationState *>(data));
+  if (!state || !state->window) return;
+  const auto title = state->terminal_title.empty() ? std::string("elder-terms") : state->terminal_title;
+  elder_terms::set_main_window_title(state->main_window, title + " | " + state->active_profile.name);
+  const auto detail = std::visit([](const auto &settings) -> std::string {
+    using Settings = std::decay_t<decltype(settings)>;
+    if constexpr (std::is_same_v<Settings, elder_terms::LocalShellConnectionSettings>) return _("local terminal");
+    else if constexpr (std::is_same_v<Settings, elder_terms::TelnetConnectionSettings>)
+      return settings.address.empty() ? _("telnet: (unknown)") : "telnet: " + settings.address + ":" + std::to_string(settings.port);
+    else if constexpr (std::is_same_v<Settings, elder_terms::SshConnectionSettings>) {
+      if (settings.endpoint.address.empty()) return _("ssh: (unknown)");
+      return "ssh: " + (settings.endpoint.username.empty() ? std::string() : settings.endpoint.username + "@") +
+          settings.endpoint.address + ":" + std::to_string(settings.endpoint.port);
+    } else {
+      if (settings.device.empty()) return _("serial: (unknown)");
+      const char flow = settings.flow_control == elder_terms::SerialFlowControl::xon ? 'x' :
+          settings.flow_control == elder_terms::SerialFlowControl::hard ? 'h' : 'n';
+      return "serial: " + settings.device + ":" + std::to_string(settings.baudrate) + ":" +
+          elder_terms::serial_parity_to_string(settings.parity) + std::to_string(settings.bits) +
+          std::to_string(settings.stop_bit) + flow;
+    }
+  }, state->active_profile.settings);
+  elder_terms::set_main_window_status_text(state->main_window, detail);
 }
 
 static void set_application_transfer_progress_visible(ApplicationState *state,
@@ -590,8 +560,7 @@ static void set_application_connection_phase(
 
   if (phase == elder_terms::TerminalSessionConnectionPhase::connecting) {
     state->connection_failed = false;
-    elder_terms::replace_terminal_macro_runner_rules(
-        state->macro_runner, state->settings_store.macro_rules);
+    apply_received_macros(state);
     update_application_session_identity(state);
   }
   const elder_terms::TerminalConnectionPresentation presentation =
@@ -662,9 +631,105 @@ static void on_main_window_destroy(GtkWidget *, gpointer user_data) {
   close_settings_dialog(state);
   close_transfer_file_dialog(state);
   elder_terms::set_terminal_log_connection_active(state->log_state, false);
-  elder_terms::stop_terminal_session(state->session_state);
-  if (!state->shutdown_task.has_value()) {
+  if (!state->closing) {
+    state->closing = true;
     state->shutdown_task.emplace(stop_application_async(state));
+  }
+  maybe_shutdown_application(state);
+}
+
+static gboolean on_main_window_delete(GtkWidget *, GdkEvent *, gpointer data) {
+  auto *state = static_cast<ApplicationState *>(data);
+  if (!state->closing) {
+    state->closing = true;
+    elder_terms::cancel_main_window_ssh_prompt(state->main_window);
+    close_settings_dialog(state);
+    close_transfer_file_dialog(state);
+    state->shutdown_task.emplace(stop_application_async(state));
+  }
+  return TRUE;
+}
+
+static bool connect_application_terminal(ApplicationState *state) {
+  if (state->closing) return false;
+  const auto profile = elder_terms::terminal_connection_profile(state->settings_store);
+  if (!profile) return false;
+  state->active_profile = *profile;
+  state->transport.reset();
+  elder_terms::TerminalSessionCallbacks callbacks;
+  callbacks.activity = [state](elder_terms::ActivityIndicatorId id) { elder_terms::note_main_window_activity(state->main_window, id); };
+  callbacks.indicator_state = [state](elder_terms::ActivityIndicatorId id, bool active) {
+    elder_terms::set_main_window_indicator_state(state->main_window, id, active);
+  };
+  callbacks.connection_phase = [state](elder_terms::TerminalSessionConnectionPhase phase) {
+    if (!state->closing) set_application_connection_phase(state, phase);
+  };
+  callbacks.ssh_prompt = [state](const elder_terms::SshUserPrompt &prompt, cardio::cancellation cancellation) {
+    return elder_terms::prompt_main_window_ssh_async(state->main_window, prompt, cancellation);
+  };
+  const elder_terms::AuthenticatedSshTransportOptions options{
+      state->test_options.ssh_known_hosts_file, {}, profile->ssh_proxy};
+  elder_terms::terminal_runtime_request_input_settings(state->runtime, profile->text_settings);
+  set_application_connection_phase(state, elder_terms::TerminalSessionConnectionPhase::connecting);
+  return std::visit([&](const auto &settings) {
+    using Settings = std::decay_t<decltype(settings)>;
+    if constexpr (std::is_same_v<Settings, elder_terms::LocalShellConnectionSettings>) {
+      elder_terms::TerminalLocalCommand command;
+      command.arguments = settings.argv;
+      if (command.arguments.empty()) {
+        const auto *shell = g_getenv("SHELL");
+        command.arguments.push_back(shell && *shell ? shell : "/bin/sh");
+      }
+      command.encoding = profile->text_settings.encoding;
+      command.activity = [state](bool outgoing) {
+        elder_terms::note_main_window_activity(state->main_window,
+            outgoing ? elder_terms::ActivityIndicatorId::sd : elder_terms::ActivityIndicatorId::rd);
+      };
+      return elder_terms::terminal_runtime_connect_local(state->runtime, std::move(command));
+    } else {
+      if constexpr (std::is_same_v<Settings, elder_terms::TelnetConnectionSettings>)
+        state->transport = elder_terms::make_telnet_transport_request(settings, profile->text_settings.encoding, callbacks, options);
+      else if constexpr (std::is_same_v<Settings, elder_terms::SshConnectionSettings>)
+        state->transport = elder_terms::make_ssh_transport_request(settings, profile->text_settings.encoding, callbacks, options);
+      else state->transport = elder_terms::make_serial_transport_request(settings, profile->text_settings.encoding, callbacks);
+      return elder_terms::terminal_runtime_connect_transport(state->runtime, *state->transport);
+    }
+  }, profile->settings);
+}
+
+static void application_terminal_changed(void *context) {
+  auto *state = static_cast<ApplicationState *>(context);
+  if (!state->window || state->closing) return;
+  elder_terms::refresh_terminal_presentation(state->presentation);
+  if (state->test_options.fixture) return;
+  if (state->connect_when_ready && elder_terms::terminal_runtime_is_settled(state->runtime)) {
+    state->connect_when_ready = false;
+    if (!connect_application_terminal(state))
+      set_application_connection_phase(state, elder_terms::TerminalSessionConnectionPhase::disconnected);
+  }
+  const auto connection = elder_terms::terminal_runtime_connection_state(state->runtime);
+  if (connection.phase == elder_terms::TerminalConnectionPhase::connected) {
+    const auto phase = connection.carrier_connected ? elder_terms::TerminalSessionConnectionPhase::connected :
+        elder_terms::TerminalSessionConnectionPhase::disconnected;
+    if (phase != state->connection_phase) set_application_connection_phase(state, phase);
+  } else if (connection.phase == elder_terms::TerminalConnectionPhase::starting) {
+    if (state->connection_phase == elder_terms::TerminalSessionConnectionPhase::disconnected)
+      set_application_connection_phase(state, elder_terms::TerminalSessionConnectionPhase::connecting);
+  } else if (connection.phase == elder_terms::TerminalConnectionPhase::closed && connection.generation != state->closed_generation) {
+    state->closed_generation = connection.generation;
+    if (connection.operation_error || connection.spawn.state == BOXRIG_POSIX_PTY_SPAWN_FAILED) {
+      state->connection_failed = state->active_profile.kind == elder_terms::TerminalConnectionKind::ssh;
+      const auto message = connection.operation_error_message.empty() ?
+          std::string(g_strerror(connection.operation_error ? connection.operation_error : connection.spawn.error_number)) :
+          connection.operation_error_message;
+      std::cerr << "Error: " << message << '\n';
+      if (state->active_profile.kind == elder_terms::TerminalConnectionKind::ssh ||
+          state->active_profile.kind == elder_terms::TerminalConnectionKind::telnet)
+        elder_terms::set_main_window_connection_failure(state->main_window, message, state->active_profile.kind);
+    }
+    set_application_connection_phase(state, elder_terms::TerminalSessionConnectionPhase::disconnected);
+    if (state->auto_close && !state->connection_failed && state->active_profile.kind != elder_terms::TerminalConnectionKind::serial)
+      gtk_window_close(GTK_WINDOW(state->window));
   }
 }
 
@@ -727,8 +792,7 @@ static void apply_runtime_settings(ApplicationState *state,
   elder_terms::apply_terminal_bell_settings(
       state->bell_state,
       elder_terms::terminal_bell_settings(state->settings_store));
-  elder_terms::replace_terminal_macro_runner_rules(
-      state->macro_runner, state->settings_store.macro_rules);
+  apply_received_macros(state);
   apply_terminal_hyperlink_settings(state);
   const elder_terms::GeneralColorSettings colors =
       elder_terms::general_color_settings(state->settings_store);
@@ -765,37 +829,31 @@ static void apply_runtime_settings(ApplicationState *state,
   }
   elder_terms::set_main_window_activity_indicator_connection_kind(
       state->main_window, connection_profile->kind);
-  elder_terms::apply_terminal_session_connection_profile(
-      state->session_state, connection_profile.value());
-  elder_terms::set_terminal_session_zmodem_autostart(
-      state->session_state,
-      elder_terms::transfer_zmodem_autostart(state->settings_store));
-  elder_terms::set_main_window_transfer_button_visible(
-      state->main_window,
-      elder_terms::terminal_session_supports_transfer(state->session_state) ||
-          elder_terms::terminal_session_supports_text_send(
-              state->session_state));
+  state->active_profile.name = connection_profile->name;
+  state->active_profile.text_settings = connection_profile->text_settings;
+  elder_terms::terminal_runtime_request_input_settings(state->runtime, connection_profile->text_settings);
+  const auto connection = elder_terms::terminal_runtime_connection_state(state->runtime);
+  if (connection.encoding != connection_profile->text_settings.encoding)
+    elder_terms::terminal_runtime_request_encoding(state->runtime, connection_profile->text_settings.encoding);
+  if (state->transport) state->transport->encoding = connection_profile->text_settings.encoding;
+  if (const auto *serial = std::get_if<elder_terms::SerialConnectionSettings>(&connection_profile->settings)) {
+    if (std::holds_alternative<elder_terms::SerialConnectionSettings>(state->active_profile.settings)) {
+      try {
+        if (state->transport && state->transport->configure_serial) state->transport->configure_serial(*serial);
+        auto updated = *serial;
+        const auto &current = std::get<elder_terms::SerialConnectionSettings>(state->active_profile.settings);
+        updated.device = current.device;
+        updated.device_match_mode = current.device_match_mode;
+        updated.device_usb_serial = current.device_usb_serial;
+        state->active_profile.settings = updated;
+      } catch (const std::exception &error) { std::cerr << "Warning: serial settings: " << error.what() << '\n'; }
+    }
+  }
+  apply_zmodem_auto_start(state);
+  elder_terms::set_main_window_transfer_button_visible(state->main_window, true);
   update_application_terminal_presentation(state);
   update_application_session_identity(state);
-  elder_terms::apply_terminal_display_settings(
-      state->layout_state,
-      elder_terms::terminal_display_settings(state->settings_store));
-  elder_terms::apply_terminal_font_families(
-      state->layout_state,
-      elder_terms::terminal_font_families(state->settings_store));
-  elder_terms::apply_terminal_key_bindings(
-      state->layout_state,
-      elder_terms::terminal_key_bindings(state->settings_store));
-  elder_terms::apply_terminal_border_width(
-      state->layout_state,
-      elder_terms::terminal_border_width(state->settings_store));
-  elder_terms::apply_terminal_border_visibility(
-      state->layout_state,
-      elder_terms::terminal_show_border(state->settings_store));
-  const bool compact_mode =
-      elder_terms::general_compact_mode(state->settings_store);
-  elder_terms::apply_terminal_compact_mode(state->layout_state, compact_mode);
-  elder_terms::set_main_window_compact_mode(state->main_window, compact_mode);
+  (void)elder_terms::apply_terminal_presentation(state->presentation, state->settings_store);
 }
 
 static bool save_runtime_settings(
@@ -834,8 +892,8 @@ static void update_runtime_terminal_display_settings(
       elder_terms::SettingValue{
           static_cast<gint64>(terminal_display_settings.scrollback_lines)});
   elder_terms::set_setting_value(
-      &state->settings_store, elder_terms::terminal_zoom_setting_key(),
-      elder_terms::SettingValue{terminal_display_settings.zoom});
+      &state->settings_store, elder_terms::terminal_font_size_dip_setting_key(),
+      elder_terms::SettingValue{terminal_display_settings.font_size_dip});
 
   if (state->settings_widget != nullptr) {
     elder_terms::update_settings_widget_store(
@@ -991,7 +1049,7 @@ static void on_transfer_file_dialog_response(GtkDialog *dialog,
   }
   gtk_widget_destroy(GTK_WIDGET(dialog));
 
-  if (!uris.empty() && selected) {
+  if (selected) {
     selected(std::move(uris));
     return;
   }
@@ -1051,7 +1109,7 @@ static void choose_transfer_files(
   elder_terms::show_modal_dialog(dialog, GTK_WINDOW(state->window));
 }
 
-static bool start_transfer_request(ApplicationState *state,
+static elder_terms::TerminalTransferRequest make_transfer_request(ApplicationState *state,
                                    const TransferMenuAction &action,
                                    std::vector<std::string> source_uris) {
   elder_terms::TerminalTransferRequest request{
@@ -1081,8 +1139,12 @@ static bool start_transfer_request(ApplicationState *state,
           },
   };
 
-  return elder_terms::start_terminal_session_transfer(state->session_state,
-                                                      std::move(request));
+  return request;
+}
+
+static bool start_transfer_request(ApplicationState *state, const TransferMenuAction &action,
+    std::vector<std::string> source_uris) {
+  return elder_terms::terminal_runtime_start_transfer(state->runtime, make_transfer_request(state, action, std::move(source_uris)));
 }
 
 static void on_transfer_menu_item_activate(GtkMenuItem *item,
@@ -1101,6 +1163,7 @@ static void on_transfer_menu_item_activate(GtkMenuItem *item,
         state,
         action->protocol != elder_terms::TerminalTransferProtocol::xmodem,
         [state, selected_action](std::vector<std::string> selected_uris) {
+          if (selected_uris.empty()) return;
           if (!start_transfer_request(state, selected_action,
                                       std::move(selected_uris))) {
             elder_terms::set_main_window_status_text(
@@ -1118,39 +1181,41 @@ static void on_transfer_menu_item_activate(GtkMenuItem *item,
   }
 }
 
-static void start_zmodem_auto_transfer(
-    ApplicationState *state,
-    elder_terms::TerminalTransferDirection direction) {
-  if (state == nullptr || !state->connection_active || state->transfer_active ||
-      !elder_terms::transfer_zmodem_autostart(state->settings_store)) {
-    return;
-  }
+struct AutoTransferSelection {
+  cardio::primitives::conditional changed;
+  bool ready = false;
+  std::vector<std::string> uris;
+};
 
-  TransferMenuAction action{
-      .protocol = elder_terms::TerminalTransferProtocol::zmodem,
-      .direction = direction,
-      .options = elder_terms::TerminalTransferOptions{},
-  };
-
-  if (direction == elder_terms::TerminalTransferDirection::send) {
-    choose_transfer_files(
-        state, true,
-        [state, action](std::vector<std::string> selected_uris) {
-          if (!start_transfer_request(state, action,
-                                      std::move(selected_uris))) {
-            elder_terms::set_main_window_status_text(
-                state->main_window, _("Transfer unavailable"));
-            update_application_terminal_presentation(state);
-            restore_terminal_focus(state);
-          }
-        });
-    return;
+static cardio::promise<std::optional<elder_terms::TerminalTransferRequest>> select_auto_transfer(
+    ApplicationState *state, elder_terms::TerminalTransferDirection direction, cardio::cancellation cancellation) {
+  TransferMenuAction action{elder_terms::TerminalTransferProtocol::zmodem, direction, {}};
+  if (direction == elder_terms::TerminalTransferDirection::receive)
+    co_return make_transfer_request(state, action, {});
+  auto selection = std::make_shared<AutoTransferSelection>();
+  choose_transfer_files(state, true, [selection](std::vector<std::string> uris) {
+    selection->uris = std::move(uris);
+    selection->ready = true;
+    selection->changed.trigger();
+  });
+  try {
+    while (!selection->ready) co_await selection->changed.wait(cancellation);
+    cancellation.throw_if_cancellation_requested();
+  } catch (const cardio::canceled_exception &) {
+    close_transfer_file_dialog(state);
+    co_return std::nullopt;
   }
+  if (selection->uris.empty()) co_return std::nullopt;
+  co_return make_transfer_request(state, action, std::move(selection->uris));
+}
 
-  if (!start_transfer_request(state, action, {})) {
-    elder_terms::set_main_window_status_text(state->main_window,
-                                             _("Transfer unavailable"));
-  }
+static void apply_zmodem_auto_start(ApplicationState *state) {
+  elder_terms::TerminalZmodemAutoStart select;
+  if (elder_terms::transfer_zmodem_autostart(state->settings_store))
+    select = [state](elder_terms::TerminalTransferDirection direction, cardio::cancellation cancellation) {
+      return select_auto_transfer(state, direction, cancellation);
+    };
+  elder_terms::terminal_runtime_set_zmodem_auto_start(state->runtime, std::move(select));
 }
 
 static elder_terms::TerminalTransferOptions make_xmodem_transfer_options(
@@ -1222,25 +1287,27 @@ static bool start_text_send_request(ApplicationState *state,
             elder_terms::set_main_window_transfer_progress(state->main_window,
                                                            progress);
           },
-      .finished = [state](bool) { restore_terminal_focus(state); },
+      .finished = [state](bool succeeded) {
+        if (succeeded) update_application_session_identity(state);
+        else elder_terms::set_main_window_status_text(state->main_window, _("Text send failed"));
+        restore_terminal_focus(state);
+      },
   };
-  return elder_terms::start_terminal_session_text_send(state->session_state,
+  return elder_terms::terminal_runtime_start_text_send(state->runtime,
                                                        std::move(request));
 }
 
 static bool can_paste_terminal_text(const ApplicationState *state) {
   return state != nullptr && state->window != nullptr &&
          state->connection_active && !state->transfer_active &&
-         !elder_terms::has_modal_dialog(state->window) &&
-         elder_terms::terminal_session_supports_text_send(
-             state->session_state);
+         !elder_terms::has_modal_dialog(state->window);
 }
 
 static bool can_send_terminal_break(const ApplicationState *state) {
   return state != nullptr && state->window != nullptr &&
          state->connection_active && !state->transfer_active &&
          !elder_terms::has_modal_dialog(state->window) &&
-         elder_terms::terminal_session_supports_break(state->session_state);
+         elder_terms::terminal_runtime_can_send_break(state->runtime);
 }
 
 static void request_terminal_break(ApplicationState *state) {
@@ -1256,8 +1323,8 @@ static void request_terminal_break(ApplicationState *state) {
 
   elder_terms::set_main_window_status_text(state->main_window,
                                            _("Sending BREAK"));
-  const bool accepted = elder_terms::send_terminal_session_break(
-      state->session_state,
+  const bool accepted = elder_terms::terminal_runtime_send_break(
+      state->runtime,
       {
           .status =
               [state](std::string status) {
@@ -1265,7 +1332,9 @@ static void request_terminal_break(ApplicationState *state) {
                     state->main_window, status);
               },
           .finished =
-              [state](bool) {
+              [state](bool succeeded) {
+                elder_terms::set_main_window_status_text(state->main_window,
+                    succeeded ? _("BREAK sent") : _("BREAK failed"));
                 restore_terminal_focus(state);
               },
       });
@@ -1285,6 +1354,7 @@ static void on_text_send_menu_item_activate(GtkMenuItem *,
   choose_transfer_files(
       state, false,
       [state](std::vector<std::string> selected_uris) {
+        if (selected_uris.empty()) return;
         if (!start_text_send_request(
                 state,
                 elder_terms::TerminalTextSendFileSource{
@@ -1371,8 +1441,7 @@ static cardio::promise<void> reconnect_shared_sftp_window_async(
       state->test_options.shared_sftp_disconnected = false;
     } else {
       elder_terms::TerminalSessionCallbacks callbacks{
-          .ended = {}, .activity = {}, .indicator_state = {}, .connection_phase = {},
-          .failure = {}, .output = {}, .zmodem_auto_start = {},
+          .activity = {}, .indicator_state = {}, .connection_phase = {},
           .ssh_prompt = [state](const elder_terms::SshUserPrompt &prompt,
                                cardio::cancellation cancellation) -> cardio::promise<elder_terms::SshUserPromptResponse> {
             elder_terms::InlinePromptRequest request{
@@ -1508,8 +1577,7 @@ static void on_sftp_menu_item_activate(GtkMenuItem *,
   std::shared_ptr<elder_terms::AuthenticatedSshTransport> transport;
   if (!state->test_options.fixture) {
     transport =
-        elder_terms::terminal_session_authenticated_ssh_transport(
-            state->session_state);
+        elder_terms::terminal_runtime_authenticated_ssh(state->runtime);
     if (transport == nullptr) {
       elder_terms::set_main_window_status_text(
           state->main_window, _("SFTP unavailable"));
@@ -1583,22 +1651,18 @@ static void install_transfer_menu(ApplicationState *state) {
                           create_sftp_menu_item(state));
   }
 
-  if (elder_terms::terminal_session_supports_text_send(state->session_state)) {
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu),
-                          create_text_send_menu_item(state));
-  }
+  gtk_menu_shell_append(GTK_MENU_SHELL(menu),
+                        create_text_send_menu_item(state));
 
-  if (!elder_terms::terminal_session_supports_transfer(state->session_state)) {
+  if (state->active_profile.kind == elder_terms::TerminalConnectionKind::local_shell) {
     gtk_widget_show_all(menu);
     gtk_menu_button_set_popup(
         GTK_MENU_BUTTON(state->main_window->transfer_button), menu);
     return;
   }
 
-  if (elder_terms::terminal_session_supports_text_send(state->session_state)) {
-    gtk_menu_shell_append(GTK_MENU_SHELL(menu),
-                          gtk_separator_menu_item_new());
-  }
+  gtk_menu_shell_append(GTK_MENU_SHELL(menu),
+                        gtk_separator_menu_item_new());
 
   gtk_menu_shell_append(
       GTK_MENU_SHELL(menu),
@@ -1686,7 +1750,7 @@ static bool select_new_window_connection(elder_terms::LaunchOptions *options) {
     return true;
   }
   const auto global_path = elder_terms::default_global_config_path();
-  const auto global = elder_terms::load_global_settings(global_path, 1.0);
+  const auto global = elder_terms::load_global_settings(global_path, 12.0);
   const auto name = elder_terms::application_new_window_connection(global.store);
   if (name.empty()) {
     return true;
@@ -1721,8 +1785,6 @@ int main(int argc, char **argv) {
   g_set_prgname(terminal_application_id);
   (void)elder_terms::initialize_application_window_icon();
 
-  g_type_ensure(VTE_TYPE_TERMINAL);
-
   cardio::dispatcher_group_glib dispatcher_group;
   cardio::dispatcher_host_glib dispatcher(dispatcher_group);
 
@@ -1733,16 +1795,14 @@ int main(int argc, char **argv) {
   elder_terms::set_main_window_activity_indicators_latched(
       &*main_window, launch_options.test.latch_activity_indicators);
 
-  auto vte_terminal = VTE_TERMINAL(main_window->terminal);
-  const auto default_zoom =
-    vte_terminal_get_font_scale(vte_terminal);
+  const double default_font_size_dip = 12.0;
   const elder_terms::SettingsLoadOptions settings_load_options{
       .config_path = launch_options.config_path,
       .startup_config_path = launch_options.startup_config_path,
       .global_config_path = elder_terms::default_global_config_path(),
   };
   const auto settings_result =
-    elder_terms::load_settings(settings_load_options, default_zoom);
+    elder_terms::load_settings(settings_load_options, default_font_size_dip);
 
   for (const std::string &warning : settings_result.warnings) {
     std::cerr << warning << '\n';
@@ -1751,6 +1811,7 @@ int main(int argc, char **argv) {
   if (launch_options.new_window && !settings_result.loaded) {
     std::cerr << "Error: failed to load the New Window connection\n";
     gtk_widget_destroy(main_window->window);
+    elder_terms::release_main_window(&*main_window);
     return 1;
   }
 
@@ -1761,6 +1822,7 @@ int main(int argc, char **argv) {
     std::cerr << "Error: configured connection type is not a terminal "
                  "connection\n";
     gtk_widget_destroy(main_window->window);
+    elder_terms::release_main_window(&*main_window);
     return 1;
   }
   elder_terms::set_main_window_colors(
@@ -1772,52 +1834,20 @@ int main(int argc, char **argv) {
   elder_terms::set_main_window_compact_mode(
       &*main_window, elder_terms::general_compact_mode(settings_result.store));
 
-  ApplicationState app_state{
-      .main_window = &*main_window,
-      .session_state = nullptr,
-      .layout_state = nullptr,
-      .log_state = nullptr,
-      .macro_runner = nullptr,
-      .hyperlink_resolver = nullptr,
-      .bell_player = nullptr,
-      .bell_state = nullptr,
-      .bell_signal_id = 0,
-      .dispatcher_group = &dispatcher_group,
-      .shutdown_task = std::nullopt,
-      .ssh_prompt_fixture_task = std::nullopt,
-      .sftp_open_task = std::nullopt,
-      .sftp_close_task = std::nullopt,
-      .sftp_connection_check_task = std::nullopt,
-      .sftp_cancel_source = std::nullopt,
-      .sftp_transport = nullptr,
-      .sftp_client = nullptr,
-      .sftp_window = nullptr,
-      .settings_store = settings_result.store,
-      .config_path = launch_options.config_path,
-      .test_options = launch_options.test,
-      .auto_close = elder_terms::general_auto_close(settings_result.store),
-      .connection_phase =
-          elder_terms::TerminalSessionConnectionPhase::disconnected,
-      .connection_active = false,
-      .connection_failed = false,
-      .transfer_active = false,
-      .sftp_opening = false,
-      .sftp_connection_check_active = false,
-      .terminal_shutdown_complete = false,
-      .window = main_window->window,
-      .settings_dialog = nullptr,
-      .transfer_file_dialog = nullptr,
-      .settings_dialog_close_idle_id = 0,
-      .settings_widget = nullptr,
-      .log_enabled_menu_item = nullptr,
-  };
+  ApplicationState app_state;
+  app_state.main_window = &*main_window;
+  app_state.runtime = main_window->runtime;
+  app_state.active_profile = *connection_profile;
+  app_state.dispatcher_group = &dispatcher_group;
+  app_state.settings_store = settings_result.store;
+  app_state.config_path = launch_options.config_path;
+  app_state.test_options = launch_options.test;
+  app_state.auto_close = elder_terms::general_auto_close(settings_result.store);
+  app_state.window = main_window->window;
 
   app_state.bell_player = elder_terms::create_terminal_bell_player();
   app_state.bell_state = elder_terms::create_terminal_bell({
-      .set_audible = [vte_terminal](bool audible) {
-        vte_terminal_set_audible_bell(vte_terminal,
-                                      audible ? TRUE : FALSE);
-      },
+      .set_audible = [&app_state](bool audible) { app_state.audible_bell = audible; },
       .cancel_playback = [&app_state]() {
         elder_terms::cancel_terminal_bell_playback(app_state.bell_player);
       },
@@ -1829,9 +1859,6 @@ int main(int argc, char **argv) {
         std::cerr << "Warning: " << message << '\n';
       },
   });
-  app_state.bell_signal_id =
-      g_signal_connect(vte_terminal, "bell", G_CALLBACK(on_terminal_bell),
-                       &app_state);
   elder_terms::apply_terminal_bell_settings(
       app_state.bell_state,
       elder_terms::terminal_bell_settings(app_state.settings_store));
@@ -1846,111 +1873,37 @@ int main(int argc, char **argv) {
       .warning = {},
   });
 
-  const auto terminal_display_settings =
-    elder_terms::terminal_display_settings(app_state.settings_store);
-  const auto terminal_font_families =
-    elder_terms::terminal_font_families(app_state.settings_store);
-  const auto terminal_key_bindings =
-    elder_terms::terminal_key_bindings(app_state.settings_store);
-  elder_terms::set_main_window_activity_indicator_connection_kind(
-      &*main_window, connection_profile->kind);
-
-  vte_terminal_set_font_scale(
-    vte_terminal, terminal_display_settings.zoom);
-  vte_terminal_set_scrollback_lines(
-    vte_terminal, terminal_display_settings.scrollback_lines);
-  vte_terminal_set_size(
-    vte_terminal, terminal_display_settings.width, terminal_display_settings.height);
-
-  app_state.session_state = elder_terms::create_terminal_session(
-    main_window->terminal,
-    connection_profile.value(),
-    {
-      .ended = [&app_state]() {
-        set_application_connection_phase(
-            &app_state,
-            elder_terms::TerminalSessionConnectionPhase::disconnected);
-        if (app_state.auto_close && !app_state.connection_failed &&
-            app_state.window != nullptr) {
-          gtk_widget_destroy(app_state.window);
-        }
+  elder_terms::set_main_window_activity_indicator_connection_kind(&*main_window, connection_profile->kind);
+  app_state.presentation = elder_terms::create_terminal_presentation(&*main_window, launch_options.test,
+      [&app_state](elder_terms::TerminalDisplaySettings display) {
+        update_runtime_terminal_display_settings(&app_state, display);
+      }, [&app_state] { request_terminal_break(&app_state); });
+  elder_terms::terminal_runtime_set_host_callbacks(app_state.runtime, {
+      [&app_state](BoxrigGtk3TerminalWidget *) {
+        elder_terms::attach_main_window_terminal(app_state.main_window);
+        elder_terms::attach_terminal_presentation(app_state.presentation);
       },
-      .activity = [&main_window](elder_terms::ActivityIndicatorId indicator) {
-        elder_terms::note_main_window_activity(&*main_window, indicator);
+      [&app_state](std::string title) {
+        app_state.terminal_title = std::move(title);
+        update_application_session_identity(&app_state);
       },
-      .indicator_state =
-          [&app_state](elder_terms::ActivityIndicatorId indicator, bool active) {
-            set_application_indicator_state(&app_state, indicator, active);
-          },
-      .connection_phase =
-          [&app_state](elder_terms::TerminalSessionConnectionPhase phase) {
-            set_application_connection_phase(&app_state, phase);
-          },
-      .failure =
-          [&app_state](std::string message) {
-            const auto profile =
-                elder_terms::terminal_connection_profile(app_state.settings_store);
-            const auto kind = profile.has_value()
-                                  ? profile->kind
-                                  : elder_terms::TerminalConnectionKind::ssh;
-            // Preserve the existing SSH-only exception to automatic closing.
-            app_state.connection_failed =
-                kind == elder_terms::TerminalConnectionKind::ssh;
-            elder_terms::set_main_window_connection_failure(
-                app_state.main_window, message, kind);
-          },
-      .output =
-          [&app_state](std::span<const unsigned char> raw_bytes,
-                       std::span<const unsigned char> cooked_bytes) {
-            elder_terms::write_terminal_log(app_state.log_state, raw_bytes,
-                                            cooked_bytes);
-            elder_terms::feed_terminal_macro_runner(app_state.macro_runner,
-                                                    cooked_bytes);
-          },
-      .zmodem_auto_start =
-          [&app_state](elder_terms::TerminalTransferDirection direction) {
-            start_zmodem_auto_transfer(&app_state, direction);
-          },
-      .ssh_prompt =
-          [&app_state](
-              const elder_terms::SshUserPrompt &prompt,
-              cardio::cancellation cancellation) {
-            return elder_terms::prompt_main_window_ssh_async(
-                app_state.main_window, prompt, std::move(cancellation));
-          },
-      .reconnect_state_changed = [&app_state]() {
-        update_application_reconnect_presentation(&app_state);
+      [&app_state] {
+        if (app_state.audible_bell) gdk_display_beep(gtk_widget_get_display(app_state.main_window->terminal));
+        else elder_terms::ring_terminal_bell(app_state.bell_state);
       },
-    },
-    {
-      .ssh_known_hosts_file =
-          app_state.test_options.ssh_known_hosts_file,
-    });
-  app_state.macro_runner = elder_terms::create_terminal_macro_runner(
-      app_state.settings_store.macro_rules,
-      {
-          .send =
-              [&app_state](std::string text) {
-                const std::optional<elder_terms::TerminalConnectionProfile>
-                    profile = elder_terms::terminal_connection_profile(
-                        app_state.settings_store);
-                if (profile.has_value()) {
-                  text = elder_terms::normalize_terminal_text_line_endings(
-                      text,
-                      elder_terms::transfer_text_send_follow_return_code(
-                          app_state.settings_store),
-                      profile->text_settings.return_code);
-                }
-                (void)elder_terms::send_terminal_session_text(
-                    app_state.session_state, text);
-              },
-          .command =
-              [&app_state](std::string command,
-                           std::vector<std::string> arguments) {
-                spawn_macro_command(&app_state, std::move(command),
-                                    std::move(arguments));
-              },
+      [&app_state](const boxrig_mouse_event *event, const boxrig_ui_hit_test_result *) {
+        const auto route = elder_terms::route_main_window_terminal_mouse(app_state.main_window, *event);
+        return route == BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL && app_state.presentation ?
+            elder_terms::route_terminal_presentation_mouse(app_state.presentation, *event) : route;
+      }});
+  elder_terms::terminal_runtime_set_changed_callback(app_state.runtime, application_terminal_changed, &app_state);
+  elder_terms::terminal_runtime_set_output_callback(app_state.runtime,
+      [&app_state](std::span<const unsigned char> raw, std::span<const unsigned char> cooked) {
+        elder_terms::write_terminal_log(app_state.log_state, raw, cooked);
       });
+  (void)elder_terms::apply_terminal_presentation(app_state.presentation, app_state.settings_store);
+  elder_terms::terminal_runtime_request_input_settings(app_state.runtime, connection_profile->text_settings);
+  apply_received_macros(&app_state);
   apply_terminal_hyperlink_settings(&app_state);
   elder_terms::set_main_window_terminal_paste_callbacks(
       &*main_window,
@@ -1985,45 +1938,15 @@ int main(int argc, char **argv) {
       });
   elder_terms::set_main_window_transfer_cancel_callback(
       &*main_window, [&app_state]() {
-        return elder_terms::cancel_terminal_session_transfer(
-            app_state.session_state);
+        return elder_terms::terminal_runtime_cancel_transfer(app_state.runtime);
       });
-  elder_terms::set_terminal_session_zmodem_autostart(
-      app_state.session_state,
-      elder_terms::transfer_zmodem_autostart(app_state.settings_store));
+  apply_zmodem_auto_start(&app_state);
   install_transfer_menu(&app_state);
-  elder_terms::set_main_window_transfer_button_visible(
-      &*main_window,
-      elder_terms::terminal_session_supports_transfer(
-          app_state.session_state) ||
-          elder_terms::terminal_session_supports_text_send(
-              app_state.session_state));
+  elder_terms::set_main_window_transfer_button_visible(&*main_window, true);
   update_application_terminal_presentation(&app_state);
   update_application_session_identity(&app_state);
 
-  app_state.layout_state = elder_terms::create_terminal_layout(
-    *main_window, launch_options.test, terminal_display_settings,
-    elder_terms::terminal_show_border(app_state.settings_store),
-    elder_terms::terminal_border_width(app_state.settings_store),
-    terminal_font_families, terminal_key_bindings,
-    {
-      .grid_size_changed = [&app_state](glong columns, glong rows) {
-        elder_terms::resize_terminal_session(
-          app_state.session_state, columns, rows);
-      },
-      .display_settings_changed =
-          [&app_state](
-              elder_terms::TerminalDisplaySettings terminal_settings) {
-            update_runtime_terminal_display_settings(
-              &app_state, terminal_settings);
-          },
-      .break_requested =
-          [&app_state]() {
-            request_terminal_break(&app_state);
-          },
-    });
-
-  elder_terms::connect_terminal_layout_signals(app_state.layout_state);
+  g_signal_connect(main_window->window, "delete-event", G_CALLBACK(on_main_window_delete), &app_state);
 
   g_signal_connect(
     main_window->window, "destroy",
@@ -2035,13 +1958,6 @@ int main(int argc, char **argv) {
     G_CALLBACK(on_main_window_focus_in), &app_state);
   g_signal_connect(app_state.window, "notify::sensitive",
       G_CALLBACK(on_parent_sensitivity_changed), &app_state);
-#if VTE_CHECK_VERSION(0, 78, 0)
-  g_signal_connect(main_window->terminal, "termprop-changed::xterm.title",
-                   G_CALLBACK(on_terminal_title_changed), &app_state);
-#else
-  g_signal_connect(main_window->terminal, "window-title-changed",
-                   G_CALLBACK(on_terminal_title_changed), &app_state);
-#endif
   g_signal_connect(
     main_window->settings_menu_item, "activate",
     G_CALLBACK(on_settings_menu_item_activate), &app_state);
@@ -2050,12 +1966,10 @@ int main(int argc, char **argv) {
     G_CALLBACK(on_about_menu_item_activate), &app_state);
 
   bool session_started = false;
-  if (!launch_options.test.fixture && app_state.session_state != nullptr) {
-    session_started =
-        elder_terms::start_terminal_session(app_state.session_state);
-    if (!session_started) {
-      std::cerr << "Warning: failed to start terminal session" << '\n';
-    }
+  if (!launch_options.test.fixture) {
+    app_state.connect_when_ready = true;
+    session_started = true;
+    set_application_connection_phase(&app_state, elder_terms::TerminalSessionConnectionPhase::connecting);
   }
   if (launch_options.test.fixture) {
     set_application_indicator_state(&app_state,
@@ -2068,6 +1982,7 @@ int main(int argc, char **argv) {
   }
 
   gtk_widget_show_all(main_window->window);
+  gtk_window_present_with_time(GTK_WINDOW(main_window->window), GDK_CURRENT_TIME);
   if (launch_options.test.show_transfer_progress) {
     elder_terms::set_main_window_transfer_progress_visible(
         &*main_window, true);
@@ -2075,7 +1990,7 @@ int main(int argc, char **argv) {
   elder_terms::focus_main_window_terminal_if_interactive(
       &*main_window);
 
-  elder_terms::start_terminal_layout(app_state.layout_state);
+  elder_terms::terminal_runtime_refresh(app_state.runtime);
   if (launch_options.test.ssh_prompt.has_value()) {
     app_state.ssh_prompt_fixture_task.emplace(
         run_ssh_prompt_fixture_async(
@@ -2095,21 +2010,16 @@ int main(int argc, char **argv) {
   app_state.sftp_transport.reset();
   app_state.sftp_cancel_source.reset();
   app_state.ssh_prompt_fixture_task.reset();
-  elder_terms::destroy_terminal_layout(app_state.layout_state);
-  elder_terms::destroy_terminal_session(app_state.session_state);
-  elder_terms::destroy_terminal_macro_runner(app_state.macro_runner);
+  if (app_state.runtime) {
+    elder_terms::terminal_runtime_set_changed_callback(app_state.runtime, nullptr, nullptr);
+    elder_terms::terminal_runtime_set_host_callbacks(app_state.runtime, {});
+  }
   app_state.shutdown_task.reset();
   elder_terms::destroy_terminal_log(app_state.log_state);
-  if (app_state.bell_signal_id != 0 &&
-      g_signal_handler_is_connected(vte_terminal,
-                                    app_state.bell_signal_id)) {
-    g_signal_handler_disconnect(vte_terminal, app_state.bell_signal_id);
-  }
   elder_terms::destroy_terminal_bell(app_state.bell_state);
   elder_terms::destroy_terminal_bell_player(app_state.bell_player);
+  elder_terms::destroy_terminal_presentation(app_state.presentation);
   elder_terms::release_main_window(&*main_window);
-  elder_terms::destroy_terminal_hyperlink_resolver(
-      app_state.hyperlink_resolver);
 
   return 0;
 }

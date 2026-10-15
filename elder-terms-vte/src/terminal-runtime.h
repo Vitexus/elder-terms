@@ -7,7 +7,7 @@
 #include <optional>
 #include <elder-terms/settings.h>
 #include "terminal-connection.h"
-#include "terminal-hyperlink-resolver.h"
+#include "terminal-hyperlink-action.h"
 
 namespace elder_terms {
 
@@ -22,6 +22,8 @@ struct TerminalRuntimeHostCallbacks {
   std::function<void(std::string)> title;
   /** Handles one terminal bell request using the application's audio policy. */
   std::function<void()> bell;
+  /** Optional application pointer routing before selection and terminal reporting. */
+  std::function<boxrig_input_mouse_route(const boxrig_mouse_event *, const boxrig_ui_hit_test_result *)> mouse = {};
 };
 
 /**
@@ -133,6 +135,13 @@ void terminal_runtime_set_changed_callback(
     TerminalRuntime *runtime, void (*callback)(void *), void *context);
 
 /**
+ * Schedules model synchronization and a frame after application-side UI changes.
+ * @param runtime Live runtime whose core, font, colors or chrome changed.
+ * @remarks This only schedules dispatch; it never reenters rendering.
+ */
+void terminal_runtime_refresh(TerminalRuntime *runtime);
+
+/**
  * Starts a local command while retaining this runtime's display and history.
  * @param runtime Live runtime.
  * @param command Owned command and communication limits.
@@ -207,11 +216,12 @@ void terminal_runtime_request_input_settings(TerminalRuntime *runtime, TerminalT
 bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime);
 
 /**
- * Requests a live encoding exchange after widget input has stopped.
- * @param runtime Connected runtime.
+ * Exchanges live encoding or updates a queued connection/device recovery.
+ * @param runtime Runtime with an active or pending connection.
  * @param encoding Desired peer encoding.
  * @return False when inactive or an exchange is already running.
- * @remarks A pending request may be replaced before it starts. Invalid
+ * @remarks Live exchange waits for widget input to stop. A pending request may
+ * be replaced before it starts. Invalid
  * encodings leave the active conversion and connection unchanged.
  */
 bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string encoding);

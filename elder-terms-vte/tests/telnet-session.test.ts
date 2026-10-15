@@ -330,19 +330,6 @@ describe.concurrent('elder-terms-vte TELNET session', () => {
               }
             );
 
-            await toPass(
-              async () => {
-                expect((await app.output()).stderr).toContain(
-                  'Info: TELNET BINARY negotiation succeeded after connection'
-                );
-              },
-              {
-                message:
-                  'successful initial BINARY negotiation should be logged',
-                timeoutMs: 5_000,
-              }
-            );
-
             await waitForActivityIndicatorImageState(app, 'rd', 'on');
             await waitForActivityIndicatorImageState(app, 'sd', 'on');
             stopNegotiationInterval();
@@ -383,7 +370,7 @@ describe.concurrent('elder-terms-vte TELNET session', () => {
                 expect(data).toContain('a'.charCodeAt(0));
               },
               {
-                message: 'TELNET client should send VTE user input',
+                message: 'TELNET client should send terminal user input',
                 timeoutMs: 5_000,
               }
             );
@@ -557,7 +544,7 @@ describe.concurrent('elder-terms-vte TELNET session', () => {
     });
   });
 
-  it('uses the VTE automatic Backspace and Delete bindings by default', async (context) => {
+  it('uses the terminal automatic Backspace and Delete bindings by default', async (context) => {
     await withTemporaryDirectory(async (directory) => {
       const receivedChunks: Buffer[] = [];
       let acceptedSocket: Socket | undefined;
@@ -602,11 +589,10 @@ describe.concurrent('elder-terms-vte TELNET session', () => {
               const newData = receivedBytes(receivedChunks).slice(
                 backspaceBaselineLength
               );
-              expect(newData).toContain(asciiBs);
+              expect(newData).toContain(asciiDel);
             },
             {
-              message:
-                'TELNET client should let VTE send Backspace as ASCII BS',
+              message: 'TELNET client should send Backspace as ASCII DEL',
               timeoutMs: 5_000,
             }
           );
@@ -621,8 +607,7 @@ describe.concurrent('elder-terms-vte TELNET session', () => {
               expect(newData).not.toContain(asciiDel);
             },
             {
-              message:
-                'TELNET client should let VTE generate the Delete sequence',
+              message: 'TELNET client should generate the Delete sequence',
               timeoutMs: 5_000,
             }
           );

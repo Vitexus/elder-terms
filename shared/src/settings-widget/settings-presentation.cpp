@@ -71,7 +71,7 @@ static constexpr std::array setting_labels{
     SettingLabelEntry{"terminal", "height", N_("Rows")},
     SettingLabelEntry{"terminal", "scrollback_lines",
                       N_("Scrollback lines")},
-    SettingLabelEntry{"terminal", "zoom", N_("Zoom factor")},
+    SettingLabelEntry{"terminal", "font_size_dip", N_("Font size (DIP)")},
     SettingLabelEntry{"general", "indicator_color", N_("Active indicator color")},
     SettingLabelEntry{"general", "indicator_off_color", N_("Inactive indicator color")},
     SettingLabelEntry{"terminal", "font_families", N_("Font families")},

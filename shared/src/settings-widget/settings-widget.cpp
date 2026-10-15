@@ -131,7 +131,7 @@ struct SettingsWidgetState {
   GtkWidget *terminal_width_entry = nullptr;
   GtkWidget *terminal_height_entry = nullptr;
   GtkWidget *terminal_scrollback_lines_entry = nullptr;
-  GtkWidget *terminal_zoom_entry = nullptr;
+  GtkWidget *terminal_font_size_dip_entry = nullptr;
   GtkWidget *general_indicator_color_mode_combo = nullptr;
   GtkWidget *general_indicator_color_button = nullptr;
   GtkWidget *general_indicator_off_color_mode_combo = nullptr;
@@ -158,7 +158,7 @@ struct SettingsWidgetState {
   bool terminal_height_valid = true;
   bool terminal_scrollback_lines_valid = true;
   bool terminal_border_width_valid = true;
-  bool terminal_zoom_valid = true;
+  bool terminal_font_size_dip_valid = true;
   bool terminal_encoding_valid = true;
   bool terminal_bell_sound_valid = true;
   KeyBindingInputWidgetState *terminal_zoom_in_key_input = nullptr;
@@ -1066,32 +1066,32 @@ update_terminal_border_width_from_widget(SettingsWidgetState *state) {
   }
 }
 
-static void update_terminal_zoom_from_widget(SettingsWidgetState *state) {
+static void update_terminal_font_size_dip_from_widget(SettingsWidgetState *state) {
   const char *text =
-      gtk_entry_get_text(GTK_ENTRY(state->terminal_zoom_entry));
+      gtk_entry_get_text(GTK_ENTRY(state->terminal_font_size_dip_entry));
   if (trim_ascii_whitespace(text == nullptr ? "" : text).empty()) {
     clear_explicit_setting_value(&state->draft_store,
-                                 terminal_zoom_setting_key());
-    state->terminal_zoom_valid = true;
-    set_entry_validation(state->terminal_zoom_entry, true, {});
+                                 terminal_font_size_dip_setting_key());
+    state->terminal_font_size_dip_valid = true;
+    set_entry_validation(state->terminal_font_size_dip_entry, true, {});
     sync_cleared_entry(
-        state, state->terminal_zoom_entry, terminal_zoom_setting_key(),
+        state, state->terminal_font_size_dip_entry, terminal_font_size_dip_setting_key(),
         format_double(setting_double_value_or_default(
-            state->draft_store, terminal_zoom_setting_key(), 1.0)));
+            state->draft_store, terminal_font_size_dip_setting_key(), 12.0)));
     return;
   }
-  gtk_entry_set_placeholder_text(GTK_ENTRY(state->terminal_zoom_entry),
+  gtk_entry_set_placeholder_text(GTK_ENTRY(state->terminal_font_size_dip_entry),
                                  nullptr);
   gdouble value = 0.0;
   std::string reason;
-  state->terminal_zoom_valid =
-      parse_double_entry(state->terminal_zoom_entry, 0.1, 5.0, &value,
+  state->terminal_font_size_dip_valid =
+      parse_double_entry(state->terminal_font_size_dip_entry, 0.1, 1024.0, &value,
                          &reason);
-  set_entry_validation(state->terminal_zoom_entry,
-                       state->terminal_zoom_valid, reason);
-  if (state->terminal_zoom_valid) {
+  set_entry_validation(state->terminal_font_size_dip_entry,
+                       state->terminal_font_size_dip_valid, reason);
+  if (state->terminal_font_size_dip_valid) {
     set_explicit_setting_value(&state->draft_store,
-                               terminal_zoom_setting_key(),
+                               terminal_font_size_dip_setting_key(),
                                SettingValue{value});
   }
 }
@@ -1476,7 +1476,7 @@ static bool settings_inputs_valid(const SettingsWidgetState *state) {
          state->local_command_line_valid && state->terminal_width_valid &&
          state->terminal_height_valid &&
          state->terminal_scrollback_lines_valid &&
-         state->terminal_border_width_valid && state->terminal_zoom_valid &&
+         state->terminal_border_width_valid && state->terminal_font_size_dip_valid &&
          state->terminal_encoding_valid &&
          state->terminal_bell_sound_valid && state->terminal_fonts_valid &&
          state->telnet_port_valid && state->ssh_port_valid &&
@@ -3287,12 +3287,12 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
     state->terminal_scrollback_lines_valid = true;
     set_entry_validation(state->terminal_scrollback_lines_entry, true, {});
   }
-  if (state->terminal_zoom_entry != nullptr) {
-    sync_inheritable_entry(state->terminal_zoom_entry, state->draft_store,
-                           terminal_zoom_setting_key(),
-                           format_double(display.zoom));
-    state->terminal_zoom_valid = true;
-    set_entry_validation(state->terminal_zoom_entry, true, {});
+  if (state->terminal_font_size_dip_entry != nullptr) {
+    sync_inheritable_entry(state->terminal_font_size_dip_entry, state->draft_store,
+                           terminal_font_size_dip_setting_key(),
+                           format_double(display.font_size_dip));
+    state->terminal_font_size_dip_valid = true;
+    set_entry_validation(state->terminal_font_size_dip_entry, true, {});
   }
   if (state->terminal_fonts_mode_combo != nullptr) {
     sync_terminal_font_controls(state);
@@ -3748,12 +3748,12 @@ static void on_terminal_scrollback_lines_changed(GtkEditable *,
   notify_changed(state);
 }
 
-static void on_terminal_zoom_changed(GtkEditable *, gpointer data) {
+static void on_terminal_font_size_dip_changed(GtkEditable *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
   if (state->synchronizing) {
     return;
   }
-  update_terminal_zoom_from_widget(state);
+  update_terminal_font_size_dip_from_widget(state);
   update_action_sensitivity(state);
   notify_changed(state);
 }
@@ -5035,12 +5035,12 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
   attach_row(page, 6, terminal_scrollback_lines_setting_key(),
              state->terminal_scrollback_lines_entry);
 
-  state->terminal_zoom_entry =
-      create_entry(widget_id(state, "terminal_zoom_entry"));
-  g_signal_connect(state->terminal_zoom_entry, "changed",
-                   G_CALLBACK(on_terminal_zoom_changed), state);
-  attach_row(page, 7, terminal_zoom_setting_key(),
-             state->terminal_zoom_entry);
+  state->terminal_font_size_dip_entry =
+      create_entry(widget_id(state, "terminal_font_size_dip_entry"));
+  g_signal_connect(state->terminal_font_size_dip_entry, "changed",
+                   G_CALLBACK(on_terminal_font_size_dip_changed), state);
+  attach_row(page, 7, terminal_font_size_dip_setting_key(),
+             state->terminal_font_size_dip_entry);
 
   const std::string show_border_id =
       widget_id(state, "terminal_show_border_combo");
@@ -6395,7 +6395,7 @@ void settings_widget_rebase_fallbacks(
   const bool scrollback_lines_invalid =
       !state->terminal_scrollback_lines_valid;
   const bool border_width_invalid = !state->terminal_border_width_valid;
-  const bool zoom_invalid = !state->terminal_zoom_valid;
+  const bool zoom_invalid = !state->terminal_font_size_dip_valid;
   const bool encoding_invalid = !state->terminal_encoding_valid;
   const bool bell_sound_invalid = !state->terminal_bell_sound_valid;
   const bool fonts_invalid = !state->terminal_fonts_valid;
@@ -6417,7 +6417,7 @@ void settings_widget_rebase_fallbacks(
       entry_text(state->terminal_scrollback_lines_entry);
   const std::string border_width_text =
       entry_text(state->terminal_border_width_entry);
-  const std::string zoom_text = entry_text(state->terminal_zoom_entry);
+  const std::string zoom_text = entry_text(state->terminal_font_size_dip_entry);
   const std::string encoding_text =
       entry_text(state->terminal_encoding_entry);
   const std::string bell_sound_text =
@@ -6485,8 +6485,8 @@ void settings_widget_rebase_fallbacks(
                   border_width_invalid, [state]() {
                     update_terminal_border_width_from_widget(state);
                   });
-  restore_invalid(state->terminal_zoom_entry, zoom_text, zoom_invalid,
-                  [state]() { update_terminal_zoom_from_widget(state); });
+  restore_invalid(state->terminal_font_size_dip_entry, zoom_text, zoom_invalid,
+                  [state]() { update_terminal_font_size_dip_from_widget(state); });
   if (encoding_invalid) {
     gtk_combo_box_set_active(GTK_COMBO_BOX(state->terminal_encoding_combo),
                              -1);

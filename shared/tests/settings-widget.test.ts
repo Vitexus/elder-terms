@@ -114,7 +114,7 @@ interface AppliedStore {
   readonly type: string;
   readonly width: string;
   readonly zmodem_autostart: string;
-  readonly zoom: string;
+  readonly font_size_dip: string;
   readonly zoom_in_key: string;
   readonly zoom_out_key: string;
 }
@@ -1030,7 +1030,7 @@ describe.concurrent('shared settings widget', () => {
               'Columns',
               'Rows',
               'Scrollback lines',
-              'Zoom factor',
+              'Font size (DIP)',
               'Font families',
               'Show window side borders',
               'Window side border width (px)',
@@ -1191,7 +1191,7 @@ describe.concurrent('shared settings widget', () => {
               '列数',
               '行数',
               'スクロールバッファ行数',
-              '拡大率',
+              '文字サイズ（DIP）',
               'フォントファミリー',
               'ウィンドウの左右にボーダーを表示する',
               'ウィンドウ左右のボーダー幅（px）',
@@ -1750,18 +1750,18 @@ describe.concurrent('shared settings widget', () => {
         prepare: showTerminalPage,
       },
       {
-        args: ['--page=terminal', '--zoom=1.25'],
+        args: ['--page=terminal', '--font-size-dip=15'],
         assert: async (app) => {
           await expectNumericEntryValue(
             expectElementKind(
-              await app.getById('settings_terminal_zoom_entry'),
+              await app.getById('settings_terminal_font_size_dip_entry'),
               'entry'
             ),
-            1.25
+            15
           );
         },
         differsFrom: 'settings-widget-terminal-page-default',
-        fixtureName: 'settings-widget-terminal-zoom-1.25',
+        fixtureName: 'settings-widget-terminal-font-15',
         pageId: 'settings_terminal_page',
         prepare: showTerminalPage,
       },
@@ -4951,7 +4951,7 @@ describe.concurrent('shared settings widget', () => {
         '--width=88',
         '--height=31',
         '--scrollback-lines=20000',
-        '--zoom=1.25',
+        '--font-size-dip=15',
         '--auto-close=false',
         '--show-border=true',
         '--border-width=7',
@@ -4969,7 +4969,7 @@ describe.concurrent('shared settings widget', () => {
           'entry'
         );
         const zoom = expectElementKind(
-          await app.getById('settings_terminal_zoom_entry'),
+          await app.getById('settings_terminal_font_size_dip_entry'),
           'entry'
         );
         const scrollbackLines = expectElementKind(
@@ -5003,7 +5003,7 @@ describe.concurrent('shared settings widget', () => {
         await expectNumericEntryValue(width, 88);
         await expectNumericEntryValue(height, 31);
         await expectNumericEntryValue(scrollbackLines, 20000);
-        await expectNumericEntryValue(zoom, 1.25);
+        await expectNumericEntryValue(zoom, 15);
         await expectSelectedComboValue(
           app,
           'settings_general_auto_close_combo',
@@ -5074,7 +5074,7 @@ describe.concurrent('shared settings widget', () => {
         await setNumericEntryValue(width, 81);
         await setNumericEntryValue(height, 25);
         await setNumericEntryValue(scrollbackLines, 50000);
-        await setNumericEntryValue(zoom, 1.1);
+        await setNumericEntryValue(zoom, 14.5);
         await selectSettingsTab(app, 'General');
         await autoClose.selectChildAt(1);
         await selectSettingsTab(app, 'Terminal');
@@ -5104,7 +5104,7 @@ describe.concurrent('shared settings widget', () => {
         expect(store.width).toBe('81');
         expect(store.height).toBe('25');
         expect(store.scrollback_lines).toBe('50000');
-        expect(Number(store.zoom)).toBeCloseTo(1.1);
+        expect(Number(store.font_size_dip)).toBeCloseTo(14.5);
         expect(store.auto_close).toBe('true');
         expect(store.show_border).toBe('false');
         expect(store.border_width).toBe('6');
@@ -5164,7 +5164,7 @@ describe.concurrent('shared settings widget', () => {
         ).click();
         let applied = await waitForAppliedStore(app);
         expect(applied.font_families_explicit).toBe('true');
-        expect(applied.zoom).toBe('1');
+        expect(applied.font_size_dip).toBe('12');
         await waitForResult(async () =>
           expect((await app.output()).stdout).toContain(
             'APPLIED_FONTS ["Monospace","IPAGothic"]'
@@ -5668,7 +5668,7 @@ describe.concurrent('shared settings widget', () => {
       '--global=terminal.width=96',
       '--global=terminal.height=32',
       '--global=terminal.scrollback_lines=20000',
-      '--global=terminal.zoom=1.25',
+      '--global=terminal.font_size_dip=15',
       '--global=general.auto_close=true',
       '--global=terminal.show_border=true',
       '--global=terminal.border_width=9',
@@ -5718,7 +5718,7 @@ describe.concurrent('shared settings widget', () => {
         'width',
         'height',
         'scrollback_lines',
-        'zoom',
+        'font_size_dip',
         'auto_close',
         'show_border',
         'border_width',
@@ -5778,8 +5778,8 @@ describe.concurrent('shared settings widget', () => {
       );
       await expectInheritedEntry(
         app,
-        'settings_terminal_zoom_entry',
-        '1.25 (global default)'
+        'settings_terminal_font_size_dip_entry',
+        '15 (global default)'
       );
       await expectSelectedComboValue(
         app,
