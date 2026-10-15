@@ -17,7 +17,7 @@
 #define GETTEXT_PACKAGE "elder-terms"
 #include <glib/gi18n-lib.h>
 
-#include "terminal-sessions/terminal-text-codec.h"
+#include "terminal-sessions/terminal-text-stream.h"
 
 namespace elder_terms {
 
@@ -194,7 +194,7 @@ run_terminal_text_send_async(TerminalTextSendRequest request,
         static_cast<std::uint64_t>(buffer_source.utf8_text.size());
   }
 
-  TerminalTextEncoder encoder(request.text_settings);
+  auto encoder = create_terminal_text_encoder(request.text_settings.encoding);
   TerminalTextLineEndingNormalizer newline_normalizer(
       request.follow_return_code, request.text_settings.return_code);
   std::array<std::byte, text_source_read_size> buffer{};
@@ -218,7 +218,7 @@ run_terminal_text_send_async(TerminalTextSendRequest request,
         reinterpret_cast<const unsigned char *>(buffer.data());
     std::vector<unsigned char> normalized = newline_normalizer.normalize(
         std::span<const unsigned char>(input, read_size));
-    TerminalTextConversionResult converted = encoder.encode(
+    TerminalTextConversionResult converted = convert_terminal_text(encoder.get(),
         std::span<const unsigned char>(normalized.data(), normalized.size()));
     publish_replacement_warning(request, &warning_published,
                                 converted.used_replacement);
@@ -230,7 +230,7 @@ run_terminal_text_send_async(TerminalTextSendRequest request,
   }
 
   std::vector<unsigned char> normalized_tail = newline_normalizer.finish();
-  TerminalTextConversionResult tail = encoder.encode(
+  TerminalTextConversionResult tail = convert_terminal_text(encoder.get(),
       std::span<const unsigned char>(normalized_tail.data(),
                                      normalized_tail.size()));
   publish_replacement_warning(request, &warning_published,
@@ -239,7 +239,7 @@ run_terminal_text_send_async(TerminalTextSendRequest request,
                               &next_send_us, &has_send_deadline,
                               cancellation);
 
-  TerminalTextConversionResult finished = encoder.finish();
+  TerminalTextConversionResult finished = finish_terminal_text(encoder.get());
   publish_replacement_warning(request, &warning_published,
                               finished.used_replacement);
   co_await send_encoded_bytes(std::move(finished.bytes), request, &transport,

@@ -15,12 +15,15 @@ struct Fixture {
   cardio::primitives::conditional changed;
   cardio::primitives::conditional received;
   cardio::primitives::conditional resize_ready;
+  cardio::primitives::conditional write_ready;
   std::string incoming;
   std::string outgoing;
   bool resize_pending = false;
   bool fail_resize = false;
   bool hold_resize = true;
   bool closed = false;
+  bool hold_write = false;
+  bool write_pending = false;
   std::size_t requested_rows = 0;
   std::size_t requested_columns = 0;
 };
@@ -67,6 +70,16 @@ static TerminalTransportRequest request(Fixture *fixture) {
         [fixture](std::span<const unsigned char> bytes, cardio::cancellation stop) -> cardio::promise<void> {
           stop.throw_if_cancellation_requested();
           fixture->outgoing.append(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+          fixture->write_pending = true;
+          fixture->changed.trigger();
+          try {
+            if (fixture->hold_write) co_await fixture->write_ready.wait(stop);
+          } catch (...) {
+            fixture->write_pending = false;
+            fixture->changed.trigger();
+            throw;
+          }
+          fixture->write_pending = false;
           fixture->changed.trigger();
           co_return;
         },
@@ -120,6 +133,53 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   fixture->received.trigger();
   while (text(fixture).find("RECONNECTED") == std::string::npos) co_await fixture->changed.wait();
   expect(text(fixture).find("RETAINED DISPLAY") != std::string::npos, "new widget uses the same core and history");
+
+  fixture->outgoing.clear();
+  fixture->hold_write = true;
+  fixture->incoming = "\033[H\033[6n";
+  fixture->received.trigger();
+  while (!fixture->write_pending) co_await fixture->changed.wait();
+  expect(fixture->outgoing == "\033[1;1R", "normal reply is held in the peer writer");
+  int finished = 0;
+  bool succeeded = false;
+  TerminalTextSendRequest sending;
+  sending.source = TerminalTextSendBufferSource{"TEXT"};
+  sending.bytes_per_second = 1000000;
+  sending.finished = [&](bool success) { ++finished; succeeded = success; fixture->changed.trigger(); };
+  expect(terminal_runtime_start_text_send(fixture->runtime, sending), "accept text send while normal output drains");
+  boxrig_ui_input_state input{};
+  do {
+    co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  } while (input.phase != BOXRIG_UI_INPUT_DISABLED);
+  expect(fixture->outgoing == "\033[1;1R", "text cannot overtake the pending normal write");
+  fixture->write_ready.trigger();
+  while (fixture->outgoing != "\033[1;1RTEXT") co_await fixture->changed.wait();
+  expect(!terminal_runtime_request_encoding(fixture->runtime, "CP932"), "encoding exchange waits for a text send to end");
+  expect(finished == 0, "text send completion waits for peer write completion");
+  fixture->incoming = "RECEIVED DURING TEXT SEND\r\n\033[H\033[6n";
+  fixture->received.trigger();
+  while (text(fixture).find("RECEIVED DURING TEXT SEND") == std::string::npos) co_await fixture->changed.wait();
+  expect(fixture->outgoing == "\033[1;1RTEXT", "late terminal replies do not interleave with text-send bytes");
+  fixture->hold_write = false;
+  fixture->write_ready.trigger();
+  while (finished != 1 || fixture->outgoing != "\033[1;1RTEXT\033[1;1R") co_await fixture->changed.wait();
+  expect(succeeded, "text send succeeds once and normal replies resume");
+
+  fixture->hold_write = true;
+  expect(terminal_runtime_start_text_send(fixture->runtime, sending), "start cancellable text send");
+  while (!fixture->write_pending) co_await fixture->changed.wait();
+  expect(terminal_runtime_cancel_text_send(fixture->runtime), "cancel active text send");
+  while (finished != 2) co_await fixture->changed.wait();
+  expect(!succeeded && !fixture->closed, "text cancellation retains the connection");
+  do {
+    co_await fixture->changed.wait();
+    boxrig_gtk3_terminal_widget_get_input_state(terminal_runtime_widget(fixture->runtime), &input);
+  } while (input.phase != BOXRIG_UI_INPUT_ENABLED);
+  expect(terminal_runtime_start_text_send(fixture->runtime, sending), "start text send before disconnect");
+  while (!fixture->write_pending) co_await fixture->changed.wait();
+  co_await terminal_runtime_disconnect(fixture->runtime);
+  expect(finished == 3 && !succeeded && fixture->closed, "disconnect joins an active text send before closing the channel");
 }
 
 static cardio::promise<void> run(Fixture *fixture, std::exception_ptr *failure) {

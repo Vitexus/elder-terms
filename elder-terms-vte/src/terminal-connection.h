@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include "terminal-transport.h"
+#include "terminal-text-send.h"
 
 namespace elder_terms {
 
@@ -147,6 +148,19 @@ cardio::promise<bool> terminal_connection_resize(TerminalConnection *connection,
  * neither display state nor connection generation is replaced.
  */
 cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *connection, std::string encoding);
+
+/**
+ * Sends finite text after existing normal output has reached the peer.
+ * @param connection Connected owner, retained until completion.
+ * @param request Source, newline policy, rate, and progress/status callbacks.
+ * @param cancellation Caller cancellation, combined with connection shutdown.
+ * @return True only when every encoded payload byte has been sent.
+ * @remarks The runtime owns input inhibition and active/finished callbacks.
+ * Peer encoding is captured from the active connection. Normal receive and
+ * logging continue; normal replies wait until this send finishes or cancels.
+ */
+cardio::promise<bool> terminal_connection_send_text(TerminalConnection *connection,
+    TerminalTextSendRequest request, cardio::cancellation cancellation);
 
 /**
  * Gets an observable lifecycle snapshot.

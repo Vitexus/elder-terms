@@ -22,6 +22,8 @@ struct Driver {
   std::unique_ptr<elder_terms::TerminalLogState, decltype(&elder_terms::destroy_terminal_log)> log{nullptr, elder_terms::destroy_terminal_log};
   std::uint64_t log_generation = 0;
   elder_terms::TerminalTextSettings input_settings;
+  elder_terms::TerminalTextSendSource text_source = elder_terms::TerminalTextSendBufferSource{"Text send from boxrig\n"};
+  std::uint64_t text_rate = 1024;
   bool connection_mode = false;
   bool closing = false;
   std::string last_report;
@@ -206,6 +208,22 @@ static void encoding_changed(GtkButton *button, gpointer context) {
   gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
 }
 
+static void send_text(GtkButton *, gpointer context) {
+  auto *driver = static_cast<Driver *>(context);
+  elder_terms::TerminalTextSendRequest request;
+  request.source = driver->text_source;
+  request.bytes_per_second = driver->text_rate;
+  request.active = [](bool active) { std::printf("text_send_active=%d\n", active); std::fflush(stdout); };
+  request.finished = [](bool succeeded) { std::printf("text_send_finished=%d\n", succeeded); std::fflush(stdout); };
+  request.status = [](const std::string &status) { std::fprintf(stderr, "Text send: %s\n", status.c_str()); };
+  elder_terms::terminal_runtime_start_text_send(driver->runtime, std::move(request));
+  gtk_widget_grab_focus(GTK_WIDGET(elder_terms::terminal_runtime_widget(driver->runtime)));
+}
+
+static void cancel_text_send(GtkButton *, gpointer context) {
+  elder_terms::terminal_runtime_cancel_text_send(static_cast<Driver *>(context)->runtime);
+}
+
 static cardio::promise<elder_terms::SshUserPromptResponse> prompt_ssh(Driver *driver,
     const elder_terms::SshUserPrompt &prompt, cardio::cancellation cancellation) {
   elder_terms::InlinePromptRequest request{
@@ -271,6 +289,12 @@ int main(int argc, char **argv) {
       driver.input_settings.cursor_key_mode = elder_terms::TerminalCursorKeyMode::trs80;
     else if (std::string_view(argv[index]) == "--encoding" && index + 1 < argc)
       driver.command.encoding = argv[++index];
+    else if (std::string_view(argv[index]) == "--text" && index + 1 < argc)
+      driver.text_source = elder_terms::TerminalTextSendBufferSource{argv[++index]};
+    else if (std::string_view(argv[index]) == "--text-uri" && index + 1 < argc)
+      driver.text_source = elder_terms::TerminalTextSendFileSource{argv[++index]};
+    else if (std::string_view(argv[index]) == "--rate" && index + 1 < argc)
+      driver.text_rate = std::strtoull(argv[++index], nullptr, 10);
     else if ((std::string_view(argv[index]) == "--log-raw" || std::string_view(argv[index]) == "--log-cooked") && index + 1 < argc) {
       log_settings.enabled = true;
       log_settings.mode = std::string_view(argv[index]) == "--log-raw" ? elder_terms::TerminalLogMode::raw : elder_terms::TerminalLogMode::cooked;
@@ -369,6 +393,14 @@ int main(int argc, char **argv) {
       gtk_box_pack_start(GTK_BOX(sending), button, FALSE, FALSE, 0);
       g_signal_connect(button, "clicked", G_CALLBACK(encoding_changed), &driver);
     }
+    auto *send = gtk_button_new_with_label("Send text");
+    gestament_gtk_assign_accessible_id(send, "driver_send_text");
+    gtk_box_pack_start(GTK_BOX(sending), send, FALSE, FALSE, 0);
+    g_signal_connect(send, "clicked", G_CALLBACK(send_text), &driver);
+    auto *cancel = gtk_button_new_with_label("Cancel send");
+    gestament_gtk_assign_accessible_id(cancel, "driver_cancel_send");
+    gtk_box_pack_start(GTK_BOX(sending), cancel, FALSE, FALSE, 0);
+    g_signal_connect(cancel, "clicked", G_CALLBACK(cancel_text_send), &driver);
   }
   driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }

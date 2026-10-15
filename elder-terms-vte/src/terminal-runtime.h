@@ -148,6 +148,23 @@ bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string enc
 bool terminal_runtime_encoding_pending(const TerminalRuntime *runtime);
 
 /**
+ * Starts a finite text send after standard widget input has stopped.
+ * @param runtime Connected runtime without another exclusive operation.
+ * @param request Text source, rate, newline policy and presentation callbacks.
+ * @return True when the request is accepted.
+ * @remarks Current key/newline settings and peer encoding are captured.
+ * Display, selection, copying and received output remain available.
+ */
+bool terminal_runtime_start_text_send(TerminalRuntime *runtime, TerminalTextSendRequest request);
+
+/**
+ * Cancels a pending or active text send and resumes normal input afterwards.
+ * @param runtime Live runtime.
+ * @return True when there was an operation to cancel.
+ */
+bool terminal_runtime_cancel_text_send(TerminalRuntime *runtime);
+
+/**
  * Requests input inhibition or resumption while preserving selection and display.
  * @param runtime Live runtime.
  * @param enabled Whether application policy permits terminal input.

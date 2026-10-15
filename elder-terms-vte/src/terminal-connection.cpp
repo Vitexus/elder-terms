@@ -1,10 +1,12 @@
 #include "terminal-connection.h"
 #include "terminal-sessions/terminal-text-stream.h"
+#include "terminal-text-send-runner.h"
 
 #include <algorithm>
 #include <array>
 #include <cerrno>
 #include <csignal>
+#include <chrono>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -61,6 +63,7 @@ struct ConnectionOperation {
   std::size_t decoded_offset = 0;
   bool decoder_finished = false;
   bool changing_encoding = false;
+  bool service_active = false;
   bool read_paused = false;
   bool read_active = false;
   bool write_active = false;
@@ -624,7 +627,7 @@ TerminalConnectionState terminal_connection_state(const TerminalConnection *conn
 
 cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *connection, std::string encoding) {
   if (connection->state.phase != TerminalConnectionPhase::connected ||
-      connection->operation->changing_encoding) co_return false;
+      connection->operation->changing_encoding || connection->operation->service_active) co_return false;
   if (connection->state.encoding == encoding) co_return true;
   TerminalTextStreamPtr decoder{nullptr, destroy_terminal_text_stream};
   TerminalTextStreamPtr encoder{nullptr, destroy_terminal_text_stream};
@@ -677,6 +680,60 @@ cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *co
   operation.drained.trigger();
   connection->wake();
   co_return changed;
+}
+
+static cardio::promise<void> drain_output(TerminalConnection *connection, cardio::cancellation cancellation) {
+  auto &operation = *connection->operation;
+  connection->wake();
+  while (operation.write_active || operation.outgoing.length != 0 ||
+      (boxrig_session_interests(operation.session) & BOXRIG_SESSION_INTEREST_WRITE) != 0) {
+    if (operation.write_closed)
+      throw std::system_error(EPIPE, std::generic_category(), "terminal writer is closed");
+    co_await operation.stream_changed.wait(cancellation);
+  }
+  cancellation.throw_if_cancellation_requested();
+}
+
+cardio::promise<bool> terminal_connection_send_text(TerminalConnection *connection,
+    TerminalTextSendRequest request, cardio::cancellation cancellation) {
+  if (connection->state.phase != TerminalConnectionPhase::connected ||
+      connection->operation->changing_encoding || connection->operation->service_active ||
+      request.bytes_per_second == 0 || !terminal_text_send_source_is_valid(request.source)) co_return false;
+  auto &operation = *connection->operation;
+  ++operation.pending_operations;
+  operation.service_active = true;
+  auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation());
+  request.text_settings.encoding = connection->state.encoding;
+  bool succeeded = false;
+  try {
+    co_await drain_output(connection, stop.get_cancellation());
+    operation.write_paused = true;
+    // A separate text-send encoder starts in its initial state. Finish the
+    // normal writer's shift state before handing over the wire.
+    auto tail = finish_terminal_text(operation.encoder.get());
+    operation.encoder = create_terminal_text_encoder(connection->state.encoding);
+    if (!tail.bytes.empty()) co_await operation.transport.write(tail.bytes, stop.get_cancellation());
+    TerminalTextSendTransport transport{
+        [&operation](std::span<const unsigned char> bytes, cardio::cancellation token) {
+          return operation.transport.write(bytes, token);
+        },
+        [] { return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
+            std::chrono::steady_clock::now().time_since_epoch()).count()); },
+        [](std::uint64_t microseconds, cardio::cancellation token) {
+          return cardio::promises::delay(microseconds / 1000 + (microseconds % 1000 != 0), token);
+        }};
+    co_await run_terminal_text_send_async(request, std::move(transport), stop.get_cancellation());
+    succeeded = true;
+  } catch (const cardio::canceled_exception &) {
+  } catch (const std::exception &error) {
+    if (request.status) request.status(error.what());
+  }
+  operation.write_paused = false;
+  operation.service_active = false;
+  --operation.pending_operations;
+  operation.drained.trigger();
+  connection->wake();
+  co_return succeeded;
 }
 
 }

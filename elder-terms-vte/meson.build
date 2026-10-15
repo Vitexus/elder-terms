@@ -59,6 +59,7 @@ ssh_transport_dep = declare_dependency(link_with: ssh_transport_library,
 
 boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
   ['src/terminal-runtime.cpp', 'src/terminal-connection.cpp',
+   'src/terminal-text-send.cpp', 'src/terminal-text-send-runner.cpp',
    'src/terminal-sessions/terminal-text-stream.cpp', 'src/terminal-telnet-transport.cpp', 'src/terminal-ssh-transport.cpp',
    'src/terminal-serial-transport.cpp', 'src/terminal-sessions/serial-session/serial-termios.cpp',
    'src/terminal-sessions/telnet-session/telnet-protocol.cpp'],
@@ -523,7 +524,6 @@ terminal_text_send_runner_test = executable(
     'tests/cpp/terminal-text-send-runner-test.cpp',
     'src/terminal-text-send.cpp',
     'src/terminal-text-send-runner.cpp',
-    'src/terminal-sessions/terminal-text-codec.cpp',
     'src/terminal-sessions/terminal-text-stream.cpp',
   ],
   dependencies: [

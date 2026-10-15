@@ -21,6 +21,10 @@ struct TerminalRuntime {
   std::optional<std::string> pending_encoding;
   std::optional<cardio::promise<void>> encoding_completion;
   bool encoding_active = false;
+  std::optional<TerminalTextSendRequest> pending_text_send;
+  std::optional<cardio::promise<void>> text_send_completion;
+  cardio::cancellation_source text_send_stop;
+  bool text_send_active = false;
   TerminalTextSettings applied_input;
   bool input_allowed = true;
   BoxrigGtk3TerminalWidget *widget = nullptr;
@@ -123,6 +127,7 @@ static void fail_ui(TerminalRuntime *runtime) {
   runtime->ui_failed = true;
   runtime->pending_connection.reset();
   runtime->pending_encoding.reset();
+  terminal_runtime_cancel_text_send(runtime);
   terminal_connection_stop(runtime->connection);
   boxrig_gtk3_terminal_widget_quiesce(runtime->widget);
   request_frame(runtime);
@@ -132,6 +137,19 @@ static cardio::promise<void> change_encoding(TerminalRuntime *runtime, std::stri
   co_await terminal_connection_change_encoding(runtime->connection, std::move(encoding));
   runtime->encoding_active = false;
   request_frame(runtime);
+}
+
+static void finish_text_send(TerminalRuntime *runtime, const TerminalTextSendRequest &request, bool succeeded) {
+  runtime->text_send_active = false;
+  request_frame(runtime);
+  if (request.active) request.active(false);
+  if (request.finished) request.finished(succeeded);
+}
+
+static cardio::promise<void> send_text(TerminalRuntime *runtime, TerminalTextSendRequest request) {
+  const auto succeeded = co_await terminal_connection_send_text(runtime->connection, request,
+      runtime->text_send_stop.get_cancellation());
+  finish_text_send(runtime, request, succeeded);
 }
 
 static bool process_input_policy(TerminalRuntime *runtime) {
@@ -161,6 +179,7 @@ static bool process_input_policy(TerminalRuntime *runtime) {
   const auto connection = terminal_connection_state(runtime->connection);
   const bool enabled = runtime->input_allowed && !runtime->pending_connection &&
       !runtime->pending_encoding && !runtime->encoding_active &&
+      !runtime->pending_text_send && !runtime->text_send_active &&
       (connection.generation == 0 ||
       connection.phase == TerminalConnectionPhase::connected);
   boxrig_ui_input_state input{};
@@ -185,6 +204,12 @@ static bool process_input_policy(TerminalRuntime *runtime) {
     runtime->pending_encoding.reset();
     runtime->encoding_active = true;
     runtime->encoding_completion.emplace(change_encoding(runtime, std::move(encoding)));
+  }
+  if (runtime->pending_text_send && input.phase == BOXRIG_UI_INPUT_DISABLED) {
+    auto request = std::move(*runtime->pending_text_send);
+    runtime->pending_text_send.reset();
+    runtime->text_send_active = true;
+    runtime->text_send_completion.emplace(send_text(runtime, std::move(request)));
   }
   return true;
 }
@@ -523,6 +548,7 @@ bool terminal_runtime_connect_transport(TerminalRuntime *runtime, TerminalTransp
 cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
   runtime->pending_connection.reset();
   runtime->pending_encoding.reset();
+  terminal_runtime_cancel_text_send(runtime);
   runtime->input_allowed = false;
   if (!runtime->ui_failed) {
     const auto status = boxrig_gtk3_terminal_widget_set_input_enabled(runtime->widget, false);
@@ -532,6 +558,7 @@ cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
   request_frame(runtime);
   co_await terminal_connection_wait_stopped(runtime->connection);
   if (runtime->encoding_completion) co_await *runtime->encoding_completion;
+  if (runtime->text_send_completion) co_await *runtime->text_send_completion;
   if (runtime->grid_completion) co_await *runtime->grid_completion;
 }
 
@@ -553,6 +580,7 @@ bool terminal_runtime_input_settings_pending(const TerminalRuntime *runtime) { r
 
 bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string encoding) {
   if (runtime->stopped || runtime->ui_failed || runtime->encoding_active ||
+      runtime->pending_text_send || runtime->text_send_active ||
       terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected) return false;
   runtime->pending_encoding = std::move(encoding);
   request_frame(runtime);
@@ -561,6 +589,32 @@ bool terminal_runtime_request_encoding(TerminalRuntime *runtime, std::string enc
 
 bool terminal_runtime_encoding_pending(const TerminalRuntime *runtime) {
   return runtime->pending_encoding.has_value() || runtime->encoding_active;
+}
+
+bool terminal_runtime_start_text_send(TerminalRuntime *runtime, TerminalTextSendRequest request) {
+  if (runtime->stopped || runtime->ui_failed || runtime->pending_encoding || runtime->encoding_active ||
+      runtime->pending_text_send || runtime->text_send_active ||
+      terminal_connection_state(runtime->connection).phase != TerminalConnectionPhase::connected ||
+      request.bytes_per_second == 0 || !terminal_text_send_source_is_valid(request.source)) return false;
+  request.text_settings = runtime->applied_input;
+  request.text_settings.encoding = terminal_connection_state(runtime->connection).encoding;
+  runtime->text_send_stop = {};
+  runtime->pending_text_send = std::move(request);
+  if (runtime->pending_text_send->active) runtime->pending_text_send->active(true);
+  request_frame(runtime);
+  return true;
+}
+
+bool terminal_runtime_cancel_text_send(TerminalRuntime *runtime) {
+  if (runtime->pending_text_send) {
+    auto request = std::move(*runtime->pending_text_send);
+    runtime->pending_text_send.reset();
+    finish_text_send(runtime, request, false);
+    return true;
+  }
+  if (!runtime->text_send_active) return false;
+  runtime->text_send_stop.cancel();
+  return true;
 }
 
 void terminal_runtime_request_input_enabled(TerminalRuntime *runtime, bool enabled) {
