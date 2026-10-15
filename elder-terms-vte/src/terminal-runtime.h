@@ -14,6 +14,16 @@ namespace elder_terms {
 /** Owns a terminal, its model, and the GTK attachment on the GTK thread. */
 struct TerminalRuntime;
 
+/** Application integration retained when a failed GTK attachment is replaced. */
+struct TerminalRuntimeHostCallbacks {
+  /** Installs application input routing, widget identity and UI signal handlers. */
+  std::function<void(BoxrigGtk3TerminalWidget *)> attached;
+  /** Receives a copied UTF-8 window title for application-specific composition. */
+  std::function<void(std::string)> title;
+  /** Handles one terminal bell request using the application's audio policy. */
+  std::function<void()> bell;
+};
+
 /**
  * Selects files and presentation callbacks for an automatically detected transfer.
  * @param direction Requested local transfer direction.
@@ -29,9 +39,21 @@ using TerminalZmodemAutoStart = std::function<cardio::promise<std::optional<Term
  * Creates a terminal with OpenGL preferred rendering and the standard scroll container.
  * @param window Borrowed top-level window; must outlive the runtime.
  * @param content Borrowed content box, excluding client-side window decorations.
+ * @param attachment Borrowed box receiving the standard scroll container; may
+ * be content itself or a descendant inside an overlay.
  * @return An owned runtime, or nullptr after a reported initialization failure.
  */
-TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content);
+TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content, GtkBox *attachment);
+
+/**
+ * Replaces application hooks for native attachment and terminal host events.
+ * @param runtime Live runtime.
+ * @param callbacks Hooks valid until replacement or runtime destruction.
+ * @remarks Invokes attached immediately for the current widget and again on
+ * replacement. With no title hook, window titles are applied to the GTK window.
+ * Hooks must not destroy the runtime during the callback.
+ */
+void terminal_runtime_set_host_callbacks(TerminalRuntime *runtime, TerminalRuntimeHostCallbacks callbacks);
 
 /**
  * Cancels queued frames, destroys the GTK attachment, then releases model and core.

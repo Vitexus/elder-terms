@@ -14,6 +14,10 @@ using namespace elder_terms;
 struct Fixture {
   TerminalRuntime *runtime = nullptr;
   GtkWidget *window = nullptr;
+  GtkWidget *attachment = nullptr;
+  int attachments = 0;
+  int bells = 0;
+  std::vector<std::string> titles;
   cardio::primitives::conditional changed;
   cardio::primitives::conditional received;
   cardio::primitives::conditional resize_ready;
@@ -136,6 +140,18 @@ static TerminalTransportRequest request(Fixture *fixture) {
 
 static cardio::promise<void> scenarios(Fixture *fixture) {
   while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  expect(gtk_widget_is_ancestor(GTK_WIDGET(terminal_runtime_widget(fixture->runtime)), fixture->attachment),
+      "terminal is embedded in the requested host beneath application controls");
+  expect(fixture->attachments == 1, "host installs current widget identity and routing once");
+  terminal_runtime_feed(fixture->runtime, "\x1b]2;日本語\x1b\\\x1b]1;icon only\x1b\\\x07");
+  while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  expect(fixture->titles == std::vector<std::string>{"日本語"} && fixture->bells == 1 &&
+      std::string(gtk_window_get_title(GTK_WINDOW(fixture->window))) == "Session: 日本語",
+      "window title and bell reach application hooks; icon-only title leaves the window unchanged");
+  terminal_runtime_feed(fixture->runtime, "\x1b[22;2t\x1b]2;temporary\x1b\\\x1b[23;2t");
+  while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  expect(fixture->titles == std::vector<std::string>{"日本語", "temporary", "日本語"},
+      "title save and restore retain the uncomposed terminal title");
   expect(terminal_runtime_connect_transport(fixture->runtime, request(fixture)), "connect channel");
   while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
     co_await fixture->changed.wait();
@@ -223,6 +239,9 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   fixture->received.trigger();
   while (text(fixture).find("RECONNECTED") == std::string::npos) co_await fixture->changed.wait();
   expect(text(fixture).find("RETAINED DISPLAY") != std::string::npos, "new widget uses the same core and history");
+  expect(fixture->attachments == 2 &&
+      gtk_widget_is_ancestor(GTK_WIDGET(terminal_runtime_widget(fixture->runtime)), fixture->attachment),
+      "replacement restores application hooks in the same nested host");
 
   fixture->outgoing.clear();
   fixture->hold_write = true;
@@ -573,14 +592,26 @@ int main(int argc, char **argv) {
   auto *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
   auto *content = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
   gtk_container_add(GTK_CONTAINER(window), content);
+  gtk_box_pack_start(GTK_BOX(content), gtk_label_new("Application controls"), FALSE, FALSE, 0);
+  auto *attachment = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  gtk_box_pack_start(GTK_BOX(content), attachment, TRUE, TRUE, 0);
   Fixture fixture;
   fixture.window = window;
+  fixture.attachment = attachment;
   auto *directory = g_dir_make_tmp("boxrig-runtime-transfer-XXXXXX", nullptr);
   if (!directory) return 1;
   fixture.transfer_directory = directory;
   g_free(directory);
-  fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
+  fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content), GTK_BOX(attachment));
   if (!fixture.runtime) { std::filesystem::remove_all(fixture.transfer_directory); return 1; }
+  terminal_runtime_set_host_callbacks(fixture.runtime, {
+      [&fixture](BoxrigGtk3TerminalWidget *) { ++fixture.attachments; },
+      [&fixture](std::string title) {
+        fixture.titles.push_back(title);
+        gtk_window_set_title(GTK_WINDOW(fixture.window), ("Session: " + title).c_str());
+      },
+      [&fixture] { ++fixture.bells; },
+  });
   terminal_runtime_set_output_callback(fixture.runtime,
       [&fixture](std::span<const unsigned char>, std::span<const unsigned char> cooked) {
         fixture.normal_output.append(reinterpret_cast<const char *>(cooked.data()), cooked.size());

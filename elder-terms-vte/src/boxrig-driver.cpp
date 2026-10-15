@@ -39,6 +39,7 @@ struct Driver {
   bool links = false;
   std::vector<elder_terms::MacroRule> macros;
   bool closing = false;
+  bool attachment_failed = false;
   std::string last_report;
   std::string last_connection_report;
   std::string last_encoding_report;
@@ -229,6 +230,27 @@ static boxrig_input_key_route route_key(const boxrig_key_event *event, void *con
     elder_terms::terminal_runtime_request_input_settings(driver->runtime, driver->input_settings);
   }
   return BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
+}
+
+static void attach_driver_widget(Driver *driver, BoxrigGtk3TerminalWidget *widget) {
+  driver->attachment_failed = boxrig_gtk3_terminal_widget_set_key_router(widget, route_key, driver) != BOXRIG_UI_OK;
+  if (driver->attachment_failed) {
+    std::fputs("Could not attach driver key routing\n", stderr);
+    return;
+  }
+  gestament_gtk_assign_accessible_id(GTK_WIDGET(widget), "driver_terminal");
+  auto *accessible = gtk_widget_get_accessible(GTK_WIDGET(widget));
+  const auto text_changed = +[](AtkText *, int, int, const char *, gpointer context) {
+    ++static_cast<Driver *>(context)->text_events;
+  };
+  g_signal_connect(accessible, "text-insert", G_CALLBACK(text_changed), driver);
+  g_signal_connect(accessible, "text-remove", G_CALLBACK(text_changed), driver);
+  g_signal_connect(accessible, "text-caret-moved", G_CALLBACK(+[](AtkText *, int, gpointer context) {
+    ++static_cast<Driver *>(context)->caret_events;
+  }), driver);
+  g_signal_connect(accessible, "text-selection-changed", G_CALLBACK(+[](AtkText *, gpointer context) {
+    ++static_cast<Driver *>(context)->selection_events;
+  }), driver);
 }
 
 static void input_enabled_changed(GtkButton *button, gpointer context) {
@@ -592,7 +614,7 @@ int main(int argc, char **argv) {
     gtk_box_pack_start(GTK_BOX(sending), transfer, FALSE, FALSE, 0);
     g_signal_connect(transfer, "clicked", G_CALLBACK(start_transfer), &driver);
   }
-  driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
+  driver.runtime = elder_terms::create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content), GTK_BOX(content));
   if (!driver.runtime) { gtk_widget_destroy(window); return 1; }
   if (driver.links) configure_links(&driver);
   if (!driver.macros.empty()) elder_terms::terminal_runtime_set_macro_rules(driver.runtime,
@@ -613,24 +635,14 @@ int main(int argc, char **argv) {
         co_return transfer_request(&driver);
       });
   auto *widget = elder_terms::terminal_runtime_widget(driver.runtime);
-  if (boxrig_gtk3_terminal_widget_set_key_router(widget, route_key, &driver) != BOXRIG_UI_OK) {
+  elder_terms::terminal_runtime_set_host_callbacks(driver.runtime, {
+      [&driver](BoxrigGtk3TerminalWidget *attached) { attach_driver_widget(&driver, attached); }, {}, {},
+  });
+  if (driver.attachment_failed) {
     elder_terms::destroy_terminal_runtime(driver.runtime);
     gtk_widget_destroy(window);
     return 1;
   }
-  gestament_gtk_assign_accessible_id(GTK_WIDGET(widget), "driver_terminal");
-  auto *accessible = gtk_widget_get_accessible(GTK_WIDGET(widget));
-  const auto text_changed = +[](AtkText *, int, int, const char *, gpointer context) {
-    ++static_cast<Driver *>(context)->text_events;
-  };
-  g_signal_connect(accessible, "text-insert", G_CALLBACK(text_changed), &driver);
-  g_signal_connect(accessible, "text-remove", G_CALLBACK(text_changed), &driver);
-  g_signal_connect(accessible, "text-caret-moved", G_CALLBACK(+[](AtkText *, int, gpointer context) {
-    ++static_cast<Driver *>(context)->caret_events;
-  }), &driver);
-  g_signal_connect(accessible, "text-selection-changed", G_CALLBACK(+[](AtkText *, gpointer context) {
-    ++static_cast<Driver *>(context)->selection_events;
-  }), &driver);
   elder_terms::terminal_runtime_set_changed_callback(driver.runtime, report_state, &driver);
   elder_terms::terminal_runtime_request_input_settings(driver.runtime, driver.input_settings);
   g_signal_connect(zoom, "clicked", G_CALLBACK(zoom_in), &driver);

@@ -57,6 +57,11 @@ struct TerminalRuntime {
   GtkWidget *scroll = nullptr;
   GtkWindow *window = nullptr;
   GtkBox *content = nullptr;
+  GtkBox *attachment = nullptr;
+  TerminalRuntimeHostCallbacks host;
+  std::string title;
+  bool has_title = false;
+  std::vector<std::string> title_stack;
   guint frame_source = 0;
   int frame_priority = G_PRIORITY_DEFAULT;
   guint presentation_source = 0;
@@ -525,15 +530,36 @@ static boxrig_ui_status apply_host_grid(TerminalRuntime *runtime, boxrig_grid_si
   return status;
 }
 
+static void apply_host_title(TerminalRuntime *runtime, std::uint32_t flags, std::string title) {
+  if (!(flags & BOXRIG_TITLE_WINDOW)) return;
+  const auto operation = flags & (BOXRIG_TITLE_STACK_PUSH | BOXRIG_TITLE_STACK_POP);
+  if (operation == (BOXRIG_TITLE_STACK_PUSH | BOXRIG_TITLE_STACK_POP)) return;
+  if (operation == BOXRIG_TITLE_STACK_PUSH) {
+    if (runtime->title_stack.size() == 10) runtime->title_stack.erase(runtime->title_stack.begin());
+    runtime->title_stack.push_back(runtime->title);
+    return;
+  }
+  if (operation == BOXRIG_TITLE_STACK_POP) {
+    if (runtime->title_stack.empty()) return;
+    title = std::move(runtime->title_stack.back());
+    runtime->title_stack.pop_back();
+  }
+  if (!g_utf8_validate(title.c_str(), title.size(), nullptr)) return;
+  runtime->title = std::move(title);
+  runtime->has_title = true;
+  if (runtime->host.title) runtime->host.title(runtime->title);
+  else gtk_window_set_title(runtime->window, runtime->title.c_str());
+}
+
 static bool process_host_items(TerminalRuntime *runtime) {
   boxrig_host_item item{};
   bool consumed = false;
   for (unsigned int work = 0; work < 64 && boxrig_terminal_host_item_peek(runtime->terminal, &item); ++work) {
-    if (item.type == BOXRIG_HOST_ITEM_TITLE) {
-      const std::string title(item.payload_length == 0 ? "" :
-          reinterpret_cast<const char *>(item.payload), item.payload_length);
-      if (g_utf8_validate(title.c_str(), title.size(), nullptr)) gtk_window_set_title(runtime->window, title.c_str());
-    }
+    const auto type = item.type;
+    const auto flags = item.flags;
+    std::string title;
+    if (type == BOXRIG_HOST_ITEM_TITLE && item.payload_length != 0)
+      title.assign(reinterpret_cast<const char *>(item.payload), item.payload_length);
     if (item.type == BOXRIG_HOST_ITEM_GRID_RESIZE) {
       const auto status = apply_host_grid(runtime, item.grid_resize);
       if (status == BOXRIG_UI_BUSY) {
@@ -547,6 +573,9 @@ static bool process_host_items(TerminalRuntime *runtime) {
     consumed = true;
     if (request_id != 0 && boxrig_terminal_complete_host_request(runtime->terminal,
         request_id, BOXRIG_HOST_REQUEST_UNAVAILABLE, nullptr, 0) != BOXRIG_STATUS_OK) return false;
+    // Consume borrowed host data before application hooks can enqueue input.
+    if (type == BOXRIG_HOST_ITEM_TITLE) apply_host_title(runtime, flags, std::move(title));
+    else if (type == BOXRIG_HOST_ITEM_BELL && runtime->host.bell) runtime->host.bell();
   }
   if (consumed) request_frame(runtime);
   return true;
@@ -693,7 +722,7 @@ static bool attach_widget(TerminalRuntime *runtime) {
   runtime->selection_drag_active = false;
   runtime->widget_allocated = false;
   runtime->pending_input = runtime->applied_input;
-  gtk_box_pack_start(runtime->content, scroll, TRUE, TRUE, 0);
+  gtk_box_pack_start(runtime->attachment, scroll, TRUE, TRUE, 0);
   g_signal_connect(widget, "map", G_CALLBACK(mapped), runtime);
   g_signal_connect_after(widget, "draw", G_CALLBACK(drawn), runtime);
   gtk_widget_add_events(GTK_WIDGET(widget), GDK_LEAVE_NOTIFY_MASK);
@@ -706,15 +735,17 @@ static bool attach_widget(TerminalRuntime *runtime) {
       !ui_result(boxrig_gtk3_terminal_widget_set_mouse_router(widget, route_mouse, runtime), "mouse router") ||
       !ui_result(boxrig_gtk3_terminal_widget_set_visible(widget, true), "visibility")) return false;
   runtime->ui_failed = false;
+  if (runtime->host.attached) runtime->host.attached(widget);
   gtk_widget_show_all(scroll);
   return true;
 }
 
-TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content) {
+TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content, GtkBox *attachment) {
   auto *runtime = new (std::nothrow) TerminalRuntime;
   if (!runtime) return nullptr;
   runtime->window = window;
   runtime->content = content;
+  runtime->attachment = attachment;
   auto config = boxrig_terminal_config_default();
   config.rows = 24;
   config.columns = 80;
@@ -770,6 +801,12 @@ void destroy_terminal_runtime(TerminalRuntime *runtime) {
 }
 
 BoxrigGtk3TerminalWidget *terminal_runtime_widget(TerminalRuntime *runtime) { return runtime->widget; }
+
+void terminal_runtime_set_host_callbacks(TerminalRuntime *runtime, TerminalRuntimeHostCallbacks callbacks) {
+  runtime->host = std::move(callbacks);
+  if (runtime->host.attached) runtime->host.attached(runtime->widget);
+  if (runtime->has_title && runtime->host.title) runtime->host.title(runtime->title);
+}
 
 void terminal_runtime_set_hyperlink_rules(TerminalRuntime *runtime,
     std::vector<HyperlinkActionRule> rules, std::function<void(TerminalHyperlinkResolution)> activate) {

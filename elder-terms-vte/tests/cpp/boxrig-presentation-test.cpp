@@ -59,7 +59,7 @@ int main(int argc, char **argv) {
   gtk_container_add(GTK_CONTAINER(window), content);
   Fixture fixture;
   if (argc > 1 && std::string_view(argv[1]) == "cairo") fixture.backend = BOXRIG_GTK_RENDER_BACKEND_CAIRO;
-  fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content));
+  fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content), GTK_BOX(content));
   if (!fixture.runtime) return 1;
   terminal_runtime_set_changed_callback(fixture.runtime, [](void *context) {
     auto *fixture = static_cast<Fixture *>(context);
