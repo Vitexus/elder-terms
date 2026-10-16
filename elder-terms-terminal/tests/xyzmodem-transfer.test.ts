@@ -488,9 +488,16 @@ const makeTransferPayload = (byteLength: number): Buffer =>
 
 const transferProgressPeerLinkPaceArgs = (
   transferCase: TransferMenuCase
-): readonly string[] =>
-  transferCase.protocol === 'xmodem' ||
-  (transferCase.protocol === 'zmodem' && transferCase.direction === 'send')
+): readonly string[] => {
+  // A slow but continuous XMODEM receive keeps the notice visible while GTK
+  // prepares its recording, without stopping I/O to wait for UI capture.
+  if (
+    transferCase.protocol === 'xmodem' &&
+    transferCase.direction === 'receive'
+  )
+    return ['--link-pace-ms', '20', '--link-pace-every', '1'];
+  return transferCase.protocol === 'xmodem' ||
+    (transferCase.protocol === 'zmodem' && transferCase.direction === 'send')
     ? []
     : [
         '--link-pace-ms',
@@ -498,6 +505,7 @@ const transferProgressPeerLinkPaceArgs = (
         '--link-pace-every',
         '4',
       ];
+};
 
 const corruptPrefix = (payload: Buffer, prefixLength: number): Buffer => {
   const corrupted = Buffer.from(payload);
@@ -1243,7 +1251,7 @@ const createTransferProgressPeerFixture = async (
   const remoteName = 'remote.bin';
   const remotePayloadPath = join(remoteDirectory, remoteName);
   const automaticPauseArgs =
-    transferCase.protocol === 'zmodem' || transferCase.protocol === 'xmodem'
+    transferCase.protocol === 'zmodem'
       ? ['--pause-after-source-bytes', String(Math.floor(payload.length / 2))]
       : [];
   const command = [
@@ -1821,7 +1829,7 @@ const releaseTransferPeer = async (fixture: TransferFixture): Promise<void> => {
   }
 };
 
-const pauseTransferAtProgressForCapture = async (
+const captureTransferProgress = async (
   app: GtkApp,
   evidence: TestEvidence,
   noticeCase: TransferProgressNoticeCase,
@@ -1866,7 +1874,12 @@ const pauseTransferAtProgressForCapture = async (
     return;
   }
 
-  if (transferCase.protocol === 'zmodem' && transferCase.direction === 'send') {
+  if (
+    (transferCase.protocol === 'zmodem' && transferCase.direction === 'send') ||
+    (transferCase.protocol === 'xmodem' && transferCase.direction === 'receive')
+  ) {
+    const indeterminate = transferCase.protocol === 'xmodem';
+    const recordingName = `${transferCase.protocol}-${transferCase.direction}-progress`;
     await expectTransferProgressNoticeVisibleAtTerminalTopRight(app);
     const notice = await app.getById('transfer_progress_notice');
     const capture = await notice.capture();
@@ -1890,10 +1903,18 @@ const pauseTransferAtProgressForCapture = async (
       column(0.75) / area.width,
       row / area.height
     );
+    await evidence.log('transfer progress recording geometry', {
+      area,
+      bar,
+      row,
+      filled,
+      empty,
+    });
     const environment = await app.environment();
-    const videoPath = join(evidence.directory, 'zmodem-send-progress.mkv');
-    // Record before releasing the peer. Reading AT-SPI progress and capturing
-    // later can observe entirely different values while ZMODEM keeps streaming.
+    const videoPath = join(evidence.directory, `${recordingName}.mkv`);
+    // Record ZMODEM before releasing the peer, and XMODEM while it streams.
+    // Reading AT-SPI progress and capturing later can see different values.
+    // Pausing XMODEM while capturing can exceed its real block timeout.
     const recorder = spawn(
       'ffmpeg',
       [
@@ -1947,7 +1968,7 @@ const pauseTransferAtProgressForCapture = async (
     });
     let pending = Buffer.alloc(0);
     let frameNumber = 0;
-    let middleFrame: number | undefined;
+    let progressFrame: number | undefined;
     let peerReleased = false;
     const frameSize = area.width * area.height * 4;
     recorder.stdout.on('data', (bytes: Buffer) => {
@@ -1962,16 +1983,17 @@ const pauseTransferAtProgressForCapture = async (
               Math.abs(frame[offset + 2 - channel] - value) <= 8
           );
         };
-        // The filled prefix and empty suffix distinguish 45–55% progress from
-        // the moving indeterminate pulse before the peer supplies metadata.
-        // Retain this rendered frame even if capture finishes later.
-        if (
-          peerReleased &&
-          middleFrame === undefined &&
-          [0.05, 0.25, 0.45].every((ratio) => matches(ratio, filled)) &&
-          [0.55, 0.75, 0.95].every((ratio) => matches(ratio, empty))
-        )
-          middleFrame = frameNumber;
+        // XMODEM has no total size, so retain a visible indeterminate pulse.
+        // ZMODEM's filled prefix and empty suffix distinguish 45–55% progress
+        // from the pulse before metadata arrives. Capture never pauses I/O.
+        const pulsePositions = [0.05, 0.25, 0.45, 0.65, 0.85, 0.95];
+        const progressVisible = indeterminate
+          ? pulsePositions.some((ratio) => matches(ratio, filled)) &&
+            pulsePositions.some((ratio) => matches(ratio, empty))
+          : [0.05, 0.25, 0.45].every((ratio) => matches(ratio, filled)) &&
+            [0.55, 0.75, 0.95].every((ratio) => matches(ratio, empty));
+        if (peerReleased && progressFrame === undefined && progressVisible)
+          progressFrame = frameNumber;
         pending = pending.subarray(frameSize);
       }
     });
@@ -1981,13 +2003,15 @@ const pauseTransferAtProgressForCapture = async (
         expect(recorder.exitCode, stderr).toBeNull();
         expect(frameNumber).toBeGreaterThan(0);
       });
-      await writeFile(fixture.markerPath, 'start', 'utf8');
+      if (!indeterminate) await writeFile(fixture.markerPath, 'start', 'utf8');
       peerReleased = true;
+      if (indeterminate)
+        await expectTransferSpeedWithEtaStatus(app, transferCase);
       await waitForResult(
         async () => {
           if (recordingError) throw recordingError;
           expect(recorder.exitCode, stderr).toBeNull();
-          expect(middleFrame).toBeDefined();
+          expect(progressFrame).toBeDefined();
         },
         { timeoutMs: noticeCase.sizeCase.timeoutMs }
       );
@@ -1995,18 +2019,17 @@ const pauseTransferAtProgressForCapture = async (
       if (recorder.exitCode === null && !recordingError)
         recorder.stdin.write('q\n');
       const code = await finished;
-      await evidence.log('ZMODEM progress video', {
-        middleFrame,
+      await evidence.log('transfer progress video', {
+        protocol: transferCase.protocol,
+        direction: transferCase.direction,
+        progressFrame,
         frameNumber,
         code,
         stderr,
       });
       expect(code, stderr).toBe(0);
     }
-    const framePath = join(
-      evidence.directory,
-      'zmodem-send-progress-middle.png'
-    );
+    const framePath = join(evidence.directory, `${recordingName}-visible.png`);
     await runCommand('ffmpeg', [
       '-hide_banner',
       '-loglevel',
@@ -2014,49 +2037,21 @@ const pauseTransferAtProgressForCapture = async (
       '-i',
       videoPath,
       '-vf',
-      `select=eq(n\\,${middleFrame! - 1})`,
+      `select=eq(n\\,${progressFrame! - 1})`,
       '-frames:v',
       '1',
       framePath,
     ]);
     await evidence.expectCaptureToLookSimilar(
       { ...capture, image: await readFile(framePath) },
-      'transfer-progress-notice-zmodem-send',
+      `transfer-progress-notice-${transferCase.protocol}-${transferCase.direction}`,
       noticeCase.fixturePath,
       {
         maxDiffPixels: noticeCase.maxDiffPixels,
-        maxDiffRatio: 0.02,
-        threshold: 0.03,
+        maxDiffRatio: indeterminate ? 0.03 : 0.02,
+        threshold: indeterminate ? 0.08 : 0.03,
       }
     );
-    return;
-  }
-
-  if (
-    transferCase.protocol === 'xmodem' &&
-    transferCase.direction === 'receive'
-  ) {
-    try {
-      await expectTransferProgressNoticeVisibleAtTerminalTopRight(app);
-      // Pause after acknowledged data so the XMODEM handshake cannot expire
-      // while GTK captures the stable progress notice.
-      await waitForFileExists(fixture.pausedPath, 10_000);
-      await delay(100);
-      await expectTransferSpeedWithEtaStatus(app, transferCase);
-      await assertTransferProgressNoticeMatches(
-        app,
-        evidence,
-        `transfer-progress-notice-${transferCase.protocol}-${transferCase.direction}`,
-        noticeCase.fixturePath,
-        {
-          maxDiffPixels: noticeCase.maxDiffPixels,
-          maxDiffRatio: 0.03,
-          threshold: 0.08,
-        }
-      );
-    } finally {
-      await resumeTransferProgressPeer(fixture);
-    }
     return;
   }
 
@@ -2968,6 +2963,11 @@ describe('elder-terms-terminal XYZMODEM transfer progress notice e2e', () => {
               await expectDisconnectedNoticeHidden(app);
               await expectTransferProgressNoticeHidden(app);
 
+              if (
+                transferCase.protocol === 'xmodem' &&
+                transferCase.direction === 'receive'
+              )
+                await writeFile(fixture.markerPath, 'start', 'utf8');
               await activateTransfer(app, transferCase);
               await expectTransferButtonInsensitive(app);
               await expectTransferProgressNoticeVisibleAtTerminalTopRight(app);
@@ -2980,17 +2980,14 @@ describe('elder-terms-terminal XYZMODEM transfer progress notice e2e', () => {
                 await requestTransferProgressPeerPause(fixture);
               }
               if (!(
-                transferCase.protocol === 'zmodem' &&
-                transferCase.direction === 'send'
+                (transferCase.protocol === 'zmodem' &&
+                  transferCase.direction === 'send') ||
+                (transferCase.protocol === 'xmodem' &&
+                  transferCase.direction === 'receive')
               ))
                 await writeFile(fixture.markerPath, 'start', 'utf8');
 
-              await pauseTransferAtProgressForCapture(
-                app,
-                evidence,
-                noticeCase,
-                fixture
-              );
+              await captureTransferProgress(app, evidence, noticeCase, fixture);
               try {
                 await waitForFileBytes(
                   fixture.expectedPath,
