@@ -1785,7 +1785,9 @@ int main(int argc, char **argv) {
   (void)elder_terms::initialize_application_window_icon();
 
   cardio::dispatcher_group_glib dispatcher_group;
-  cardio::dispatcher_host_glib dispatcher(dispatcher_group);
+  // Let GLib prioritize ready I/O alongside native events. Pumping GTK before
+  // every continuation repeatedly renders partially received output batches.
+  cardio::dispatcher_host_glib_auto dispatcher(dispatcher_group);
 
   auto main_window = elder_terms::load_main_window();
   if (!main_window.has_value()) {

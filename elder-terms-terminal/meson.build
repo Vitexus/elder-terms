@@ -112,7 +112,7 @@ elder_terms_sources = [
   'src/terminal-presentation.cpp',
 ]
 
-executable(
+elder_terms_terminal = executable(
   'elder-terms-terminal',
   elder_terms_sources,
   cpp_args: [
@@ -137,6 +137,19 @@ executable(
   install_dir: elder_terms_private_install_dir / 'elder-terms-terminal',
   install_rpath: elder_terms_private_install_rpath,
 )
+
+if get_option('build_tests')
+terminal_dispatch_test = executable('terminal-dispatch-test',
+  'tests/cpp/terminal-dispatch-test.cpp',
+  objects: elder_terms_terminal.extract_all_objects(recursive: false),
+  dependencies: [cardio_dep, elder_terms_dep, canberra_dep, gio_dep, gtk_dep,
+    liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep],
+  link_with: libxyzm_async_static_library,
+  link_args: ['-Wl,--wrap=main'])
+test('terminal-dispatch-test', find_program('xvfb-run'),
+  args: ['-a', terminal_dispatch_test, '--test-fixture'], timeout: 30,
+  env: ['GDK_GL=disable', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
+endif
 
 executable(
   'elder-terms-file-transfer',
