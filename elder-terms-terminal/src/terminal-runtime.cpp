@@ -706,7 +706,10 @@ static void request_continuation(TerminalRuntime *runtime) {
 static void allocated(GtkWidget *, GtkAllocation *, gpointer context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   ++runtime->allocation_generation;
-  request_frame(runtime);
+  // The widget requests frames for actual terminal allocation changes. Window
+  // chrome can be allocated again with the same grid; only an outstanding host
+  // size command needs that notification to determine its accepted outcome.
+  if (runtime->size_command.revision != 0) request_frame(runtime);
 }
 
 static void mapped(GtkWidget *, gpointer context) {

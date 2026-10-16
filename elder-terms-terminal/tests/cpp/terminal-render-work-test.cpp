@@ -51,6 +51,17 @@ static cardio::promise<void> run(TerminalRuntime *runtime,
     g_free(text);
     if (!retained) throw std::runtime_error("accessible text follows actual changes after recognition");
 
+    // Chrome can cause another window allocation without changing the terminal
+    // grid. That notification must not prepare the same terminal image again.
+    auto *window = gtk_widget_get_toplevel(GTK_WIDGET(terminal_runtime_widget(runtime)));
+    GtkAllocation allocation{};
+    gtk_widget_get_allocation(window, &allocation);
+    frames = 0;
+    g_signal_emit_by_name(window, "size-allocate", &allocation);
+    while (!terminal_runtime_is_settled(runtime)) co_await changed->wait();
+    g_print("Frames after an unchanged window allocation: %zu\n", frames);
+    if (frames != 0) throw std::runtime_error("unchanged window allocations must not prepare another terminal image");
+
     TerminalTransportRequest request;
     request.open = [&](std::size_t, std::size_t, cardio::cancellation) -> cardio::promise<TerminalTransport> {
       co_return TerminalTransport{
@@ -86,8 +97,13 @@ static cardio::promise<void> run(TerminalRuntime *runtime,
       co_await ready.wait();
     };
     co_await flush();
-    if (boxrig_gtk3_terminal_widget_presentation_generation(widget) != generation)
+    if (boxrig_gtk3_terminal_widget_presentation_generation(widget) != generation) {
+      g_printerr("Incomplete batch: previous=%llu current=%llu synchronized=%d frames=%zu\n",
+          static_cast<unsigned long long>(generation),
+          static_cast<unsigned long long>(boxrig_gtk3_terminal_widget_presentation_generation(widget)),
+          boxrig_terminal_synchronized_output(terminal), frames);
       throw std::runtime_error("an incomplete synchronized batch retains the previous screen");
+    }
     incoming = "\033[?2026l";
     received.trigger();
     co_await flush();
