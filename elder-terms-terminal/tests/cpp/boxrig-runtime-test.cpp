@@ -52,6 +52,8 @@ struct Fixture {
   bool selection_pending = false;
   bool selection_cancelled = false;
   bool peer_eof = false;
+  bool observed_render_turn = false;
+  bool yielded_during_output = false;
   std::size_t requested_rows = 0;
   std::size_t requested_columns = 0;
 };
@@ -162,6 +164,24 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   expect(terminal_runtime_connect_transport(fixture->runtime, request(fixture)), "connect channel");
   while (terminal_runtime_connection_state(fixture->runtime).phase != TerminalConnectionPhase::connected)
     co_await fixture->changed.wait();
+  while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  for (unsigned int line = 0; line < 4096; ++line)
+    fixture->incoming += "Continuous output must reach the screen\r\n";
+  fixture->incoming += "\033[3J\033[2J\033[H";
+  const auto received_size = fixture->normal_output.size() + fixture->incoming.size();
+  // Make a GTK render-priority task ready now, without waiting for a display
+  // frame clock that could fire only after a fast finite transfer has ended.
+  const auto render_turn = g_idle_add_full(GDK_PRIORITY_REDRAW, +[](gpointer context) -> gboolean {
+    auto *fixture = static_cast<Fixture *>(context);
+    fixture->observed_render_turn = true;
+    fixture->yielded_during_output = !fixture->incoming.empty();
+    return G_SOURCE_REMOVE;
+  }, fixture, nullptr);
+  fixture->received.trigger();
+  while (fixture->normal_output.size() < received_size || !terminal_runtime_is_settled(fixture->runtime))
+    co_await fixture->changed.wait();
+  if (!fixture->observed_render_turn) g_source_remove(render_turn);
+  expect(fixture->yielded_during_output, "continuous receive yields to ready GTK rendering before all input is consumed");
   fixture->incoming = "RETAINED DISPLAY\r\n";
   fixture->received.trigger();
   while (text(fixture).find("RETAINED DISPLAY") == std::string::npos) co_await fixture->changed.wait();

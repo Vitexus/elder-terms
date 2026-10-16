@@ -645,14 +645,20 @@ static gboolean dispatch_frame(gpointer context) {
   // Native key and IME dispatch can create output without a visual change.
   // Drain it now; a static Cairo view may have no subsequent paint or frame.
   if (terminal_connection_dispatch(runtime->connection)) request_continuation(runtime);
-  // A pending presentation may be waiting for GTK allocation or paint. Only
-  // additional_dispatch requests another immediate pass through the main loop.
-  if (result.additional_dispatch) request_frame(runtime);
   if (runtime->links && runtime->pointer_position) {
     boxrig_ui_hit_test_result hit{};
     if (boxrig_gtk3_terminal_widget_hit_test(runtime->widget, runtime->pointer_position->first,
         runtime->pointer_position->second, &hit) == BOXRIG_UI_OK) update_link_cursor(runtime, hit);
   }
+  // Synchronization and hover updates can request a frame during this pass.
+  // Let GTK paint its prepared image before continuing stream/recognition
+  // work; only the component's additional_dispatch needs immediate service.
+  if (runtime->frame_source && runtime->frame_priority < G_PRIORITY_DEFAULT_IDLE) {
+    g_source_remove(runtime->frame_source);
+    runtime->frame_source = 0;
+    request_continuation(runtime);
+  }
+  if (result.additional_dispatch) request_frame(runtime);
   notify_changed(runtime);
   return G_SOURCE_REMOVE;
 }
@@ -788,7 +794,7 @@ TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content, Gtk
     return nullptr;
   }
   runtime->connection = create_terminal_connection(runtime->terminal,
-      [runtime] { request_frame(runtime); },
+      [runtime] { request_continuation(runtime); },
       [runtime](std::span<const unsigned char> raw, std::span<const unsigned char> cooked) {
         if (runtime->output) runtime->output(raw, cooked);
         const auto state = terminal_connection_state(runtime->connection);
