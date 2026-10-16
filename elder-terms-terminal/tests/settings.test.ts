@@ -2323,6 +2323,8 @@ describe.concurrent('elder-terms-terminal settings', () => {
     });
   });
 
+  // Three settings round trips and native captures can exceed the default
+  // deadline under load, even when every layout assertion succeeds.
   it('applies window side borders without changing the terminal grid', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app, evidence) => {
       const initialLayout = await waitForResult(async () => {
@@ -2439,7 +2441,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expect((await startBorder.info()).states).not.toContain('showing');
       expect((await endBorder.info()).states).not.toContain('showing');
     });
-  });
+  }, 120_000);
 
   it('saves and applies compact mode without changing the terminal grid', async (context) => {
     await withTemporaryDirectory(async (directory) => {
