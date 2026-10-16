@@ -228,8 +228,16 @@ static void on_terminal_context_break_activate(GtkMenuItem *, gpointer data) {
 }
 
 static void show_terminal_context_menu(TerminalContextMenuState *state, const boxrig_mouse_event &event) {
-  auto *accessible = gtk_widget_get_accessible(GTK_WIDGET(state->terminal));
-  gtk_widget_set_sensitive(state->copy_item, atk_text_get_n_selections(ATK_TEXT(accessible)) != 0);
+  // Copy is a view action and remains available when screen-reader text is off.
+  boxrig_ui_selection selection{};
+  const bool selected = boxrig_ui_view_get_selection(
+      boxrig_gtk3_terminal_widget_view(state->terminal), &selection) && !selection.stale;
+  const bool nonempty = selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR
+      ? selection.row_count != 0 && selection.visual_column_count != 0
+      : selection.range_valid && (selection.range.start.line_id.epoch != selection.range.end.line_id.epoch ||
+          selection.range.start.line_id.serial != selection.range.end.line_id.serial ||
+          selection.range.start.column != selection.range.end.column);
+  gtk_widget_set_sensitive(state->copy_item, selected && nonempty);
   update_terminal_context_paste_sensitivity(state);
   gtk_widget_set_sensitive(state->break_item,
       state->break_callbacks.can_send && state->break_callbacks.send && state->break_callbacks.can_send());

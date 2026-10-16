@@ -745,60 +745,74 @@ describe.concurrent('elder-terms-terminal main window', () => {
     });
   });
 
-  it('copies selected terminal text from the right-click menu', async (context) => {
-    await runGtkTest(context, ['--test-fixture'], async (app) => {
-      const layout = await waitForResult(async () =>
-        readTerminalGridLayout(app)
-      );
-      await waitForResult(async () =>
-        expectFixtureTerminalGridSize(app, defaultColumns, defaultRows)
-      );
-      const { bounds } = layout.terminalCapture;
-      const cellWidth = bounds.width / defaultColumns;
-      const cellHeight = bounds.height / defaultRows;
-
-      await openTerminalContextMenu(
-        app,
-        bounds.x + cellWidth / 2,
-        bounds.y + cellHeight / 2
-      );
-      const copyItem = await waitForResult(async () => {
-        const item = expectElementKind(
-          await app.getById('terminal_context_copy_item'),
-          'menuItem'
+  for (const accessibilityEnabled of [false, true]) {
+    it(`copies selected terminal text from the right-click menu (screen-reader access: ${accessibilityEnabled})`, async (context) => {
+      await withTemporaryDirectory(async (directory) => {
+        const configPath = join(directory, 'copy.ini');
+        await writeFile(
+          configPath,
+          `[terminal]\naccessibility_enabled=${accessibilityEnabled}\n`,
+          'utf8'
         );
-        const info = await item.info();
-        expect(info.name).toBe('Copy');
-        expect(info.states).toContain('showing');
-        expect(info.states).not.toContain('enabled');
-        expect(info.states).not.toContain('sensitive');
-        return item;
-      });
+        await runGtkTest(
+          context,
+          ['--test-fixture', '-c', configPath],
+          async (app) => {
+            const layout = await waitForResult(async () =>
+              readTerminalGridLayout(app)
+            );
+            await waitForResult(async () =>
+              expectFixtureTerminalGridSize(app, defaultColumns, defaultRows)
+            );
+            const { bounds } = layout.terminalCapture;
+            const cellWidth = bounds.width / defaultColumns;
+            const cellHeight = bounds.height / defaultRows;
 
-      await app.input.pressKey('Escape');
-      await waitForResult(async () => {
-        expect((await copyItem.info()).states).not.toContain('showing');
-      });
-      await waitForResult(async () => {
-        await selectTerminalCells(app, bounds, 5, 0);
-        await openTerminalContextMenu(
-          app,
-          bounds.x + cellWidth * 6.5,
-          bounds.y + cellHeight / 2
+            await openTerminalContextMenu(
+              app,
+              bounds.x + cellWidth / 2,
+              bounds.y + cellHeight / 2
+            );
+            const copyItem = await waitForResult(async () => {
+              const item = expectElementKind(
+                await app.getById('terminal_context_copy_item'),
+                'menuItem'
+              );
+              const info = await item.info();
+              expect(info.name).toBe('Copy');
+              expect(info.states).toContain('showing');
+              expect(info.states).not.toContain('enabled');
+              expect(info.states).not.toContain('sensitive');
+              return item;
+            });
+
+            await app.input.pressKey('Escape');
+            await waitForResult(async () => {
+              expect((await copyItem.info()).states).not.toContain('showing');
+            });
+            await waitForResult(async () => {
+              await selectTerminalCells(app, bounds, 5, 0);
+              await openTerminalContextMenu(
+                app,
+                bounds.x + cellWidth * 6.5,
+                bounds.y + cellHeight / 2
+              );
+              const info = await copyItem.info();
+              if (!info.states.includes('enabled')) {
+                await app.input.pressKey('Escape');
+              }
+              expect(info.states).toContain('showing');
+              expect(info.states).toContain('enabled');
+              expect(info.states).toContain('sensitive');
+            });
+            await copyItem.click();
+
+            expect(await readClipboardText(app)).toBe('!\"#$%');
+          }
         );
-        const info = await copyItem.info();
-        if (!info.states.includes('enabled')) {
-          await app.input.pressKey('Escape');
-        }
-        expect(info.states).toContain('showing');
-        expect(info.states).toContain('enabled');
-        expect(info.states).toContain('sensitive');
       });
-      await copyItem.click();
-
-      expect(await readClipboardText(app)).toBe('!\"#$%');
     });
-  });
+  }
 
   it('copies selected terminal text while the terminal is read-only', async (context) => {
     await withTemporaryDirectory(async (directory) => {
