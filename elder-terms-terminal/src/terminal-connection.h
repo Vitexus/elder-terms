@@ -133,12 +133,20 @@ void terminal_connection_stop(TerminalConnection *connection);
  */
 cardio::promise<void> terminal_connection_wait_stopped(TerminalConnection *connection);
 
+/** Separates session continuation from input that can change the terminal image. */
+struct TerminalConnectionProgress {
+  /** Another immediate dispatch can make progress. */
+  bool dispatch_pending = false;
+  /** Received bytes were accepted by the terminal parser during this dispatch. */
+  bool input_received = false;
+};
+
 /**
  * Advances one bounded session dispatch after a readiness notification.
  * @param connection Communication owner.
- * @return True when another immediate dispatch can make progress.
+ * @return Continuation and received-input progress, independent of outgoing writes.
  */
-bool terminal_connection_dispatch(TerminalConnection *connection);
+TerminalConnectionProgress terminal_connection_dispatch(TerminalConnection *connection);
 
 /**
  * Applies backpressure to normal receive delivery while retaining transmit progress.

@@ -22,6 +22,7 @@ extern "C" boxrig_ui_status __wrap_boxrig_gtk3_terminal_widget_frame(
 static cardio::promise<void> run(TerminalRuntime *runtime,
     cardio::primitives::conditional *changed, std::exception_ptr *failure, bool opengl) {
   std::string incoming;
+  std::string outgoing;
   cardio::primitives::conditional received;
   try {
     while (!terminal_runtime_is_settled(runtime)) co_await changed->wait();
@@ -72,7 +73,11 @@ static cardio::promise<void> run(TerminalRuntime *runtime,
             incoming.erase(0, count);
             co_return count;
           },
-          [](std::span<const unsigned char>, cardio::cancellation) -> cardio::promise<void> { co_return; },
+          [&](std::span<const unsigned char> bytes, cardio::cancellation) -> cardio::promise<void> {
+            outgoing.append(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+            changed->trigger();
+            co_return;
+          },
           [](std::size_t, std::size_t, cardio::cancellation) -> cardio::promise<void> { co_return; },
           []() -> cardio::promise<void> { co_return; }, {}, {}, {}};
     };
@@ -82,6 +87,25 @@ static cardio::promise<void> run(TerminalRuntime *runtime,
         !terminal_runtime_is_settled(runtime)) co_await changed->wait();
     auto *widget = terminal_runtime_widget(runtime);
     auto *terminal = boxrig_ui_view_terminal(boxrig_gtk3_terminal_widget_view(widget));
+    // A native key creates outbound bytes inside the widget frame. Sending
+    // those bytes must not prepare a second image while the peer is silent.
+    frames = 0;
+    for (const auto type : {GDK_KEY_PRESS, GDK_KEY_RELEASE}) {
+      auto *event = gdk_event_new(type);
+      event->key.window = GDK_WINDOW(g_object_ref(gtk_widget_get_window(GTK_WIDGET(widget))));
+      event->key.keyval = GDK_KEY_Down;
+      event->key.hardware_keycode = 116;
+      auto *seat = gdk_display_get_default_seat(gtk_widget_get_display(GTK_WIDGET(widget)));
+      gdk_event_set_device(event, gdk_seat_get_keyboard(seat));
+      gboolean handled = FALSE;
+      g_signal_emit_by_name(widget, type == GDK_KEY_PRESS ? "key-press-event" : "key-release-event", event, &handled);
+      gdk_event_free(event);
+      if (!handled) throw std::runtime_error("terminal accepts native arrow input");
+    }
+    while (outgoing.empty() || !terminal_runtime_is_settled(runtime)) co_await changed->wait();
+    if (outgoing != "\033[B") throw std::runtime_error("outgoing arrow still reaches the peer");
+    g_print("Frames while transmitting without screen changes: %zu\n", frames);
+    if (frames != 1) throw std::runtime_error("outgoing progress must not request another terminal image");
     const auto generation = boxrig_gtk3_terminal_widget_presentation_generation(widget);
     incoming = "\033[?2026h\033[H\033[2KCOMPLETE BATCH";
     received.trigger();

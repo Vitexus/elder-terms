@@ -751,17 +751,17 @@ cardio::promise<void> terminal_connection_wait_stopped(TerminalConnection *conne
   if (connection->completion) co_await *connection->completion;
 }
 
-bool terminal_connection_dispatch(TerminalConnection *connection) {
+TerminalConnectionProgress terminal_connection_dispatch(TerminalConnection *connection) {
   if (connection->operation && connection->operation->finishing &&
       (!connection->operation->session || connection->operation->peer_closed)) {
     finish_input(connection);
-    return false;
+    return {};
   }
   if (!connection->operation || !connection->operation->session)
-    return discard_outgoing(connection->terminal);
+    return {discard_outgoing(connection->terminal), false};
   if (!connection->operation || !connection->operation->session ||
       (connection->state.phase == TerminalConnectionPhase::stopping &&
-       !connection->operation->finishing)) return false;
+       !connection->operation->finishing)) return {};
   auto &operation = *connection->operation;
   uint32_t ready = BOXRIG_SESSION_READY_NONE;
   if (operation.receive_delivery_enabled && (operation.incoming.length || operation.eof))
@@ -775,7 +775,7 @@ bool terminal_connection_dispatch(TerminalConnection *connection) {
       operation.peer_closed = true;
       operation.drained.trigger();
     }
-    return false;
+    return {};
   }
   if (result.peer_closed) {
     operation.peer_closed = true;
@@ -783,8 +783,9 @@ bool terminal_connection_dispatch(TerminalConnection *connection) {
   }
   const auto interests = boxrig_session_interests(operation.session);
   operation.stream_changed.trigger();
-  return result.terminal_bytes_fed != 0 || result.transport_bytes_written != 0 ||
-      (operation.receive_delivery_enabled && (interests & BOXRIG_SESSION_INTEREST_READ) && operation.incoming.length != 0);
+  return {result.terminal_bytes_fed != 0 || result.transport_bytes_written != 0 ||
+      (operation.receive_delivery_enabled && (interests & BOXRIG_SESSION_INTEREST_READ) && operation.incoming.length != 0),
+      result.terminal_bytes_fed != 0};
 }
 
 void terminal_connection_set_receive_delivery_enabled(TerminalConnection *connection, bool enabled) {

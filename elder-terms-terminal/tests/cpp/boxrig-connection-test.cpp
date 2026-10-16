@@ -30,7 +30,7 @@ static void wake(Test *test);
 static gboolean dispatch(gpointer context) {
   auto *test = static_cast<Test *>(context);
   test->dispatch_source = 0;
-  const bool progress = terminal_connection_dispatch(test->connection);
+  const auto progress = terminal_connection_dispatch(test->connection);
   boxrig_host_item item{};
   bool consumed = false;
   while (boxrig_terminal_host_item_peek(test->core, &item)) {
@@ -40,7 +40,7 @@ static gboolean dispatch(gpointer context) {
     if (request) boxrig_terminal_complete_host_request(test->core, request, BOXRIG_HOST_REQUEST_UNAVAILABLE, nullptr, 0);
     consumed = true;
   }
-  if (progress || consumed) wake(test);
+  if (progress.dispatch_pending || consumed) wake(test);
   test->changed.trigger();
   return G_SOURCE_REMOVE;
 }

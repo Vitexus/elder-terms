@@ -616,12 +616,12 @@ static gboolean dispatch_frame(gpointer context) {
     terminal_connection_set_receive_delivery_enabled(runtime->connection, !progress.pending);
     if (progress.pending && !progress.blocked) request_continuation(runtime);
   }
-  if (terminal_connection_dispatch(runtime->connection)) {
-    // New input can complete a synchronized batch while an earlier OpenGL
-    // image is pending. An already-dirty view need not notify us again.
-    runtime->widget_frame_requested = true;
-    request_continuation(runtime);
-  }
+  auto progress = terminal_connection_dispatch(runtime->connection);
+  // New input can complete a synchronized batch while an earlier OpenGL
+  // image is pending. An already-dirty view need not notify us again.
+  // Sending keys alone does not need another image or accessible snapshot.
+  if (progress.input_received) runtime->widget_frame_requested = true;
+  if (progress.dispatch_pending) request_continuation(runtime);
   if (!process_host_items(runtime)) {
     fail_ui(runtime);
     return G_SOURCE_REMOVE;
@@ -647,7 +647,7 @@ static gboolean dispatch_frame(gpointer context) {
     return G_SOURCE_REMOVE;
   }
   // Stream and recognizer continuations do not necessarily change the view.
-  // Widget callbacks and communication progress request component frames,
+  // Widget callbacks and received input request component frames,
   // which also publish accessible text; matching alone does not need one.
   if (runtime->widget_frame_requested || !boxrig_gtk3_terminal_widget_has_presentation(runtime->widget)) {
     runtime->widget_frame_requested = false;
@@ -659,10 +659,9 @@ static gboolean dispatch_frame(gpointer context) {
   }
   // Native key and IME dispatch can create output without a visual change.
   // Drain it now; a static Cairo view may have no subsequent paint or frame.
-  if (terminal_connection_dispatch(runtime->connection)) {
-    runtime->widget_frame_requested = true;
-    request_continuation(runtime);
-  }
+  progress = terminal_connection_dispatch(runtime->connection);
+  if (progress.input_received) runtime->widget_frame_requested = true;
+  if (progress.dispatch_pending) request_continuation(runtime);
   if (runtime->links && runtime->pointer_position) {
     boxrig_ui_hit_test_result hit{};
     if (boxrig_gtk3_terminal_widget_hit_test(runtime->widget, runtime->pointer_position->first,
