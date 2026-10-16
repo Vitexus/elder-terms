@@ -146,6 +146,7 @@ struct SettingsWidgetState {
   std::vector<std::string> terminal_font_draft;
   bool terminal_fonts_valid = true;
   GtkWidget *terminal_show_border_combo = nullptr;
+  GtkWidget *terminal_accessibility_enabled_combo = nullptr;
   GtkWidget *terminal_border_width_entry = nullptr;
   GtkWidget *terminal_bell_sound_entry = nullptr;
   GtkWidget *terminal_bell_sound_dialog = nullptr;
@@ -1136,6 +1137,19 @@ static void update_terminal_show_border_from_widget(
   set_explicit_setting_value(
       &state->draft_store, terminal_show_border_setting_key(),
       SettingValue{choice == boolean_enabled});
+}
+
+static void update_terminal_accessibility_enabled_from_widget(SettingsWidgetState *state) {
+  const std::string choice = active_combo_id(
+      state->terminal_accessibility_enabled_combo, inherit_choice);
+  if (choice == inherit_choice) {
+    clear_explicit_setting_value(&state->draft_store,
+                                terminal_accessibility_enabled_setting_key());
+    return;
+  }
+  set_explicit_setting_value(&state->draft_store,
+                            terminal_accessibility_enabled_setting_key(),
+                            SettingValue{choice == boolean_enabled});
 }
 
 static void update_terminal_bell_sound_from_widget(
@@ -3315,6 +3329,12 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
                            terminal_show_border_setting_key(),
                            terminal_show_border(state->draft_store));
   }
+  if (state->terminal_accessibility_enabled_combo != nullptr) {
+    populate_boolean_combo(state->terminal_accessibility_enabled_combo,
+                           state->draft_store,
+                           terminal_accessibility_enabled_setting_key(),
+                           terminal_accessibility_enabled(state->draft_store));
+  }
   if (state->terminal_border_width_entry != nullptr) {
     sync_inheritable_entry(
         state->terminal_border_width_entry, state->draft_store,
@@ -3782,6 +3802,13 @@ static void on_terminal_show_border_changed(GtkComboBox *, gpointer data) {
     return;
   }
   update_terminal_show_border_from_widget(state);
+  notify_changed(state);
+}
+
+static void on_terminal_accessibility_enabled_changed(GtkComboBox *, gpointer data) {
+  auto *state = static_cast<SettingsWidgetState *>(data);
+  if (state->synchronizing) return;
+  update_terminal_accessibility_enabled_from_widget(state);
   notify_changed(state);
 }
 
@@ -5176,6 +5203,13 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
   gtk_box_pack_start(GTK_BOX(font_panel), state->terminal_fonts_rows_box, FALSE, FALSE, 0);
   auto *font_label = attach_row(page, 14, terminal_font_families_setting_key(), font_panel);
   gtk_widget_set_valign(font_label, GTK_ALIGN_START);
+
+  state->terminal_accessibility_enabled_combo = create_combo_box(
+      widget_id(state, "terminal_accessibility_enabled_combo").c_str());
+  g_signal_connect(state->terminal_accessibility_enabled_combo, "changed",
+                   G_CALLBACK(on_terminal_accessibility_enabled_changed), state);
+  attach_row(page, 15, terminal_accessibility_enabled_setting_key(),
+             state->terminal_accessibility_enabled_combo);
 
   return scroller;
 }

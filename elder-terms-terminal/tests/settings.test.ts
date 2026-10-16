@@ -662,6 +662,71 @@ const connectionStatusTextMask = async (
 };
 
 describe.concurrent('elder-terms-terminal settings', () => {
+  it('opts in to screen-reader text at startup and live', async (context) => {
+    await withTemporaryDirectory(async (directory) => {
+      const path = join(directory, 'accessibility.ini');
+      await writeFile(path, '[terminal]\n');
+      await runGtkTest(context, ['--test-fixture', '-c', path], async (app) => {
+        const state = expectElementKind(
+          await app.getById('fixture_terminal_state_label'),
+          'label'
+        );
+        await toPass(async () =>
+          expect(await state.text()).toContain('a11y=off')
+        );
+        await openSettingsDialog(app);
+        await showTerminalSettingsPage(app);
+        await expectSelectedComboValue(
+          app,
+          'settings_terminal_accessibility_enabled_combo',
+          'Disabled (built-in default)'
+        );
+        await expectElementKind(
+          await app.getById('settings_terminal_accessibility_enabled_combo'),
+          'comboBox'
+        ).selectChildAt(1);
+        await expectElementKind(
+          await app.getById('settings_save_button'),
+          'button'
+        ).click();
+        await expectSettingsDialogClosed(app);
+        await toPass(async () =>
+          expect(await state.text()).toContain('a11y=on')
+        );
+        expect(await readFile(path, 'utf8')).toContain(
+          'accessibility_enabled=true'
+        );
+
+        await openSettingsDialog(app);
+        await showTerminalSettingsPage(app);
+        await expectElementKind(
+          await app.getById('settings_terminal_accessibility_enabled_combo'),
+          'comboBox'
+        ).selectChildAt(2);
+        await expectElementKind(
+          await app.getById('settings_apply_button'),
+          'button'
+        ).click();
+        await expectSettingsDialogClosed(app);
+        await toPass(async () =>
+          expect(await state.text()).toContain('a11y=off')
+        );
+        expect(await readFile(path, 'utf8')).toContain(
+          'accessibility_enabled=true'
+        );
+      });
+      await runGtkTest(context, ['--test-fixture', '-c', path], async (app) => {
+        const state = expectElementKind(
+          await app.getById('fixture_terminal_state_label'),
+          'label'
+        );
+        await toPass(async () =>
+          expect(await state.text()).toContain('a11y=on')
+        );
+      });
+    });
+  });
+
   for (const action of ['new-window', 'direct', 'explicit', 'unconfigured']) {
     it(`uses the configured connection only for New Window: ${action}`, async (context) => {
       await withTemporaryDirectory(async (directory) => {

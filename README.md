@@ -130,6 +130,12 @@ wrong, simply close the terminal window to discard the changes.
 Most settings are self-explanatory once you try them, but a few need more
 detail. Those settings are described in the following sections.
 
+To read terminal text with a screen reader, enable "Screen reader access" in the
+"Terminal" settings tab. It is disabled by default and can be changed while the
+terminal is running. Enabling it exposes the currently visible terminal text.
+In an INI file, set `accessibility_enabled=true` in `[terminal]`.
+This setting does not affect screen-reader access to menus or settings dialogs.
+
 To edit a saved connection's INI file directly, right-click its entry in the
 launcher and select "Edit in text editor". This uses your desktop's default
 application for plain text files.

@@ -27,6 +27,7 @@ static constexpr char terminal_scrollback_lines_key[] = "scrollback_lines";
 static constexpr char terminal_font_size_dip_key[] = "font_size_dip";
 static constexpr char terminal_font_families_key[] = "font_families";
 static constexpr char terminal_show_border_key[] = "show_border";
+static constexpr char terminal_accessibility_enabled_key[] = "accessibility_enabled";
 static constexpr char terminal_border_width_key[] = "border_width";
 static constexpr char terminal_bell_sound_key[] = "bell_sound";
 static constexpr char terminal_zoom_in_key_name[] = "zoom_in_key";
@@ -257,6 +258,10 @@ SettingKey terminal_show_border_setting_key() {
   return terminal_key(terminal_show_border_key);
 }
 
+SettingKey terminal_accessibility_enabled_setting_key() {
+  return terminal_key(terminal_accessibility_enabled_key);
+}
+
 SettingKey terminal_border_width_setting_key() {
   return terminal_key(terminal_border_width_key);
 }
@@ -400,6 +405,11 @@ terminal_setting_definitions(TerminalDisplaySettings terminal_defaults) {
           .validate = nullptr,
       },
       {
+          .key = terminal_accessibility_enabled_setting_key(),
+          .default_value = SettingValue{false},
+          .validate = nullptr,
+      },
+      {
           .key = terminal_border_width_setting_key(),
           .default_value = SettingValue{default_terminal_border_width},
           .validate = validate_border_width,
@@ -479,6 +489,11 @@ TerminalFontFamilies terminal_font_families(const SettingsStore &store) {
 bool terminal_show_border(const SettingsStore &store) {
   return setting_boolean_value_or_default(
       store, terminal_show_border_setting_key(), default_terminal_show_border);
+}
+
+bool terminal_accessibility_enabled(const SettingsStore &store) {
+  return setting_boolean_value_or_default(
+      store, terminal_accessibility_enabled_setting_key(), false);
 }
 
 gint terminal_border_width(const SettingsStore &store) {

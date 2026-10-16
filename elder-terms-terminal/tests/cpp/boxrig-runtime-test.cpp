@@ -654,6 +654,8 @@ int main(int argc, char **argv) {
   g_free(directory);
   fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content), GTK_BOX(attachment));
   if (!fixture.runtime) { std::filesystem::remove_all(fixture.transfer_directory); return 1; }
+  expect(boxrig_gtk3_terminal_widget_set_accessibility_enabled(
+      terminal_runtime_widget(fixture.runtime), true) == BOXRIG_UI_OK, "enable test text observations");
   terminal_runtime_set_host_callbacks(fixture.runtime, {
       [&fixture](BoxrigGtk3TerminalWidget *) { ++fixture.attachments; },
       [&fixture](std::string title) {

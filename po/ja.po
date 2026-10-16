@@ -196,6 +196,10 @@ msgstr "コンパクトモード"
 msgid "Show window side borders"
 msgstr "ウィンドウの左右にボーダーを表示する"
 
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Screen reader access"
+msgstr "端末本文の読み上げ"
+
 #: shared/src/settings-widget/settings-presentation.cpp:75
 msgid "Window side border width (px)"
 msgstr "ウィンドウ左右のボーダー幅（px）"

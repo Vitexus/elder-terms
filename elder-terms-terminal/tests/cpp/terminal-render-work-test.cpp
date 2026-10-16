@@ -26,6 +26,12 @@ static cardio::promise<void> run(TerminalRuntime *runtime,
   cardio::primitives::conditional received;
   try {
     while (!terminal_runtime_is_settled(runtime)) co_await changed->wait();
+    auto *initial_widget = terminal_runtime_widget(runtime);
+    if (boxrig_gtk3_terminal_widget_get_accessibility_enabled(initial_widget) ||
+        atk_text_get_character_count(ATK_TEXT(gtk_widget_get_accessible(GTK_WIDGET(initial_widget)))) != 0)
+      throw std::runtime_error("terminal text accessibility is disabled by default");
+    if (boxrig_gtk3_terminal_widget_set_accessibility_enabled(initial_widget, true) != BOXRIG_UI_OK)
+      throw std::runtime_error("enable test text observations");
     std::string input = "\033[?25l\033[H";
     for (std::size_t row = 0; row < 20; ++row) input += std::string(70, 'a') + "\r\n";
     if (!terminal_runtime_feed(runtime, input)) throw std::runtime_error("feed terminal text");

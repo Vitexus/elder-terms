@@ -185,6 +185,8 @@ int main(int argc, char **argv) {
   Fixture fixture;
   fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content), GTK_BOX(content));
   if (!fixture.runtime) return 1;
+  expect(boxrig_gtk3_terminal_widget_set_accessibility_enabled(
+      terminal_runtime_widget(fixture.runtime), true) == BOXRIG_UI_OK, "enable test text observations");
   terminal_runtime_set_output_callback(fixture.runtime,
       [&fixture](std::span<const unsigned char>, std::span<const unsigned char> cooked) {
         fixture.cooked.append(reinterpret_cast<const char *>(cooked.data()), cooked.size());

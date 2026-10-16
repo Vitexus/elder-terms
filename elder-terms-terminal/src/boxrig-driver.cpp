@@ -696,6 +696,7 @@ int main(int argc, char **argv) {
         co_return transfer_request(&driver);
       });
   auto *widget = elder_terms::terminal_runtime_widget(driver.runtime);
+  if (boxrig_gtk3_terminal_widget_set_accessibility_enabled(widget, true) != BOXRIG_UI_OK) return 1;
   elder_terms::terminal_runtime_set_host_callbacks(driver.runtime, {
       [&driver](BoxrigGtk3TerminalWidget *attached) { attach_driver_widget(&driver, attached); }, {}, {},
   });

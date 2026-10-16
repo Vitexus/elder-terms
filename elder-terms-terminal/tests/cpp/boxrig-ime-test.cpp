@@ -175,6 +175,8 @@ int main() {
   gtk_overlay_add_overlay(GTK_OVERLAY(overlay), fixture.entry);
   fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content), GTK_BOX(content));
   if (!fixture.runtime) return 1;
+  expect(boxrig_gtk3_terminal_widget_set_accessibility_enabled(
+      terminal_runtime_widget(fixture.runtime), true) == BOXRIG_UI_OK, "enable test text observations");
   terminal_runtime_set_changed_callback(fixture.runtime, [](void *context) {
     static_cast<Fixture *>(context)->changed.trigger();
   }, &fixture);

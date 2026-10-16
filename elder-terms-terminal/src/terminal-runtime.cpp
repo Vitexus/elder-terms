@@ -745,6 +745,8 @@ static bool attach_widget(TerminalRuntime *runtime) {
   auto widget_config = boxrig_gtk3_terminal_widget_config_default();
   widget_config.render_policy = BOXRIG_GTK_RENDER_OPENGL_PREFERRED;
   widget_config.ime_policy = BOXRIG_GTK_IME_AUTO;
+  widget_config.accessibility_enabled = previous_widget &&
+      boxrig_gtk3_terminal_widget_get_accessibility_enabled(previous_widget);
   widget_config.frame_request_callback = request_frame;
   widget_config.frame_request_context = runtime;
   BoxrigGtk3TerminalWidget *widget = nullptr;

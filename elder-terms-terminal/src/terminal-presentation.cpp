@@ -148,6 +148,12 @@ bool apply_terminal_presentation(TerminalPresentation *presentation, const Setti
   auto *window = presentation->window;
   auto *widget = terminal_runtime_widget(window->runtime);
   const auto display = terminal_display_settings(settings);
+  const auto accessibility_status = boxrig_gtk3_terminal_widget_set_accessibility_enabled(
+      widget, terminal_accessibility_enabled(settings));
+  if (accessibility_status != BOXRIG_UI_OK) {
+    g_printerr("Terminal accessibility: %d\n", accessibility_status);
+    return false;
+  }
   const auto families = terminal_font_families(settings);
   std::vector<boxrig_font_family> native_families;
   for (const auto &family : families.families)
@@ -202,10 +208,11 @@ void refresh_terminal_presentation(TerminalPresentation *presentation) {
       presentation->zoom_requests.empty() && presentation->zoom_source == 0 && !presentation->pending_grid;
   {
     char report[256];
-    std::snprintf(report, sizeof(report), "backend=%s grid=%zux%zu font=%.2f history=%zu cell=%ux%u scale=%d ready=%d",
+    std::snprintf(report, sizeof(report), "backend=%s grid=%zux%zu font=%.2f history=%zu cell=%ux%u scale=%d ready=%d a11y=%s",
         render.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL ? "opengl" : "cairo",
         columns, rows, metrics.requested_size_dip, history, metrics.cell_width, metrics.cell_height,
-        gtk_widget_get_scale_factor(GTK_WIDGET(widget)), settled);
+        gtk_widget_get_scale_factor(GTK_WIDGET(widget)), settled,
+        boxrig_gtk3_terminal_widget_get_accessibility_enabled(widget) ? "on" : "off");
     gtk_label_set_text(GTK_LABEL(window->fixture_terminal_state_label), report);
     const auto grid = std::to_string(columns) + "x" + std::to_string(rows);
     gtk_label_set_text(GTK_LABEL(window->fixture_grid_size_label), grid.c_str());

@@ -282,6 +282,19 @@ static void test_default_settings() {
               "default terminal auto-close should be enabled");
   expect_true(!terminal_show_border(store),
               "terminal window side borders should be disabled by default");
+  expect_true(!elder_terms::setting_boolean_value_or_default(
+                  store, {"terminal", "accessibility_enabled"}, true),
+              "terminal text accessibility should be registered and disabled by default");
+  SettingsStore accessibility = store;
+  const auto accessibility_key = elder_terms::terminal_accessibility_enabled_setting_key();
+  expect_true(accessibility_key.section == "terminal" && accessibility_key.name == "accessibility_enabled",
+              "screen-reader access should use [terminal] accessibility_enabled");
+  set_explicit_setting_value(&accessibility, accessibility_key, elder_terms::SettingValue{true});
+  expect_true(elder_terms::terminal_accessibility_enabled(accessibility),
+              "terminal text accessibility can be enabled explicitly");
+  clear_explicit_setting_value(&accessibility, accessibility_key);
+  expect_true(!elder_terms::terminal_accessibility_enabled(accessibility),
+              "clearing the override should restore disabled terminal text accessibility");
   expect_true(terminal_border_width(store) == 4,
               "default terminal window side-border width should be 4 pixels");
   expect_true(!terminal_bell_settings(store).sound_file.has_value(),

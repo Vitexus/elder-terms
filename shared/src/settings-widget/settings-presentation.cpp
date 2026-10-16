@@ -77,6 +77,8 @@ static constexpr std::array setting_labels{
     SettingLabelEntry{"terminal", "font_families", N_("Font families")},
     SettingLabelEntry{"terminal", "show_border",
                       N_("Show window side borders")},
+    SettingLabelEntry{"terminal", "accessibility_enabled",
+                      N_("Screen reader access")},
     SettingLabelEntry{"terminal", "border_width",
                       N_("Window side border width (px)")},
     SettingLabelEntry{"terminal", "bell_sound", N_("BEL sound")},
