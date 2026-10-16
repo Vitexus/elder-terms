@@ -699,6 +699,16 @@ describe.concurrent('elder-terms-terminal TELNET session', () => {
           await waitForActivityIndicatorImageState(app, 'conn', 'on');
           await waitForActivityIndicatorImageState(app, 'log', 'on');
 
+          await toPass(
+            async () => {
+              expect(await readFile(logPath, 'utf8')).toContain(terminalText);
+            },
+            {
+              message: 'initial output should be logged before disconnection',
+              timeoutMs: 5_000,
+            }
+          );
+
           acceptedSocket?.end();
           await waitForActivityIndicatorImageState(app, 'conn', 'off');
           await waitForActivityIndicatorImageState(app, 'log', 'off');
