@@ -2963,10 +2963,12 @@ describe('elder-terms-terminal XYZMODEM transfer progress notice e2e', () => {
               await expectDisconnectedNoticeHidden(app);
               await expectTransferProgressNoticeHidden(app);
 
-              if (
-                transferCase.protocol === 'xmodem' &&
-                transferCase.direction === 'receive'
-              )
+              // X/YMODEM can finish waiting for their peer while GTK assertions
+              // run. Prepare the sender before starting the receive operation.
+              const startPeerBeforeReceive =
+                transferCase.direction === 'receive' &&
+                transferCase.protocol !== 'zmodem';
+              if (startPeerBeforeReceive)
                 await writeFile(fixture.markerPath, 'start', 'utf8');
               await activateTransfer(app, transferCase);
               await expectTransferButtonInsensitive(app);
@@ -2979,12 +2981,13 @@ describe('elder-terms-terminal XYZMODEM transfer progress notice e2e', () => {
               ) {
                 await requestTransferProgressPeerPause(fixture);
               }
-              if (!(
-                (transferCase.protocol === 'zmodem' &&
-                  transferCase.direction === 'send') ||
-                (transferCase.protocol === 'xmodem' &&
-                  transferCase.direction === 'receive')
-              ))
+              if (
+                !startPeerBeforeReceive &&
+                !(
+                  transferCase.protocol === 'zmodem' &&
+                  transferCase.direction === 'send'
+                )
+              )
                 await writeFile(fixture.markerPath, 'start', 'utf8');
 
               await captureTransferProgress(app, evidence, noticeCase, fixture);
