@@ -253,6 +253,16 @@ test('boxrig-runtime-test', find_program('xvfb-run'),
   args: ['-a', boxrig_runtime_test], timeout: 30,
   env: ['GDK_GL=disable', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
 
+terminal_render_work_test = executable('terminal-render-work-test',
+  'tests/cpp/terminal-render-work-test.cpp', dependencies: boxrig_runtime_dep,
+  link_args: ['-Wl,--wrap=boxrig_gtk3_terminal_widget_frame'])
+test('terminal-render-work-test', find_program('xvfb-run'),
+  args: ['-a', terminal_render_work_test], timeout: 30,
+  env: ['GDK_GL=disable', 'GTK_IM_MODULE=gtk-im-context-simple', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
+test('terminal-render-work-opengl-test', find_program('xvfb-run'),
+  args: ['-a', terminal_render_work_test, 'opengl'], timeout: 30,
+  env: ['LIBGL_ALWAYS_SOFTWARE=1', 'GTK_IM_MODULE=gtk-im-context-simple', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
+
 boxrig_runtime_macros_test = executable('boxrig-runtime-macros-test',
   'tests/cpp/boxrig-runtime-macros-test.cpp', dependencies: boxrig_runtime_dep)
 test('boxrig-runtime-macros-test', find_program('xvfb-run'),

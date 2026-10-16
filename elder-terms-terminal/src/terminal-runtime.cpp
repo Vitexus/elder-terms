@@ -65,6 +65,7 @@ struct TerminalRuntime {
   std::vector<std::string> title_stack;
   guint frame_source = 0;
   int frame_priority = G_PRIORITY_DEFAULT;
+  bool widget_frame_requested = true;
   guint presentation_source = 0;
   bool stopped = false;
   bool ui_failed = false;
@@ -615,7 +616,12 @@ static gboolean dispatch_frame(gpointer context) {
     terminal_connection_set_receive_delivery_enabled(runtime->connection, !progress.pending);
     if (progress.pending && !progress.blocked) request_continuation(runtime);
   }
-  if (terminal_connection_dispatch(runtime->connection)) request_continuation(runtime);
+  if (terminal_connection_dispatch(runtime->connection)) {
+    // New input can complete a synchronized batch while an earlier OpenGL
+    // image is pending. An already-dirty view need not notify us again.
+    runtime->widget_frame_requested = true;
+    request_continuation(runtime);
+  }
   if (!process_host_items(runtime)) {
     fail_ui(runtime);
     return G_SOURCE_REMOVE;
@@ -636,15 +642,27 @@ static gboolean dispatch_frame(gpointer context) {
   if (!runtime->widget_allocated || !gtk_widget_get_mapped(GTK_WIDGET(runtime->widget))) return G_SOURCE_REMOVE;
   boxrig_ui_component_frame_result result{};
   if (!process_layout(runtime) ||
-      !ui_result(boxrig_ui_model_synchronize(runtime->model), "synchronize") ||
-      !ui_result(boxrig_gtk3_terminal_widget_frame(runtime->widget, &result), "frame") ||
-      !process_input_policy(runtime)) {
+      !ui_result(boxrig_ui_model_synchronize(runtime->model), "synchronize")) {
     fail_ui(runtime);
     return G_SOURCE_REMOVE;
   }
+  // Stream and recognizer continuations do not necessarily change the view.
+  // Widget callbacks and communication progress request component frames,
+  // which also publish accessible text; matching alone does not need one.
+  if (runtime->widget_frame_requested || !boxrig_gtk3_terminal_widget_has_presentation(runtime->widget)) {
+    runtime->widget_frame_requested = false;
+    if (!ui_result(boxrig_gtk3_terminal_widget_frame(runtime->widget, &result), "frame") ||
+        !process_input_policy(runtime)) {
+      fail_ui(runtime);
+      return G_SOURCE_REMOVE;
+    }
+  }
   // Native key and IME dispatch can create output without a visual change.
   // Drain it now; a static Cairo view may have no subsequent paint or frame.
-  if (terminal_connection_dispatch(runtime->connection)) request_continuation(runtime);
+  if (terminal_connection_dispatch(runtime->connection)) {
+    runtime->widget_frame_requested = true;
+    request_continuation(runtime);
+  }
   if (runtime->links && runtime->pointer_position) {
     boxrig_ui_hit_test_result hit{};
     if (boxrig_gtk3_terminal_widget_hit_test(runtime->widget, runtime->pointer_position->first,
@@ -674,7 +692,9 @@ static void schedule_frame(TerminalRuntime *runtime, int priority) {
 static void request_frame(void *context) {
   // Dispatch accepted font/layout requests before GTK's resize priority.
   // The callback still only schedules work; no frame runs recursively.
-  schedule_frame(static_cast<TerminalRuntime *>(context), G_PRIORITY_DEFAULT);
+  auto *runtime = static_cast<TerminalRuntime *>(context);
+  runtime->widget_frame_requested = true;
+  schedule_frame(runtime, G_PRIORITY_DEFAULT);
 }
 
 static void request_continuation(TerminalRuntime *runtime) {
@@ -914,7 +934,7 @@ bool terminal_runtime_is_settled(const TerminalRuntime *runtime) {
   boxrig_ui_size_command_state state{};
   boxrig_gtk_render_state render{};
   return !runtime->stopped && !runtime->ui_failed && !runtime->links_pending && !runtime->macros_pending &&
-      !runtime->grid_pending && runtime->frame_source == 0 &&
+      !runtime->grid_pending && runtime->frame_source == 0 && !runtime->widget_frame_requested &&
       runtime->size_command.revision == 0 &&
       boxrig_gtk3_terminal_widget_has_presentation(runtime->widget) &&
       !boxrig_ui_view_frame_requested(boxrig_gtk3_terminal_widget_view(runtime->widget)) &&
