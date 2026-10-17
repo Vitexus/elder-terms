@@ -758,7 +758,9 @@ static void clear_main_window_exterior_background(MainWindow *main_window) {
     remove_main_window_exterior_provider(
         main_window->header_bar, provider);
     remove_main_window_exterior_provider(
-        main_window->status_bar, provider);
+        main_window->status_bar != nullptr
+            ? gtk_bin_get_child(GTK_BIN(main_window->status_bar)) : nullptr,
+        provider);
     remove_main_window_exterior_provider(
         main_window->frame_start_border, provider);
     remove_main_window_exterior_provider(
@@ -916,7 +918,8 @@ static void set_main_window_exterior_background(
   add_main_window_exterior_provider(
       main_window->header_bar, provider);
   add_main_window_exterior_provider(
-      main_window->status_bar, provider);
+      // The input-only event box handles dragging; its child paints the bar.
+      gtk_bin_get_child(GTK_BIN(main_window->status_bar)), provider);
   add_main_window_exterior_provider(
       main_window->frame_start_border, provider);
   add_main_window_exterior_provider(
