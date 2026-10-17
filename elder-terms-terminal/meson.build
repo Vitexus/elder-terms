@@ -594,7 +594,8 @@ activity_indicator_test = executable(
   ],
 )
 
-test('activity-indicator-test', activity_indicator_test)
+test('activity-indicator-test', xvfb_run,
+  args: ['-a', activity_indicator_test], timeout: 120)
 
 executable('file-manager-fixture', 'tests/cpp/file-manager-fixture.cpp',
   dependencies: [gio_dep])

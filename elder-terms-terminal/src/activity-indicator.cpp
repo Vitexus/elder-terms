@@ -11,12 +11,20 @@ static void set_indicator_active(ActivityIndicatorWidget *indicator,
   }
 
   GdkPixbuf *pixbuf = active ? indicator->on_icon : indicator->off_icon;
+  auto *image = GTK_IMAGE(indicator->image);
+  const auto storage = gtk_image_get_storage_type(image);
+  // Reassigning the same pixbuf still invalidates GTK layout and painting.
+  // Compare the displayed image so replacements also work in the same phase.
+  if ((storage == GTK_IMAGE_EMPTY || storage == GTK_IMAGE_PIXBUF) &&
+      gtk_image_get_pixbuf(image) == pixbuf) {
+    return;
+  }
   if (pixbuf != nullptr) {
-    gtk_image_set_from_pixbuf(GTK_IMAGE(indicator->image), pixbuf);
+    gtk_image_set_from_pixbuf(image, pixbuf);
     return;
   }
 
-  gtk_image_clear(GTK_IMAGE(indicator->image));
+  gtk_image_clear(image);
 }
 
 static void stop_activity_indicator_timer(ActivityIndicatorWidget *indicator) {

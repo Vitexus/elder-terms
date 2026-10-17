@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { join } from 'node:path';
@@ -686,12 +686,160 @@ describe.concurrent('elder-terms-terminal local session', () => {
       await runGtkTest(
         context,
         ['-c', configPath],
-        async (app) => {
-          await writeFile(shell.triggerPath, 'start', 'utf8');
-          await waitForActivityIndicatorImageState(app, 'rd', 'on');
-          await writeFile(shell.releasePath, 'stop', 'utf8');
-          await waitForFileText(shell.finishedPath, 'finished');
-          await waitForActivityIndicatorImageState(app, 'rd', 'off');
+        async (app, evidence) => {
+          const lamp = await (
+            await app.getById('rd_indicator_image')
+          ).capture();
+          const { x, y, width, height } = lamp.bounds;
+          const environment = await app.environment();
+          const video = join(evidence.directory, 'receive-indicator.mkv');
+          const frameSize = width * height * 3;
+          const pixel = (9 * width + 9) * 3;
+          const isLit = (frame: Buffer): boolean =>
+            frame[pixel + 1] - frame[pixel] > 35 &&
+            frame[pixel + 1] - frame[pixel + 2] > 35;
+          let pending = Buffer.alloc(0);
+          const states: boolean[] = [];
+          let recordingError: Error | undefined;
+          let stderr = '';
+          // Watch actual alternating frames while output continues; a latched
+          // lamp could pass a pair of isolated ON/OFF screenshots.
+          const recorder = spawn(
+            'ffmpeg',
+            [
+              '-y',
+              '-loglevel',
+              'error',
+              '-f',
+              'x11grab',
+              '-framerate',
+              '30',
+              '-draw_mouse',
+              '0',
+              '-video_size',
+              `${width}x${height}`,
+              '-i',
+              `${environment.DISPLAY}+${x},${y}`,
+              '-map',
+              '0:v',
+              '-c:v',
+              'ffv1',
+              '-pix_fmt',
+              'bgr0',
+              '-fps_mode',
+              'passthrough',
+              video,
+              '-map',
+              '0:v',
+              '-c:v',
+              'rawvideo',
+              '-pix_fmt',
+              'rgb24',
+              '-fps_mode',
+              'passthrough',
+              '-f',
+              'rawvideo',
+              'pipe:1',
+            ],
+            { env: environment, stdio: ['pipe', 'pipe', 'pipe'] }
+          );
+          const finished = new Promise<number | null>((resolve) => {
+            recorder.once('error', (error) => {
+              recordingError = error;
+              resolve(null);
+            });
+            recorder.once('close', resolve);
+          });
+          recorder.stderr.on('data', (bytes: Buffer) => {
+            stderr += bytes.toString('utf8');
+          });
+          recorder.stdout.on('data', (bytes: Buffer) => {
+            pending = Buffer.concat([pending, bytes]);
+            while (pending.length >= frameSize) {
+              states.push(isLit(pending.subarray(0, frameSize)));
+              pending = pending.subarray(frameSize);
+            }
+          });
+          const transitions = (frames: readonly boolean[]): boolean[] =>
+            frames.filter(
+              (state, index) => index === 0 || state !== frames[index - 1]
+            );
+          try {
+            await waitForResult(async () => {
+              if (recordingError) throw recordingError;
+              expect(recorder.exitCode, stderr).toBeNull();
+              expect(states.length).toBeGreaterThan(0);
+              expect(states[states.length - 1]).toBe(false);
+            });
+            await writeFile(shell.triggerPath, 'start', 'utf8');
+            await waitForResult(
+              async () => {
+                expect(recorder.exitCode, stderr).toBeNull();
+                expect(transitions(states).slice(0, 5)).toEqual([
+                  false,
+                  true,
+                  false,
+                  true,
+                  false,
+                ]);
+              },
+              {
+                timeoutMs: 15_000,
+                message:
+                  'recorded receive lamp should blink during continuous output',
+              }
+            );
+            await writeFile(shell.releasePath, 'stop', 'utf8');
+            await waitForFileText(shell.finishedPath, 'finished');
+            await expectDisconnectedNoticeVisibleAtTerminalTopRight(app);
+            const stoppedAt = states.length;
+            await waitForResult(async () => {
+              expect(states.length).toBeGreaterThan(stoppedAt + 2);
+              expect(states.slice(stoppedAt).every((state) => !state)).toBe(
+                true
+              );
+            });
+          } finally {
+            recorder.stdin.write('q\n');
+            expect(await finished, stderr).toBe(0);
+          }
+          const decoded = await execFileAsync(
+            'ffmpeg',
+            [
+              '-v',
+              'error',
+              '-i',
+              video,
+              '-pix_fmt',
+              'rgb24',
+              '-f',
+              'rawvideo',
+              'pipe:1',
+            ],
+            { encoding: 'buffer', maxBuffer: 16 * 1024 * 1024 }
+          );
+          const saved: boolean[] = [];
+          for (
+            let offset = 0;
+            offset < decoded.stdout.length;
+            offset += frameSize
+          ) {
+            saved.push(
+              isLit(decoded.stdout.subarray(offset, offset + frameSize))
+            );
+          }
+          expect(transitions(saved).slice(0, 5)).toEqual([
+            false,
+            true,
+            false,
+            true,
+            false,
+          ]);
+          expect(saved[saved.length - 1]).toBe(false);
+          await evidence.log('recorded receive indicator transitions', {
+            frames: saved.length,
+            transitions: transitions(saved),
+          });
         },
         {
           env: {

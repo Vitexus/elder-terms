@@ -18,6 +18,87 @@ static bool expect(bool condition, const char *message) {
   return true;
 }
 
+static void finish_frame(GtkWidget *widget) {
+  auto *loop = g_main_loop_new(nullptr, FALSE);
+  // A tick requests a frame without invalidating the image. The low-priority
+  // source completes after that frame's layout and paint work has run.
+  gtk_widget_add_tick_callback(widget, +[](GtkWidget *, GdkFrameClock *, gpointer data) -> gboolean {
+    g_idle_add_full(G_PRIORITY_LOW, +[](gpointer context) -> gboolean {
+      g_main_loop_quit(static_cast<GMainLoop *>(context));
+      return G_SOURCE_REMOVE;
+    }, data, nullptr);
+    return G_SOURCE_REMOVE;
+  }, loop, nullptr);
+  g_main_loop_run(loop);
+  g_main_loop_unref(loop);
+}
+
+static bool repeated_activity_only_repaints_changed_images() {
+  auto *on = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 18, 18);
+  auto *off = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 18, 18);
+  auto *replacement = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 18, 18);
+  gdk_pixbuf_fill(on, 0x00ff00ff);
+  gdk_pixbuf_fill(off, 0x555555ff);
+  gdk_pixbuf_fill(replacement, 0xff0000ff);
+  bool valid = true;
+  for (const auto mode : {ActivityIndicatorMode::steady, ActivityIndicatorMode::blink}) {
+    auto *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    auto *image = gtk_image_new();
+    gtk_container_add(GTK_CONTAINER(window), image);
+    unsigned int draws = 0;
+    g_signal_connect(image, "draw", G_CALLBACK(+[](GtkWidget *, cairo_t *, gpointer context) -> gboolean {
+      ++*static_cast<unsigned int *>(context);
+      return FALSE;
+    }), &draws);
+    ActivityIndicatorWidget indicator;
+    initialize_activity_indicator_widget(&indicator, image, on, off, mode);
+    set_activity_indicator_widget_latched(&indicator, true);
+    gtk_widget_show_all(window);
+    finish_frame(window);
+    finish_frame(window);
+    note_activity_indicator_widget(&indicator);
+    finish_frame(window);
+    valid = expect(draws > 0 && gtk_image_get_pixbuf(GTK_IMAGE(image)) == on,
+        "activity should display the lit image") && valid;
+
+    draws = 0;
+    for (unsigned int index = 0; index < 64; ++index) note_activity_indicator_widget(&indicator);
+    replace_activity_indicator_widget_images(&indicator, on, off);
+    finish_frame(window);
+    valid = expect(draws == 0, "repeated lit activity must not repaint unchanged pixels") && valid;
+
+    replace_activity_indicator_widget_images(&indicator, replacement, off);
+    finish_frame(window);
+    valid = expect(draws > 0 && gtk_image_get_pixbuf(GTK_IMAGE(image)) == replacement,
+        "replacing the active icon should repaint without a state change") && valid;
+
+    reset_activity_indicator_widget(&indicator);
+    finish_frame(window);
+    valid = expect(gtk_image_get_pixbuf(GTK_IMAGE(image)) == off,
+        "reset should restore the inactive image") && valid;
+    draws = 0;
+    reset_activity_indicator_widget(&indicator);
+    finish_frame(window);
+    valid = expect(draws == 0, "repeated resets must not repaint unchanged pixels") && valid;
+
+    replace_activity_indicator_widget_images(&indicator, nullptr, nullptr);
+    finish_frame(window);
+    valid = expect(gtk_image_get_storage_type(GTK_IMAGE(image)) == GTK_IMAGE_EMPTY,
+        "missing icons should clear the previous image") && valid;
+    draws = 0;
+    reset_activity_indicator_widget(&indicator);
+    finish_frame(window);
+    valid = expect(draws == 0, "an empty indicator must not repaint when it remains empty") && valid;
+
+    release_activity_indicator_widget(&indicator);
+    gtk_widget_destroy(window);
+  }
+  g_object_unref(on);
+  g_object_unref(off);
+  g_object_unref(replacement);
+  return valid;
+}
+
 static bool colored_images_preserve_shading_alpha_and_source_pixels() {
   const std::array<RgbColor, 4> colors{
       RgbColor{.red = 255, .green = 0, .blue = 0},
@@ -330,7 +411,9 @@ static bool latched_widget_activity_stays_lit_until_reset() {
 
 } // namespace elder_terms
 
-int main() {
+int main(int argc, char **argv) {
+  gtk_init(&argc, &argv);
+  if (!elder_terms::repeated_activity_only_repaints_changed_images()) return 1;
   if (!elder_terms::colored_images_preserve_shading_alpha_and_source_pixels() ||
       !elder_terms::replacing_images_preserves_steady_blink_and_latched_activity()) {
     return 1;
