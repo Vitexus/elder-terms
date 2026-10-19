@@ -16,6 +16,16 @@ namespace elder_terms {
 RgbColor contrasting_foreground(const RgbColor &background);
 
 /**
+ * Keeps a terminal scrollbar distinguishable from its trough without resizing it.
+ * @param scrollbar Native GTK scrollbar owned by its containing widget.
+ * @param color Connection background, or no value to follow the GTK theme.
+ * @remarks Enabled thumbs maintain at least 3:1 contrast. Theme changes are
+ * observed automatically; CSS resources are released with the scrollbar.
+ */
+void set_terminal_scrollbar_background(GtkWidget *scrollbar,
+    const std::optional<RgbColor> &color);
+
+/**
  * Creates a CSS provider that paints one opaque RGB background and readable text.
  *
  * @param color RGB color to paint.

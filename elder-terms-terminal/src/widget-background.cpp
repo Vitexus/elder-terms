@@ -170,6 +170,77 @@ static guint8 normalized_color_channel(double value) {
       std::lround(std::clamp(value, 0.0, 1.0) * 255.0));
 }
 
+struct TerminalScrollbarColors {
+  std::optional<RgbColor> color;
+  GtkCssProvider *provider = nullptr;
+  std::string css;
+};
+
+static RgbColor scrollbar_thumb(const RgbColor &background, double target) {
+  const auto light = [](const RgbColor &rgb) {
+    return 0.2126*linear_color_channel(rgb.red) +
+        0.7152*linear_color_channel(rgb.green) + 0.0722*linear_color_channel(rgb.blue);
+  };
+  const auto foreground = contrasting_foreground(background);
+  const double base = light(background);
+  for (unsigned step = 1; step < 256; ++step) {
+    const auto mix = [step](guint8 a, guint8 b) {
+      return static_cast<guint8>((a*(255-step)+b*step+127)/255);
+    };
+    const RgbColor candidate{mix(background.red, foreground.red),
+        mix(background.green, foreground.green), mix(background.blue, foreground.blue)};
+    const double value = light(candidate);
+    if ((std::max(base,value)+0.05)/(std::min(base,value)+0.05) >= target) return candidate;
+  }
+  return foreground;
+}
+
+static void update_terminal_scrollbar_colors(GtkWidget *bar, gpointer data) {
+  auto *state = static_cast<TerminalScrollbarColors *>(data);
+  auto *context = gtk_widget_get_style_context(bar);
+  GdkRGBA theme{0.94, 0.94, 0.94, 1};
+  gtk_style_context_lookup_color(context, "theme_bg_color", &theme);
+  const auto color = state->color.value_or(RgbColor{normalized_color_channel(theme.red),
+      normalized_color_channel(theme.green), normalized_color_channel(theme.blue)});
+  const std::string root = "scrollbar.terminal-scrollbar";
+  std::string css = root + ", " + root + " contents, " + root + " trough { background-color: " +
+      rgb_hex(color) + "; background-image: none; border-color: " + rgb_hex(color) + "; opacity: 1; }\n";
+  const auto rule = [&](const char *suffix, const RgbColor &thumb) {
+    return root + " slider" + suffix + " { background-color: " + rgb_hex(thumb) +
+        "; border-color: " + rgb_hex(thumb) + "; background-image: none; box-shadow: none; opacity: 1; }\n";
+  };
+  css += rule("", scrollbar_thumb(color, 3.2));
+  css += rule(":hover", scrollbar_thumb(color, 4.2));
+  css += rule(":active", contrasting_foreground(color));
+  css += rule(":disabled", scrollbar_thumb(color, 1.7));
+  if (css == state->css) return;
+  // Loading a provider emits another style update. Cache first to avoid a loop.
+  state->css = css;
+  gtk_css_provider_load_from_data(state->provider, css.c_str(), -1, nullptr);
+}
+
+void set_terminal_scrollbar_background(GtkWidget *scrollbar,
+    const std::optional<RgbColor> &color) {
+  const char *key = "elder-terminal-scrollbar-colors";
+  auto *state = static_cast<TerminalScrollbarColors *>(g_object_get_data(G_OBJECT(scrollbar), key));
+  if (!state) {
+    state = new TerminalScrollbarColors;
+    state->provider = gtk_css_provider_new();
+    g_object_set_data_full(G_OBJECT(scrollbar), key, state, +[](gpointer data) {
+      auto *colors = static_cast<TerminalScrollbarColors *>(data);
+      g_object_unref(colors->provider);
+      delete colors;
+    });
+    auto *context = gtk_widget_get_style_context(scrollbar);
+    gtk_style_context_add_class(context, "terminal-scrollbar");
+    gtk_style_context_add_provider(context, GTK_STYLE_PROVIDER(state->provider),
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 3);
+    g_signal_connect(scrollbar, "style-updated", G_CALLBACK(update_terminal_scrollbar_colors), state);
+  }
+  state->color = color;
+  update_terminal_scrollbar_colors(scrollbar, state);
+}
+
 static RgbColor derive_component_background(const RgbColor &color,
                                             double lightness_delta) {
   static constexpr double channel_maximum = 255.0;

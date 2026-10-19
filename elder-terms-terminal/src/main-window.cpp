@@ -984,6 +984,10 @@ static void set_main_window_terminal_background(MainWindow *main_window, const s
   set_main_window_component_background(main_window, color);
   main_window->terminal_color = color;
   if (!main_window->runtime) return;
+  auto *scroll = gtk_widget_get_ancestor(GTK_WIDGET(terminal_runtime_widget(main_window->runtime)),
+      GTK_TYPE_SCROLLED_WINDOW);
+  if (scroll) set_terminal_scrollbar_background(
+      gtk_scrolled_window_get_vscrollbar(GTK_SCROLLED_WINDOW(scroll)), color);
   auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(main_window->runtime));
   boxrig_ui_view_set_color_filter(view, color ? terminal_colors : nullptr,
       color ? &*main_window->terminal_color : nullptr);
