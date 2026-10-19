@@ -14,7 +14,7 @@
 
 namespace elder_terms {
 
-static constexpr gdouble default_terminal_zoom = 1.0;
+static constexpr gdouble default_terminal_font_size_dip = 12.0;
 static constexpr char initial_local_terminal_name[] = "Local terminal";
 
 static std::string trim_ascii_whitespace(const std::string &value) {
@@ -99,7 +99,7 @@ InitialConnectionProfileResult create_initial_local_terminal_profile(
   }
 
   const SettingsStore store = create_default_settings(
-      default_terminal_display_settings(default_terminal_zoom),
+      default_terminal_display_settings(default_terminal_font_size_dip),
       initial_local_terminal_name);
   ConnectionSaveResult saved = save_connection_profile(
       directory, std::nullopt, initial_local_terminal_name, store);
@@ -182,7 +182,7 @@ SettingsLoadResult load_connection_profile(const std::filesystem::path &path) {
           .startup_config_path = std::nullopt,
           .global_config_path = default_global_config_path(),
       },
-      default_terminal_zoom);
+      default_terminal_font_size_dip);
 }
 
 ConnectionSaveResult save_connection_profile(

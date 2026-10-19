@@ -60,7 +60,7 @@ bool macro_rule_is_valid(const MacroRule &rule, std::string *reason) {
   }
 
   RegularExpressionState *regex =
-      create_regular_expression(rule.pattern, false, reason);
+      create_regular_expression(rule.pattern, reason);
   if (regex == nullptr) {
     return false;
   }

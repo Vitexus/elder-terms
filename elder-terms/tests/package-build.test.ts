@@ -7,6 +7,8 @@ import {
   mkdtempSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -15,6 +17,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { createGtkAppLauncher } from 'gestament';
+import { toPass } from 'gestament/testing';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const projectRoot = fileURLToPath(new URL('../..', import.meta.url));
@@ -90,11 +94,12 @@ const createPackageStage = (
     'usr/bin',
     'usr/lib/elder-terms',
     'usr/lib/elder-terms/launcher',
-    'usr/lib/elder-terms/elder-terms-vte',
+    'usr/lib/elder-terms/elder-terms-terminal',
     'usr/share/applications',
     'usr/share/doc/elder-terms',
     'usr/share/doc/elder-terms/docs/ja',
     'usr/share/doc/elder-terms/docs/en',
+    'usr/share/doc/elder-terms/licenses/boxrig',
     'usr/share/icons/hicolor/256x256/apps',
     'usr/share/locale/ja/LC_MESSAGES',
   ];
@@ -117,10 +122,16 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
 
   const executablePaths = [
     'usr/bin/etctl',
-    'usr/lib/elder-terms/libelder-terms.so',
+    'usr/lib/elder-terms/libelder-terms.so.0',
+    'usr/lib/elder-terms/libcardio.so.0',
+    'usr/lib/elder-terms/libboxrig.so.0',
+    'usr/lib/elder-terms/libboxrig-ui.so.0',
+    'usr/lib/elder-terms/libboxrig-session.so.0',
+    'usr/lib/elder-terms/libboxrig-posix.so.0',
+    'usr/lib/elder-terms/libboxrig-gtk3.so.0',
     'usr/lib/elder-terms/launcher/elder-terms',
-    'usr/lib/elder-terms/elder-terms-vte/elder-terms-vte',
-    'usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer',
+    'usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal',
+    'usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer',
   ];
   for (const executablePath of executablePaths) {
     if (executablePath !== omittedPath) {
@@ -138,13 +149,16 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
       '[Desktop Entry]\nType=Application\nExec=elder-terms\n',
     ],
     [
-      'usr/share/applications/net.kekyo.elder-terms-vte.desktop',
-      '[Desktop Entry]\nType=Application\nExec=elder-terms-vte\n',
+      'usr/share/applications/net.kekyo.elder-terms-terminal.desktop',
+      '[Desktop Entry]\nType=Application\nExec=elder-terms-terminal\n',
     ],
     ['usr/lib/elder-terms/launcher/main-window.ui', '<interface/>\n'],
-    ['usr/lib/elder-terms/elder-terms-vte/main-window.ui', '<interface/>\n'],
-    ['usr/lib/elder-terms/elder-terms-vte/green-on.png', 'on\n'],
-    ['usr/lib/elder-terms/elder-terms-vte/green-off.png', 'off\n'],
+    [
+      'usr/lib/elder-terms/elder-terms-terminal/main-window.ui',
+      '<interface/>\n',
+    ],
+    ['usr/lib/elder-terms/elder-terms-terminal/green-on.png', 'on\n'],
+    ['usr/lib/elder-terms/elder-terms-terminal/green-off.png', 'off\n'],
     ['usr/share/doc/elder-terms/README.md', '# elder-terms\n'],
     ['usr/share/doc/elder-terms/README_ja.md', '# elder-terms\n'],
     ['usr/share/doc/elder-terms/docs/ja/webdav.md', '# WebDAV\n'],
@@ -157,6 +171,22 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     ['usr/share/icons/hicolor/256x256/apps/elder-terms.png', 'icon\n'],
     ['usr/share/locale/ja/LC_MESSAGES/elder-terms.mo', 'locale\n'],
   ]);
+  for (const name of [
+    'LICENSE',
+    'README.md',
+    'README_ja.md',
+    'sources.json',
+    'utf8proc-LICENSE.md',
+    'libpng-LICENSE',
+    'zlib-LICENSE',
+    'Unicode-LICENSE.txt',
+    'WHATWG-Encoding-LICENSE',
+  ]) {
+    textFiles.set(
+      `usr/share/doc/elder-terms/licenses/boxrig/${name}`,
+      'license fixture\n'
+    );
+  }
   for (const [relativePath, contents] of textFiles) {
     if (relativePath !== omittedPath) {
       writeFileSync(join(stageRoot, relativePath), contents);
@@ -168,11 +198,11 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     join(stageRoot, 'usr/bin/elder-terms')
   );
   symlinkSync(
-    '../lib/elder-terms/elder-terms-vte/elder-terms-vte',
-    join(stageRoot, 'usr/bin/elder-terms-vte')
+    '../lib/elder-terms/elder-terms-terminal/elder-terms-terminal',
+    join(stageRoot, 'usr/bin/elder-terms-terminal')
   );
   symlinkSync(
-    '../lib/elder-terms/elder-terms-vte/elder-terms-file-transfer',
+    '../lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer',
     join(stageRoot, 'usr/bin/elder-terms-file-transfer')
   );
 };
@@ -237,7 +267,7 @@ canonical_release noble
 canonical_release resolute
 count_deb_builds
 deb_artifact_path elder-terms ubuntu 24.04 x86_64
-prereq_image_for_target debian bookworm x86_64
+prereq_image_for_target debian trixie x86_64
 container_image_for_target debian trixie riscv64
 `);
     expectSuccess(mappings, 'package target mappings failed');
@@ -248,17 +278,113 @@ container_image_for_target debian trixie riscv64
         'armv7l',
         '24.04',
         '26.04',
-        '13',
+        '9',
         join(
           projectRoot,
           'artifacts/deb/elder-terms-1.2.3-ubuntu-24.04-amd64.deb'
         ),
-        'localhost/elder-terms-pack-deb-debian-bookworm-x86_64:latest',
+        'localhost/elder-terms-pack-deb-debian-trixie-x86_64:latest',
         'docker.io/library/debian:trixie',
         '',
       ].join('\n')
     );
   });
+
+  it('reports the boxrig release version from the build SDK', () => {
+    const versions = run(
+      'pkg-config',
+      [
+        '--modversion',
+        'boxrig',
+        'boxrig-ui',
+        'boxrig-session',
+        'boxrig-posix',
+        'boxrig-gtk3',
+      ],
+      {
+        ...process.env,
+        PKG_CONFIG_PATH: join(projectRoot, '.build/boxrig/sdk/lib/pkgconfig'),
+      }
+    );
+    expectSuccess(versions, 'build SDK version lookup failed');
+    expect(versions.stdout.trim().split(/\s+/)).toEqual([
+      '0.3.0',
+      '0.3.0',
+      '0.3.0',
+      '0.3.0',
+      '0.3.0',
+    ]);
+  });
+
+  it('builds a usable SDK from relocated host-prepared tools without target npm', () => {
+    const prepared = join(temporaryRoot, 'prepared-tools');
+    expectSuccess(
+      run(process.execPath, [
+        join(projectRoot, 'scripts/prepare-package-tools.mts'),
+        prepared,
+      ]),
+      'host build-tool preparation failed'
+    );
+    const relocated = join(temporaryRoot, 'relocated-tools');
+    renameSync(prepared, relocated);
+    const commands = join(temporaryRoot, 'target-commands');
+    mkdirSync(commands);
+    writeExecutable(
+      join(commands, 'npm'),
+      '#!/bin/sh\necho "Target must use host-prepared tools" >&2\nexit 97\n'
+    );
+    const build = join(temporaryRoot, 'prepared-sdk-build');
+    expectSuccess(
+      run(
+        process.execPath,
+        [
+          '--no-experimental-strip-types',
+          join(relocated, 'prepare-boxrig.mjs'),
+          projectRoot,
+          build,
+          relocated,
+        ],
+        { ...process.env, PATH: `${commands}:${process.env.PATH}` }
+      ),
+      'SDK build with host-prepared tools failed'
+    );
+    const sdk = join(build, 'boxrig/sdk');
+    const flags = run(
+      'pkg-config',
+      ['--cflags', '--libs', 'boxrig-ui', 'boxrig-posix'],
+      {
+        ...process.env,
+        PKG_CONFIG_PATH: join(sdk, 'lib/pkgconfig'),
+      }
+    );
+    expectSuccess(flags, 'prepared SDK metadata lookup failed');
+    const versions = run(
+      'pkg-config',
+      ['--modversion', 'boxrig-ui', 'boxrig-posix'],
+      { ...process.env, PKG_CONFIG_PATH: join(sdk, 'lib/pkgconfig') }
+    );
+    expectSuccess(versions, 'prepared SDK version lookup failed');
+    expect(versions.stdout.trim().split(/\s+/)).toEqual(['0.3.0', '0.3.0']);
+    const consumer = join(temporaryRoot, 'prepared-sdk-consumer');
+    expectSuccess(
+      run('cc', [
+        '-std=c99',
+        '-Wall',
+        '-Wextra',
+        '-Werror',
+        join(projectRoot, 'deps/boxrig/tests/shared/consumer.c'),
+        ...flags.stdout.trim().split(/\s+/),
+        '-ldl',
+        '-o',
+        consumer,
+      ]),
+      'prepared SDK consumer compilation failed'
+    );
+    expectSuccess(
+      run(consumer, [], { ...process.env, LD_LIBRARY_PATH: join(sdk, 'lib') }),
+      'prepared SDK public API execution failed'
+    );
+  }, 180_000);
 
   it('configures Meson for a relocatable package installation', () => {
     const binDirectory = join(temporaryRoot, 'container-bin');
@@ -293,6 +419,7 @@ exit 0
       ELDER_TERMS_PACKAGE_MAINTAINER: 'test <test@localhost>',
       ELDER_TERMS_PACKAGE_NAME: 'elder-terms',
       ELDER_TERMS_PACKAGE_VERSION: '1.2.3-test',
+      ELDER_TERMS_PACKAGE_TOOLS: join(temporaryRoot, 'container-tools'),
       ELDER_TERMS_TEST_MESON_INVOCATION: invocationPath,
       ELDER_TERMS_TEST_PKG_CONFIG_INVOCATION: pkgConfigInvocationPath,
       ELDER_TERMS_WORK_DIR: join(temporaryRoot, 'container-work'),
@@ -304,15 +431,18 @@ exit 0
     expect(invocation).toContain('--libdir=lib');
     expect(invocation).toContain('-Dautostartdir=/etc/xdg/autostart');
     expect(invocation).toContain('-Dbuild_tests=false');
-    expect(invocation).toContain('-Dwerror=false');
+    expect(invocation).toContain('-Dwerror=true');
     expect(invocation).toContain('--buildtype=release');
     expect(invocation).toContain('-Dapplication_version=1.2.3-test');
+    expect(invocation).toContain(
+      `-Dpackage_build_tools=${environment.ELDER_TERMS_PACKAGE_TOOLS}`
+    );
     expect(readFileSync(pkgConfigInvocationPath, 'utf8').split('\n')).toContain(
       '--exists libcanberra'
     );
-    expect(readFileSync(pkgConfigInvocationPath, 'utf8').split('\n')).toContain(
-      '--exists libpcre2-8'
-    );
+    expect(
+      readFileSync(pkgConfigInvocationPath, 'utf8').split('\n')
+    ).not.toContain('--exists libpcre2-8');
 
     rmSync(invocationPath);
     const missingCurl = run(containerScript, [], {
@@ -326,6 +456,58 @@ exit 0
     expect(() => lstatSync(invocationPath)).toThrow();
   });
 
+  it('rejects compiler warnings before creating a release package', () => {
+    const source = join(temporaryRoot, 'warning-source');
+    const work = join(temporaryRoot, 'warning-work');
+    mkdirSync(source);
+    writeFileSync(
+      join(source, 'meson.build'),
+      "project('package-warning-check', 'cpp', default_options: ['warning_level=3'])\n" +
+        "executable('warning-fixture', 'warning.cpp')\n"
+    );
+    writeFileSync(
+      join(source, 'meson_options.txt'),
+      [
+        "option('autostartdir', type: 'string', value: '')",
+        "option('application_version', type: 'string', value: '')",
+        "option('package_build_tools', type: 'string', value: '')",
+        "option('build_tests', type: 'boolean', value: false)",
+        '',
+      ].join('\n')
+    );
+    writeFileSync(
+      join(source, 'warning.cpp'),
+      'int main() { int unused; return 0; }\n'
+    );
+
+    const result = run(
+      'sh',
+      [
+        '-c',
+        'cd "$1" && exec "$2"',
+        'package-warning-test',
+        source,
+        containerScript,
+      ],
+      {
+        ...process.env,
+        ELDER_TERMS_BUILD_TYPE: 'release',
+        ELDER_TERMS_MAKE_JOBS: '1',
+        ELDER_TERMS_PACKAGE_DESCRIPTION: 'elder-terms warning test',
+        ELDER_TERMS_PACKAGE_MAINTAINER: 'test <test@localhost>',
+        ELDER_TERMS_PACKAGE_NAME: 'elder-terms',
+        ELDER_TERMS_PACKAGE_VERSION: '1.2.3-test',
+        ELDER_TERMS_PACKAGE_TOOLS: join(temporaryRoot, 'warning-tools'),
+        ELDER_TERMS_WORK_DIR: work,
+      }
+    );
+    expect(result.status).not.toBe(0);
+    expect(`${result.stdout}\n${result.stderr}`).toContain(
+      '-Werror=unused-variable'
+    );
+    expect(() => lstatSync(join(work, 'build', 'warning-fixture'))).toThrow();
+  });
+
   it('disables libxyzm debug information for release package builds', () => {
     const binDirectory = join(temporaryRoot, 'libxyzm-bin');
     const buildDirectory = join(temporaryRoot, 'libxyzm-release-build');
@@ -335,6 +517,11 @@ exit 0
       join(binDirectory, 'make'),
       `#!/bin/sh
 set -eu
+# Only intercept the libxyzm invocation; Meson also prepares the boxrig SDK.
+case " $* " in
+  *" LIBXYZM_EXTRA_CXXFLAGS="*) ;;
+  *) exec /usr/bin/make "$@" ;;
+esac
 printf '%s\n' "$@" >"$ELDER_TERMS_TEST_LIBXYZM_MAKE_INVOCATION"
 build_dir=''
 for argument in "$@"; do
@@ -370,7 +557,7 @@ mkdir -p "$build_dir"
         'compile',
         '-C',
         buildDirectory,
-        'elder-terms-vte/libxyzm-static-libraries',
+        'elder-terms-terminal/libxyzm-static-libraries',
       ],
       environment
     );
@@ -406,7 +593,7 @@ for argument in "$@"; do
   previous=$argument
 done
 case " $* " in *" --validate-package "*) exit 0 ;; esac
-stage="$workspace/artifacts/.tmp/test-run/deb/debian/bookworm/x86_64/work/stage/elder-terms"
+stage="$workspace/artifacts/.tmp/test-run/deb/debian/trixie/x86_64/work/stage/elder-terms"
 mkdir -p "$stage/DEBIAN"
 printf 'Package: elder-terms\\n' >"$stage/DEBIAN/control"
 `
@@ -433,7 +620,7 @@ VERSION=1.2.3-test
 CONTAINER_ENGINE_BIN=$3
 MAKE_JOBS=1
 BUILD_TYPE=release
-build_deb_package debian bookworm x86_64 linux/amd64
+build_deb_package debian trixie x86_64 linux/amd64
 `,
       [fakeProject, containerEngine],
       {
@@ -446,19 +633,19 @@ build_deb_package debian bookworm x86_64 linux/amd64
     expectSuccess(result, 'deb package orchestration failed');
     const records = readFileSync(containerRecords, 'utf8');
     expect(records).toContain(
-      'exists localhost/elder-terms-pack-deb-debian-bookworm-x86_64:latest'
+      'exists localhost/elder-terms-pack-deb-debian-trixie-x86_64:latest'
     );
     expect(
       records.split('\n').filter((line) => line.startsWith('run '))
     ).toHaveLength(2);
     expect(records).toContain('./scripts/build_linux_dist_container.sh');
     expect(records).toContain(
-      '--validate-package /workspace/artifacts/deb/elder-terms-1.2.3-test-debian-bookworm-amd64.deb'
+      '--validate-package /workspace/artifacts/deb/elder-terms-1.2.3-test-debian-trixie-amd64.deb'
     );
     expect(readFileSync(dpkgRecords, 'utf8')).toContain(
       join(
         fakeProject,
-        'artifacts/deb/elder-terms-1.2.3-test-debian-bookworm-amd64.deb'
+        'artifacts/deb/elder-terms-1.2.3-test-debian-trixie-amd64.deb'
       )
     );
   });
@@ -492,7 +679,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         '--distro',
         'debian',
         '--release',
-        'bookworm',
+        'trixie',
         '--arch',
         'amd64',
         '--jobs',
@@ -509,29 +696,34 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     expectSuccess(prerequisite, 'filtered prerequisite image build failed');
     const invocation = readFileSync(recordsPath, 'utf8');
     expect(invocation).toContain('build --no-cache --platform linux/amd64');
-    expect(invocation).toContain('BASE_IMAGE=docker.io/amd64/debian:bookworm');
+    expect(invocation).toContain('BASE_IMAGE=docker.io/amd64/debian:trixie');
     expect(invocation).toContain(
-      'localhost/elder-terms-pack-deb-debian-bookworm-x86_64:latest'
+      'localhost/elder-terms-pack-deb-debian-trixie-x86_64:latest'
     );
     const containerfile = readFileSync(`${recordsPath}.containerfile`, 'utf8');
     for (const dependency of [
       'libcanberra-dev',
       'libcanberra-pulse',
       'libgtk-3-dev',
-      'libpcre2-dev',
+      'libcairo2-dev',
+      'libpango1.0-dev',
+      'libfontconfig1-dev',
+      'libepoxy-dev',
+      'libibus-1.0-dev',
+      'libwayland-dev',
+      'libgl-dev',
+      'libegl-dev',
       'libssh-dev',
       'libudev-dev',
       'liburing-dev',
-      'libvte-2.91-dev',
       'libxkbcommon-dev',
       'meson',
-      'npm',
+      'nodejs',
       'openssh-client',
       'xdg-utils',
     ]) {
       expect(containerfile).toContain(dependency);
     }
-    expect(containerfile).toContain('npm ci --ignore-scripts');
     expect(prerequisite.stdout).toContain('Prerequisite images are ready.');
 
     const wrapperCapture = join(temporaryRoot, 'wrapper-arguments.txt');
@@ -614,14 +806,14 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     createPackageStage(
       badStage,
       debianArchitecture,
-      'usr/share/applications/net.kekyo.elder-terms-vte.desktop',
+      'usr/share/applications/net.kekyo.elder-terms-terminal.desktop',
       true,
       true
     );
     createPackageStage(
       missingFileTransferStage,
       debianArchitecture,
-      'usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer',
+      'usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer',
       true,
       true
     );
@@ -717,6 +909,43 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       }
     }
 
+    for (const missingPath of [
+      ...[
+        'libcardio.so.0',
+        'libboxrig.so.0',
+        'libboxrig-ui.so.0',
+        'libboxrig-session.so.0',
+        'libboxrig-posix.so.0',
+        'libboxrig-gtk3.so.0',
+      ].map((name) => `usr/lib/elder-terms/${name}`),
+      ...[
+        'LICENSE',
+        'README.md',
+        'README_ja.md',
+        'sources.json',
+        'utf8proc-LICENSE.md',
+        'libpng-LICENSE',
+        'zlib-LICENSE',
+        'Unicode-LICENSE.txt',
+        'WHATWG-Encoding-LICENSE',
+      ].map((name) => `usr/share/doc/elder-terms/licenses/boxrig/${name}`),
+    ]) {
+      const name = missingPath.replace(/\//g, '-');
+      const stage = join(temporaryRoot, `missing-${name}-stage`);
+      const output = join(temporaryRoot, `missing-${name}.deb`);
+      createPackageStage(stage, debianArchitecture, missingPath, true, true);
+      expectSuccess(
+        run(dpkgDeb, ['--root-owner-group', '--build', stage, output]),
+        'incomplete runtime package creation failed'
+      );
+      const validation = runSourced(
+        'VERSION=1.2.3\nvalidate_deb_package "$2" "$3"',
+        [output, canonicalArchitecture!]
+      );
+      expect(validation.status, missingPath).not.toBe(0);
+      expect(validation.stderr).toContain(missingPath);
+    }
+
     const missingCaValidation = runSourced(
       'VERSION=1.2.3\nvalidate_deb_package "$2" "$3"',
       [missingCaPackage, canonicalArchitecture!]
@@ -730,7 +959,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     );
     expect(badValidation.status).not.toBe(0);
     expect(badValidation.stderr).toContain(
-      'usr/share/applications/net.kekyo.elder-terms-vte.desktop'
+      'usr/share/applications/net.kekyo.elder-terms-terminal.desktop'
     );
 
     const missingFileTransferValidation = runSourced(
@@ -739,7 +968,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     );
     expect(missingFileTransferValidation.status).not.toBe(0);
     expect(missingFileTransferValidation.stderr).toContain(
-      'usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer'
+      'usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer'
     );
 
     const missingOpenSshClientValidation = runSourced(
@@ -757,7 +986,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     expect(missingXdgUtilsValidation.stderr).toContain('xdg-utils');
   });
 
-  it('installs package data and resolvable public commands through Meson', () => {
+  it('installs package data and resolvable public commands through Meson', async () => {
     const destination = join(temporaryRoot, 'meson-install');
     const buildDirectory = join(projectRoot, '.build');
     const introspection = run('meson', [
@@ -795,11 +1024,11 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         join('..', libraryDirectory, 'elder-terms/launcher/elder-terms'),
       ],
       [
-        'bin/elder-terms-vte',
+        'bin/elder-terms-terminal',
         join(
           '..',
           libraryDirectory,
-          'elder-terms/elder-terms-vte/elder-terms-vte'
+          'elder-terms/elder-terms-terminal/elder-terms-terminal'
         ),
       ],
       [
@@ -807,7 +1036,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         join(
           '..',
           libraryDirectory,
-          'elder-terms/elder-terms-vte/elder-terms-file-transfer'
+          'elder-terms/elder-terms-terminal/elder-terms-file-transfer'
         ),
       ],
     ]);
@@ -817,19 +1046,22 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       expect(readlinkSync(path)).toBe(expectedTarget);
     }
     for (const relativePath of [
-      join(libraryDirectory, 'elder-terms/libelder-terms.so'),
+      join(libraryDirectory, 'elder-terms/libelder-terms.so.0'),
       join(libraryDirectory, 'elder-terms/launcher/elder-terms'),
       join(libraryDirectory, 'elder-terms/launcher/main-window.ui'),
-      join(libraryDirectory, 'elder-terms/elder-terms-vte/elder-terms-vte'),
       join(
         libraryDirectory,
-        'elder-terms/elder-terms-vte/elder-terms-file-transfer'
+        'elder-terms/elder-terms-terminal/elder-terms-terminal'
       ),
-      join(libraryDirectory, 'elder-terms/elder-terms-vte/main-window.ui'),
-      join(libraryDirectory, 'elder-terms/elder-terms-vte/green-on.png'),
-      join(libraryDirectory, 'elder-terms/elder-terms-vte/green-off.png'),
+      join(
+        libraryDirectory,
+        'elder-terms/elder-terms-terminal/elder-terms-file-transfer'
+      ),
+      join(libraryDirectory, 'elder-terms/elder-terms-terminal/main-window.ui'),
+      join(libraryDirectory, 'elder-terms/elder-terms-terminal/green-on.png'),
+      join(libraryDirectory, 'elder-terms/elder-terms-terminal/green-off.png'),
       'share/applications/net.kekyo.elder-terms.desktop',
-      'share/applications/net.kekyo.elder-terms-vte.desktop',
+      'share/applications/net.kekyo.elder-terms-terminal.desktop',
     ]) {
       expect(lstatSync(join(installedRoot, relativePath)).isFile()).toBe(true);
     }
@@ -842,6 +1074,95 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     const dynamicSection = run('readelf', ['-d', launcher]);
     expectSuccess(dynamicSection, 'installed launcher ELF inspection failed');
     expect(dynamicSection.stdout).toContain('[$ORIGIN/..]');
+
+    const terminal = join(installedRoot, 'bin/elder-terms-terminal');
+    const environment = { ...process.env };
+    delete environment.LD_LIBRARY_PATH;
+    delete environment.LD_PRELOAD;
+    // ldd's direct loader invocation does not resolve executable symlinks as exec does.
+    const loaded = run('ldd', [realpathSync(terminal)], environment);
+    expectSuccess(loaded, 'installed terminal dependency resolution failed');
+    expect(loaded.stdout).not.toContain('not found');
+    for (const component of [
+      'elder-terms',
+      'cardio',
+      'boxrig',
+      'boxrig-ui',
+      'boxrig-session',
+      'boxrig-posix',
+      'boxrig-gtk3',
+    ]) {
+      const name = `lib${component}.so.0`;
+      const expectedPath = join(
+        installedRoot,
+        libraryDirectory,
+        'elder-terms',
+        name
+      );
+      const resolved = loaded.stdout
+        .split('\n')
+        .find((line) => line.trimStart().startsWith(`${name} => `))
+        ?.split(' => ')[1]
+        ?.split(' (')[0];
+      expect(
+        resolved,
+        `${name} must be loaded from the installation`
+      ).toBeDefined();
+      expect(realpathSync(resolved!)).toBe(realpathSync(expectedPath));
+      const libraryDynamicSection = run('readelf', ['-d', expectedPath]);
+      expectSuccess(libraryDynamicSection, `${name} ELF inspection failed`);
+      expect(libraryDynamicSection.stdout).toContain(
+        `Library soname: [${name}]`
+      );
+      expect(libraryDynamicSection.stdout).toContain('[$ORIGIN]');
+    }
+
+    const configPath = join(temporaryRoot, 'installed-terminal.ini');
+    const peerPath = join(temporaryRoot, 'installed-peer.mjs');
+    const receivedPath = join(temporaryRoot, 'installed-input.txt');
+    writeFileSync(
+      peerPath,
+      `import { appendFileSync } from 'node:fs';
+process.stdin.setRawMode(true);
+process.stdin.on('data', (bytes) => appendFileSync(process.argv[2], bytes));
+process.stdout.write('INSTALLED-TERMINAL-READY');
+`
+    );
+    writeFileSync(
+      configPath,
+      `[general]\nauto_close=false\n[local]\ncommand_line=${process.execPath} ${peerPath} ${receivedPath}\n[log]\nenabled=true\nbase_directory=${temporaryRoot}\nfile_name_format=installed-output.log\n`
+    );
+    const appLauncher = createGtkAppLauncher({
+      appPath: terminal,
+      args: ['-c', configPath],
+      env: {
+        XDG_CONFIG_HOME: join(temporaryRoot, 'installed-config'),
+        LD_LIBRARY_PATH: '',
+        LD_PRELOAD: '',
+        LIBGL_ALWAYS_SOFTWARE: '1',
+        GTK_IM_MODULE: 'gtk-im-context-simple',
+      },
+    });
+    try {
+      const app = await appLauncher.launch();
+      const view = await app.getById('terminal_view');
+      expect((await view.info()).interfaces).toContain('Text');
+      await toPass(() => {
+        expect(
+          readFileSync(join(temporaryRoot, 'installed-output.log'), 'utf8')
+        ).toBe('INSTALLED-TERMINAL-READY');
+      });
+      const bounds = (await view.capture()).bounds;
+      await app.input.moveMouseTo(bounds.x + 20, bounds.y + 20);
+      await app.input.setMouseButton('left', true);
+      await app.input.setMouseButton('left', false);
+      await app.input.pressKey('x');
+      await toPass(() => {
+        expect(readFileSync(receivedPath, 'utf8')).toBe('x');
+      });
+    } finally {
+      await appLauncher.release();
+    }
   });
 
   it('re-includes package data filtered by minimal distribution images', () => {

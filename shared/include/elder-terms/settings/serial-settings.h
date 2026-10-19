@@ -40,7 +40,7 @@ enum class SerialFlowControl {
  * Serial connection monitoring behavior.
  */
 enum class SerialCarrierDetect {
-  /** Keep the session active without monitoring modem-line state. */
+  /** Keep the session active regardless of modem-line state. */
   ignore,
   /** Carrier detect / data carrier detect line. */
   cd,
@@ -70,7 +70,7 @@ struct SerialConnectionSettings {
   gint64 stop_bit;
   /** Flow-control mode. */
   SerialFlowControl flow_control;
-  /** Modem line used to detect disconnects, or ignore to disable monitoring. */
+  /** Modem line used to detect disconnects, or ignore to keep sending enabled. */
   SerialCarrierDetect carrier_detect;
 };
 

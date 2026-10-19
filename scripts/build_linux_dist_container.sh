@@ -61,6 +61,7 @@ write_control_file() {
 calculate_shlibdeps() {
 	tmp_dir=$(mktemp -d)
 	private_dir="$stage_dir/usr/lib/elder-terms"
+	package_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 	mkdir -p "$tmp_dir/debian"
 	{
 		printf 'Source: elder-terms\n'
@@ -76,13 +77,20 @@ calculate_shlibdeps() {
 	depends_value=$(
 		cd "$tmp_dir"
 		dpkg-shlibdeps \
-			--ignore-missing-info \
 			-O \
+			-L"$package_root/packaging/shlibs" \
+			-x"$ELDER_TERMS_PACKAGE_NAME" \
 			-l"$private_dir" \
-			"$private_dir/libelder-terms.so" \
+			"$private_dir/libelder-terms.so.0" \
+			"$private_dir/libcardio.so.0" \
+			"$private_dir/libboxrig.so.0" \
+			"$private_dir/libboxrig-ui.so.0" \
+			"$private_dir/libboxrig-session.so.0" \
+			"$private_dir/libboxrig-posix.so.0" \
+			"$private_dir/libboxrig-gtk3.so.0" \
 			"$private_dir/launcher/elder-terms" \
-			"$private_dir/elder-terms-vte/elder-terms-vte" \
-			"$private_dir/elder-terms-vte/elder-terms-file-transfer" |
+			"$private_dir/elder-terms-terminal/elder-terms-terminal" \
+			"$private_dir/elder-terms-terminal/elder-terms-file-transfer" |
 			sed -n 's/^shlibs:Depends=//p'
 	)
 	rm -rf "$tmp_dir"
@@ -94,8 +102,8 @@ calculate_shlibdeps() {
 validate_dynamic_links() {
 	for executable_path in \
 		/usr/lib/elder-terms/launcher/elder-terms \
-		/usr/lib/elder-terms/elder-terms-vte/elder-terms-vte \
-		/usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer; do
+		/usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
+		/usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer; do
 		link_report=$(ldd "$executable_path")
 		case $link_report in
 		*'not found'*)
@@ -128,31 +136,46 @@ validate_installed_package() {
 		fail "Unexpected installed package version: $installed_version"
 
 	for installed_file in \
-		/usr/lib/elder-terms/libelder-terms.so \
+		/usr/lib/elder-terms/libelder-terms.so.0 \
+		/usr/lib/elder-terms/libcardio.so.0 \
+		/usr/lib/elder-terms/libboxrig.so.0 \
+		/usr/lib/elder-terms/libboxrig-ui.so.0 \
+		/usr/lib/elder-terms/libboxrig-session.so.0 \
+		/usr/lib/elder-terms/libboxrig-posix.so.0 \
+		/usr/lib/elder-terms/libboxrig-gtk3.so.0 \
 		/usr/lib/elder-terms/launcher/elder-terms \
 		/usr/lib/elder-terms/launcher/main-window.ui \
-		/usr/lib/elder-terms/elder-terms-vte/elder-terms-vte \
-		/usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer \
-		/usr/lib/elder-terms/elder-terms-vte/main-window.ui \
-		/usr/lib/elder-terms/elder-terms-vte/green-on.png \
-		/usr/lib/elder-terms/elder-terms-vte/green-off.png \
+		/usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
+		/usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer \
+		/usr/lib/elder-terms/elder-terms-terminal/main-window.ui \
+		/usr/lib/elder-terms/elder-terms-terminal/green-on.png \
+		/usr/lib/elder-terms/elder-terms-terminal/green-off.png \
 		/usr/share/applications/net.kekyo.elder-terms.desktop \
-		/usr/share/applications/net.kekyo.elder-terms-vte.desktop \
+		/usr/share/applications/net.kekyo.elder-terms-terminal.desktop \
 		/etc/xdg/autostart/net.kekyo.elder-terms.desktop \
 		/usr/share/icons/hicolor/256x256/apps/elder-terms.png \
 		/usr/share/locale/ja/LC_MESSAGES/elder-terms.mo \
 		/usr/share/doc/elder-terms/docs/ja/webdav.md \
 		/usr/share/doc/elder-terms/docs/en/webdav.md \
 		/usr/share/doc/elder-terms/docs/en/webdav-validation.md \
+		/usr/share/doc/elder-terms/licenses/boxrig/LICENSE \
+		/usr/share/doc/elder-terms/licenses/boxrig/README.md \
+		/usr/share/doc/elder-terms/licenses/boxrig/README_ja.md \
+		/usr/share/doc/elder-terms/licenses/boxrig/sources.json \
+		/usr/share/doc/elder-terms/licenses/boxrig/utf8proc-LICENSE.md \
+		/usr/share/doc/elder-terms/licenses/boxrig/libpng-LICENSE \
+		/usr/share/doc/elder-terms/licenses/boxrig/zlib-LICENSE \
+		/usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
+		/usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
 		/usr/share/doc/elder-terms/copyright; do
 		assert_file "$installed_file"
 	done
 	assert_symlink /usr/bin/elder-terms \
 		'../lib/elder-terms/launcher/elder-terms'
-	assert_symlink /usr/bin/elder-terms-vte \
-		'../lib/elder-terms/elder-terms-vte/elder-terms-vte'
+	assert_symlink /usr/bin/elder-terms-terminal \
+		'../lib/elder-terms/elder-terms-terminal/elder-terms-terminal'
 	assert_symlink /usr/bin/elder-terms-file-transfer \
-		'../lib/elder-terms/elder-terms-vte/elder-terms-file-transfer'
+		'../lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer'
 	validate_dynamic_links
 	printf '%s\n' "Installed package validated: $package_path"
 }
@@ -186,7 +209,7 @@ stage_dir="$work_dir/stage/$ELDER_TERMS_PACKAGE_NAME"
 
 require_command dpkg-architecture
 require_command dpkg-shlibdeps
-require_command gestament-config
+require_env ELDER_TERMS_PACKAGE_TOOLS
 require_command make
 require_command meson
 require_command pkg-config
@@ -195,15 +218,21 @@ for pkg_config_module in \
 	gio-2.0 \
 	gdk-pixbuf-2.0 \
 	gtk+-3.0 \
+	'cairo >= 1.18' \
+	'pango >= 1.50' \
+	pangocairo \
+	pangoft2 \
+	fontconfig \
+	epoxy \
+	'ibus-1.0 >= 1.5.29' \
+	'wayland-client >= 1.22' \
 	libcanberra \
 	libcurl \
 	libxml-2.0 \
 	openssl \
-	libpcre2-8 \
 	libssh \
 	libudev \
 	liburing \
-	vte-2.91 \
 	x11 \
 	xkbcommon; do
 	pkg-config --exists "$pkg_config_module" ||
@@ -218,8 +247,9 @@ meson setup "$build_dir" . \
 	--libdir=lib \
 	-Dautostartdir=/etc/xdg/autostart \
 	-Dapplication_version="$ELDER_TERMS_PACKAGE_VERSION" \
+	-Dpackage_build_tools="$ELDER_TERMS_PACKAGE_TOOLS" \
 	-Dbuild_tests=false \
-	-Dwerror=false
+	-Dwerror=true
 meson compile -C "$build_dir" -j "$ELDER_TERMS_MAKE_JOBS"
 mkdir -p "$stage_dir"
 if [ "$ELDER_TERMS_BUILD_TYPE" = 'release' ]; then
@@ -237,28 +267,43 @@ write_control_file "$control_dir/control" "$shlib_depends, $runtime_depends"
 chmod 0644 "$control_dir/control"
 
 for staged_file in \
-	usr/lib/elder-terms/libelder-terms.so \
+	usr/lib/elder-terms/libelder-terms.so.0 \
+	usr/lib/elder-terms/libcardio.so.0 \
+	usr/lib/elder-terms/libboxrig.so.0 \
+	usr/lib/elder-terms/libboxrig-ui.so.0 \
+	usr/lib/elder-terms/libboxrig-session.so.0 \
+	usr/lib/elder-terms/libboxrig-posix.so.0 \
+	usr/lib/elder-terms/libboxrig-gtk3.so.0 \
 	usr/lib/elder-terms/launcher/elder-terms \
 	usr/lib/elder-terms/launcher/main-window.ui \
-	usr/lib/elder-terms/elder-terms-vte/elder-terms-vte \
-	usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer \
-	usr/lib/elder-terms/elder-terms-vte/main-window.ui \
-	usr/lib/elder-terms/elder-terms-vte/green-on.png \
-	usr/lib/elder-terms/elder-terms-vte/green-off.png \
+	usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
+	usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer \
+	usr/lib/elder-terms/elder-terms-terminal/main-window.ui \
+	usr/lib/elder-terms/elder-terms-terminal/green-on.png \
+	usr/lib/elder-terms/elder-terms-terminal/green-off.png \
 	usr/share/applications/net.kekyo.elder-terms.desktop \
-	usr/share/applications/net.kekyo.elder-terms-vte.desktop \
+	usr/share/applications/net.kekyo.elder-terms-terminal.desktop \
 	etc/xdg/autostart/net.kekyo.elder-terms.desktop \
 	usr/share/icons/hicolor/256x256/apps/elder-terms.png \
 	usr/share/locale/ja/LC_MESSAGES/elder-terms.mo \
 	usr/share/doc/elder-terms/docs/ja/webdav.md \
 	usr/share/doc/elder-terms/docs/en/webdav.md \
 	usr/share/doc/elder-terms/docs/en/webdav-validation.md \
+	usr/share/doc/elder-terms/licenses/boxrig/LICENSE \
+	usr/share/doc/elder-terms/licenses/boxrig/README.md \
+	usr/share/doc/elder-terms/licenses/boxrig/README_ja.md \
+	usr/share/doc/elder-terms/licenses/boxrig/sources.json \
+	usr/share/doc/elder-terms/licenses/boxrig/utf8proc-LICENSE.md \
+	usr/share/doc/elder-terms/licenses/boxrig/libpng-LICENSE \
+	usr/share/doc/elder-terms/licenses/boxrig/zlib-LICENSE \
+	usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
+	usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
 	usr/share/doc/elder-terms/copyright; do
 	assert_file "$stage_dir/$staged_file"
 done
 assert_symlink "$stage_dir/usr/bin/elder-terms" \
 	'../lib/elder-terms/launcher/elder-terms'
-assert_symlink "$stage_dir/usr/bin/elder-terms-vte" \
-	'../lib/elder-terms/elder-terms-vte/elder-terms-vte'
+assert_symlink "$stage_dir/usr/bin/elder-terms-terminal" \
+	'../lib/elder-terms/elder-terms-terminal/elder-terms-terminal'
 assert_symlink "$stage_dir/usr/bin/elder-terms-file-transfer" \
-	'../lib/elder-terms/elder-terms-vte/elder-terms-file-transfer'
+	'../lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer'

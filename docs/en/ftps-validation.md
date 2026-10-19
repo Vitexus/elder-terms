@@ -8,7 +8,7 @@ Install the project's build and test dependencies and run all workspaces:
 
 ```sh
 npm ci
-ELDER_TERMS_VTE_TEST_FILE_PARALLELISM=true npm run test --workspace=elder-terms-shared --workspace=elder-terms --workspace=elder-terms-vte -- --fileParallelism --maxWorkers=4
+ELDER_TERMS_TERMINAL_TEST_FILE_PARALLELISM=true npm run test --workspace=elder-terms-shared --workspace=elder-terms --workspace=elder-terms-terminal -- --fileParallelism --maxWorkers=4
 ```
 
 Workspace builds (including `make build` and the build preceding tests) prepare
@@ -72,7 +72,7 @@ See the [Ubuntu FreeType package](https://packages.ubuntu.com/noble-updates/libf
 and the [Pango viewer options](https://manpages.ubuntu.com/manpages/noble/man1/pango-view.1.html).
 
 Do not overlap builds and tests in the same build directory. When invoking the workspace runners directly, finish `npm run build --workspaces` and the complete
-`meson test -C .build --num-processes 4` first. Run the shared UI, launcher, and VTE commands below
+`meson test -C .build --num-processes 4` first. Run the shared UI, launcher, and terminal commands below
 sequentially, so the timing-sensitive protocol tests have a separate execution
 period. Collect every exit status and wait for all suites before
 editing or rebuilding:
@@ -80,7 +80,7 @@ editing or rebuilding:
 ```sh
 npm exec --no --workspace=elder-terms-shared -- vitest run --fileParallelism --maxWorkers=4
 npm exec --no --workspace=elder-terms -- vitest run --fileParallelism --maxWorkers=4
-npm exec --no --workspace=elder-terms-vte -- vitest run --fileParallelism --maxWorkers=4
+npm exec --no --workspace=elder-terms-terminal -- vitest run --fileParallelism --maxWorkers=4
 ```
 
 These are the same complete workspace suites as the root test command, without
@@ -102,10 +102,7 @@ Certificate policy tests use real TLS handshakes over memory BIO pairs to check
 hostname matching and the scope of explicit exceptions. GUI tests cover actual
 file operations, certificate decisions, settings persistence, and launcher
 integration. Certificate confirmation and cancellation videos are checked against
-captured frames; `test-results/` contains the evidence. The terminal background
-fixture materializes its first row before clearing the screen, so VTE 0.70 and
-0.76 retain the same history position instead of relying on different empty-ring
-initial states. See the [VTE screen-clear implementation](https://github.com/GNOME/vte/blob/0.70.6/src/vteseq.cc#L248).
+captured frames; `test-results/` contains the evidence.
 
 ## Distribution builds
 
@@ -128,7 +125,7 @@ protocol deadlines under test or selecting a subset of tests. It is an existing
 [Meson test option](https://mesonbuild.com/Commands.html#test).
 Generate release packages through `build_package.sh`, which checks their files,
 architecture, dependencies, and installation. Record `dpkg --print-architecture`,
-`pkg-config --modversion libcurl openssl gtk+-3.0 vte-2.91`, the installed
+`pkg-config --modversion libcurl openssl gtk+-3.0 cairo ibus-1.0`, the installed
 file-transfer executable's ELF class and `ldd` output, and the package's `Depends`
 field. OpenSSL selected through pkg-config must match libcurl's TLS backend.
 
@@ -137,14 +134,14 @@ For the full installed-package UI checks, add the normal GUI test dependencies
 vsftpd to a disposable test image, then run all workspaces with:
 
 ```sh
-export ELDER_TERMS_TEST_FTP_APP=/usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer
-export ELDER_TERMS_VTE_TEST_MAX_CONCURRENCY=4
-export ELDER_TERMS_VTE_TEST_FILE_PARALLELISM=true
+export ELDER_TERMS_TEST_FTP_APP=/usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer
+export ELDER_TERMS_TERMINAL_TEST_MAX_CONCURRENCY=4
+export ELDER_TERMS_TERMINAL_TEST_FILE_PARALLELISM=true
 # As an ordinary user, run the three complete workspace commands above.
 # The privileged server check is below.
 ```
 
-Distribution validation limits concurrent VTE scenarios to four through the
+Distribution validation limits concurrent terminal scenarios to four through the
 existing test configuration. This preserves every protocol, start delay, payload
 size, and assertion while bounding the CPU load of multiple container runs.
 
@@ -164,7 +161,7 @@ the automation driver's architecture.
 
 ## Independent server and system trust
 
-`elder-terms-vte/tests/ftps-vsftpd-runner.mjs` is registered with Meson. It exits
+`elder-terms-terminal/tests/ftps-vsftpd-runner.mjs` is registered with Meson. It exits
 with the standard optional-test skip status unless `ELDER_TERMS_TEST_VSFTPD=1`.
 When enabled it requires container root and Podman's container marker. Use a
 disposable container without a host CA-store mount. Run the complete C++ suite
@@ -356,9 +353,9 @@ pre-FTPS baseline. The cause of this single failure remains undetermined.
 After both parallel environments finished, Debian 12's complete ordinary-user
 suite was rerun alone with the same source, package, assertions, timeouts,
 libraries, and visual settings. All tests passed, including the runtime-grid
-save case and all 381 VTE cases. Package SHA-256 was checked before and after
+save case and all 381 terminal cases. Package SHA-256 was checked before and after
 the rerun. The already successful native C++ and vsftpd records for that same
-package were retained; the complete build, C++, shared UI, launcher, and VTE
+package were retained; the complete build, C++, shared UI, launcher, and terminal
 stages ran again in the fresh ordinary-user environment. The initial failure
 logs are retained separately as `full-suite-before-grid-recheck`. This result
 does not establish a fix for the initial runtime-grid failure.
@@ -368,7 +365,7 @@ does not establish a fix for the initial runtime-grid failure.
 These results come from complete suites, without test-file or test-name filters.
 The optional host i386 package regression was enabled.
 
-| Environment | Shared UI | Launcher | VTE UI |
+| Environment | Shared UI | Launcher | terminal UI |
 | --- | --- | --- | --- |
 | Development host | 113 | 93 | 381 |
 | Installed package: bookworm-x86_64 | 113 | 92 + 1 optional skip | 381 |
@@ -400,7 +397,7 @@ images and explicitly enabled in both full installed-package environments above.
 
 Validation completed on 2026-09-12 (Asia/Tokyo). The development host and both
 installed environments passed their complete build, C++, shared UI, launcher,
-and VTE stages. Their ordinary-user C++ runs passed 124 tests and skipped only
+and terminal stages. Their ordinary-user C++ runs passed 124 tests and skipped only
 the optional privileged vsftpd runner. ARM and RISC-V matrix results were
 executed under QEMU system emulation; x86_64 and i686 results used native
 containers.

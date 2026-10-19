@@ -4,7 +4,6 @@ elder_terms_shared_gtk_dep = dependency('gtk+-3.0')
 elder_terms_shared_gdk_pixbuf_dep = dependency('gdk-pixbuf-2.0')
 elder_terms_shared_libudev_dep = dependency('libudev')
 elder_terms_shared_xkbcommon_dep = dependency('xkbcommon')
-elder_terms_shared_pcre2_dep = dependency('libpcre2-8')
 elder_terms_shared_include_dir = include_directories('include')
 elder_terms_symbol_map = meson.current_source_dir() / 'elder-terms.map'
 elder_terms_gnome = import('gnome')
@@ -80,7 +79,6 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/settings/ssh-proxy-settings.cpp',
   'src/settings/telnet-settings.cpp',
   'src/settings/terminal-settings.cpp',
-  'src/settings/terminal-type-settings.cpp',
   'src/settings/transfer-settings.cpp',
   'src/settings-widget/settings-presentation.cpp',
   'src/settings-widget/application-settings-widget.cpp',
@@ -93,6 +91,7 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
 elder_terms_library = shared_library(
   'elder-terms',
   elder_terms_shared_sources,
+  soversion: '0',
   include_directories: elder_terms_shared_include_dir,
   dependencies: [
     cardio_dep,
@@ -102,7 +101,7 @@ elder_terms_library = shared_library(
     elder_terms_shared_gdk_pixbuf_dep,
     elder_terms_shared_libudev_dep,
     elder_terms_shared_xkbcommon_dep,
-    elder_terms_shared_pcre2_dep,
+    boxrig_deps['boxrig'],
   ],
   gnu_symbol_visibility: 'inlineshidden',
   link_args: [
@@ -118,6 +117,7 @@ elder_terms_dep = declare_dependency(
   include_directories: elder_terms_shared_include_dir,
   link_with: elder_terms_library,
   dependencies: [
+    boxrig_deps['boxrig'],
     cardio_dep,
     elder_terms_shared_glib_dep,
     elder_terms_shared_gio_dep,
@@ -127,6 +127,9 @@ elder_terms_dep = declare_dependency(
 )
 
 if get_option('build_tests')
+shared_regex_test = executable('shared-regex-test', 'tests/regex-test.cpp', dependencies: elder_terms_dep)
+test('shared-regex-test', shared_regex_test)
+
 ssh_proxy_widget_test = executable(
   'ssh-proxy-widget-test', 'tests/ssh-proxy-widget-test.cpp',
   dependencies: elder_terms_dep,

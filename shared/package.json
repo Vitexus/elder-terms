@@ -1,6 +1,7 @@
 {
   "name": "elder-terms-shared",
   "version": "0.0.1",
+  "type": "module",
   "private": true,
   "scripts": {
     "prebuild": "node ../scripts/prepare-test-fonts.mts",

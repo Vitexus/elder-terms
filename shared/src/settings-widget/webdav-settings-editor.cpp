@@ -114,7 +114,8 @@ void sync_webdav_settings_editor(WebdavSettingsEditor *editor, bool preserve_inv
     const std::string unfinished_text = unfinished ? gtk_entry_get_text(GTK_ENTRY(field.entry)) : "";
     const auto key = webdav_setting_key(field.name);
     const auto effective = effective_text(*editor->store, field.name);
-    auto fallback = *editor->store;
+    SettingsStore fallback;
+    fallback = *editor->store;
     clear_explicit_setting_value(&fallback, key);
     const auto inherited = effective_text(fallback, field.name);
     const bool explicit_value = setting_has_explicit_value(*editor->store, key);
@@ -195,7 +196,8 @@ static void combo_changed(GtkComboBox *widget, gpointer data) {
     } else field.valid = set_explicit_setting_value(editor->store, key, choice);
     if (std::string_view(field.name) == "scheme") {
       for (const auto &port : editor->fields) if (std::string_view(port.name) == "port") {
-        auto fallback = *editor->store;
+        SettingsStore fallback;
+        fallback = *editor->store;
         clear_explicit_setting_value(&fallback, webdav_setting_key("port"));
         gtk_entry_set_placeholder_text(GTK_ENTRY(port.entry), inherited_setting_label(effective_text(fallback, "port"), setting_fallback_source(fallback, webdav_setting_key("port"))).c_str());
       }

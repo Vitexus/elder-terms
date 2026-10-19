@@ -1,0 +1,51 @@
+#include "../../src/terminal-hyperlink-action.h"
+
+#include <filesystem>
+#include <fstream>
+#include <stdexcept>
+#include <unistd.h>
+
+using namespace elder_terms;
+
+int main() {
+  HyperlinkActionRule rule{
+      .id = "file",
+      .recognition_source = HyperlinkRecognitionSource::osc8,
+      .pattern = R"(^file:(?<path>.+)$)",
+      .command = "literal-${path}",
+      .arguments = {"${path|uri-decode}", "$$${line}"},
+      .path_validation = HyperlinkPathValidation::existing_local_path,
+      .path_template = "${path|uri-decode}",
+  };
+  const auto directory = std::filesystem::temp_directory_path() /
+      ("elder-terms-link-" + std::to_string(getpid()));
+  std::filesystem::create_directories(directory);
+  std::ofstream(directory / "source file.cpp") << "test\n";
+  std::string path = directory.string() + "/source%20file.cpp";
+  const RegexCaptureLookup capture = [&](const std::string &name) -> std::optional<std::string> {
+    if (name == "path") return path;
+    if (name == "line") return "42";
+    return std::nullopt;
+  };
+  std::string reason;
+  const auto action = expand_terminal_hyperlink_action(rule, capture, &reason);
+  if (!action || action->command != "literal-${path}" || action->arguments !=
+      std::vector<std::string>{(directory / "source file.cpp").string(), "$42"})
+    throw std::runtime_error("only argument templates should expand; an existing absolute file is accepted");
+  path = directory.string();
+  if (!expand_terminal_hyperlink_action(rule, capture, &reason))
+    throw std::runtime_error("an existing directory should be accepted");
+  path = "relative.cpp";
+  if (expand_terminal_hyperlink_action(rule, capture, &reason) || reason.find("absolute") == std::string::npos)
+    throw std::runtime_error("a relative path must be rejected");
+  path = (directory / "missing").string();
+  if (expand_terminal_hyperlink_action(rule, capture, &reason) || reason.find("does not exist") == std::string::npos)
+    throw std::runtime_error("a missing path must be rejected");
+  path = directory.string() + "/%00.cpp";
+  if (expand_terminal_hyperlink_action(rule, capture, &reason))
+    throw std::runtime_error("a decoded NUL must be rejected");
+  path = directory.string() + "/%ZZ.cpp";
+  if (expand_terminal_hyperlink_action(rule, capture, &reason))
+    throw std::runtime_error("an invalid URI escape must be rejected");
+  std::filesystem::remove_all(directory);
+}

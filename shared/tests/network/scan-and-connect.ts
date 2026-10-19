@@ -97,7 +97,7 @@ await appendFile(
     'send=CONFIRMED SCANNED NAME\\r\\n\n'
 );
 const terminalLauncher = createGtkAppLauncher({
-  appPath: '/workspace/.build/elder-terms-vte/elder-terms-vte',
+  appPath: '/workspace/.build/elder-terms-terminal/elder-terms-terminal',
   env: environment,
 });
 let terminalApp: GtkApp | undefined;
@@ -139,7 +139,7 @@ try {
 
 // Reopen the saved file with a fresh process and verify another real session.
 const restartedLauncher = createGtkAppLauncher({
-  appPath: '/workspace/.build/elder-terms-vte/elder-terms-vte',
+  appPath: '/workspace/.build/elder-terms-terminal/elder-terms-terminal',
   env: environment,
 });
 try {

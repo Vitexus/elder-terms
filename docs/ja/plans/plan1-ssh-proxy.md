@@ -42,13 +42,13 @@ SSH proxyが有効なFTP／FTPS接続では、アクティブモードとの組�
 | [設定ストア](../../../shared/include/elder-terms/settings/settings-store.h) | 値の継承と、無効な入力を保持する仕組みがある。 | 無効なproxy設定が既定値へ置き換わって直接接続になることを防ぐ。 |
 | [設定UI](../../../shared/src/settings-widget/settings-widget.cpp) | 接続タイプごとにタブを表示する。SSHタブはSSHとSFTPで共有する。 | 対応する接続タイプにSSH proxyタブを表示する。 |
 | [端末接続プロファイル](../../../shared/include/elder-terms/settings.h) | 接続種別ごとの設定と端末設定を保持する。 | 共通の通信経路設定を端末の接続処理へ渡す。 |
-| [TCP接続処理](../../../elder-terms-vte/src/terminal-sessions/tcp-connector.cpp) | ローカルで名前解決し、非同期にTCPソケットを接続する。 | 直接接続の基盤として利用し、踏み台経由の経路選択を上位に設ける。 |
-| [SSHトランスポート](../../../elder-terms-vte/src/terminal-sessions/ssh-session/authenticated-ssh-transport.h)と[実装](../../../elder-terms-vte/src/terminal-sessions/ssh-session/ssh-channel-connection.cpp) | `AuthenticatedSshTransport` をSSHとSFTPが利用する。現状は宛先へ直接TCP接続し、そのFDをlibsshへ渡す。 | 踏み台への接続・認証を再利用し、最終接続先へ渡す通信経路を選べるようにする。 |
-| [Telnet接続処理](../../../elder-terms-vte/src/terminal-sessions/telnet-session/telnet-session.cpp) | 共通のTCP接続関数でソケットを取得する。 | 接続済みFDとその経路の寿命を受け取れるようにする。 |
-| [SSH端末からのSFTP起動](../../../elder-terms-vte/src/main.cpp) | 端末の認証済みSSHトランスポートを共有する。 | 最終接続先のSSH接続と、それを支えるトンネルを共有する。 |
-| [単独ファイル転送の起動](../../../elder-terms-vte/src/file-transfer/file-transfer-main.cpp) | SFTPとFTPの接続・再接続を管理する。 | 保存設定からSSH proxy経路を構築する。 |
-| [FTPのlibcurlセッション](../../../elder-terms-vte/src/ftp/curl-ftp-session.cpp) | `CURLOPT_PROXY` に空文字列を設定している。制御接続とデータ接続を扱う。 | パッシブ接続の両経路へ共通のproxy設定を適用する。 |
-| [WebDAVのlibcurlセッション](../../../elder-terms-vte/src/webdav/curl-http-session.cpp) | `CURLOPT_PROXY` に空文字列を設定している。 | 各HTTP接続へproxy設定を適用する。 |
+| [TCP接続処理](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-sessions/tcp-connector.cpp) | ローカルで名前解決し、非同期にTCPソケットを接続する。 | 直接接続の基盤として利用し、踏み台経由の経路選択を上位に設ける。 |
+| [SSHトランスポート](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-sessions/ssh-session/authenticated-ssh-transport.h)と[実装](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-sessions/ssh-session/ssh-channel-connection.cpp) | `AuthenticatedSshTransport` をSSHとSFTPが利用する。現状は宛先へ直接TCP接続し、そのFDをlibsshへ渡す。 | 踏み台への接続・認証を再利用し、最終接続先へ渡す通信経路を選べるようにする。 |
+| [Telnet接続処理](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/terminal-sessions/telnet-session/telnet-session.cpp) | 共通のTCP接続関数でソケットを取得する。 | 接続済みFDとその経路の寿命を受け取れるようにする。 |
+| [SSH端末からのSFTP起動](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/main.cpp) | 端末の認証済みSSHトランスポートを共有する。 | 最終接続先のSSH接続と、それを支えるトンネルを共有する。 |
+| [単独ファイル転送の起動](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/file-transfer/file-transfer-main.cpp) | SFTPとFTPの接続・再接続を管理する。 | 保存設定からSSH proxy経路を構築する。 |
+| [FTPのlibcurlセッション](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/ftp/curl-ftp-session.cpp) | `CURLOPT_PROXY` に空文字列を設定している。制御接続とデータ接続を扱う。 | パッシブ接続の両経路へ共通のproxy設定を適用する。 |
+| [WebDAVのlibcurlセッション](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/src/webdav/curl-http-session.cpp) | `CURLOPT_PROXY` に空文字列を設定している。 | 各HTTP接続へproxy設定を適用する。 |
 
 現在のSSH接続処理にはSSH設定ファイルを読む処理があるが、接続済みFDをアプリケーション側で用意している。
 そのため、SSH設定ファイルにproxy指定を追加するだけでは、この計画の複数プロトコル対応にはならない。
@@ -307,7 +307,7 @@ SFTP単独起動とSFTPの再接続にも同じ経路構築を適用する。
 ## テスト方針
 
 既存のC++テスト、Vitest、GTKのテスト基盤を利用する。
-主な参照先は [設定テスト](../../../shared/tests/settings-test.cpp)、[設定UIテスト](../../../shared/tests/settings-widget.test.ts)、[SSH接続テスト](../../../elder-terms-vte/tests/cpp/ssh-channel-connection-test.cpp)、[Telnetテスト](../../../elder-terms-vte/tests/telnet-session.test.ts)、[SFTP UIテスト](../../../elder-terms-vte/tests/sftp-window.test.ts)、[WebDAVテスト](../../../elder-terms-vte/tests/cpp/webdav-client-test.cpp)、[FTPテスト](../../../elder-terms-vte/tests/cpp/curl-ftp-client-test.cpp)とする。
+主な参照先は [設定テスト](../../../shared/tests/settings-test.cpp)、[設定UIテスト](../../../shared/tests/settings-widget.test.ts)、[SSH接続テスト](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/tests/cpp/ssh-channel-connection-test.cpp)、[Telnetテスト](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/tests/telnet-session.test.ts)、[SFTP UIテスト](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/tests/sftp-window.test.ts)、[WebDAVテスト](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/tests/cpp/webdav-client-test.cpp)、[FTPテスト](https://github.com/kekyo/elder-terms/blob/9e71944da6d9a5f4f6b5f0a2d02ce7ccda7e17f8/elder-terms-vte/tests/cpp/curl-ftp-client-test.cpp)とする。
 
 テストでは、設定ファイルやソースに特定の文字列が存在することではなく、公開された設定操作と実際の通信結果を検証する。
 踏み台と最終接続先を別のテストサーバーとして用意し、接続要求・認証対象・受信データを確認する。

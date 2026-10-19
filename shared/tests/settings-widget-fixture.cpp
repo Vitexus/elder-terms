@@ -135,9 +135,9 @@ static FixtureOptions parse_options(int argc, char **argv) {
       append_connection_assignment(
           &options, "terminal", "scrollback_lines",
           option_value(argument, "--scrollback-lines="));
-    } else if (starts_with(argument, "--zoom=")) {
+    } else if (starts_with(argument, "--font-size-dip=")) {
       append_connection_assignment(
-          &options, "terminal", "zoom", option_value(argument, "--zoom="));
+          &options, "terminal", "font_size_dip", option_value(argument, "--font-size-dip="));
     } else if (starts_with(argument, "--auto-close=")) {
       append_connection_assignment(
           &options, "general", "auto_close",
@@ -386,7 +386,7 @@ static elder_terms::SettingsStore create_default_store() {
               .width = 80,
               .height = 24,
               .scrollback_lines = 10000,
-              .zoom = 1.0,
+              .font_size_dip = 12.0,
           },
           "fixture");
   return store;
@@ -398,7 +398,7 @@ create_global_store(const std::vector<ConfigAssignment> &assignments) {
       std::filesystem::temp_directory_path() /
       "elder-terms-settings-widget-fixture-missing-global.ini";
   elder_terms::SettingsStore store =
-      elder_terms::load_global_settings(missing_path, 1.0).store;
+      elder_terms::load_global_settings(missing_path, 12.0).store;
   load_assignments(&store, assignments, false);
   return store;
 }
@@ -805,7 +805,7 @@ static void print_store(const char *prefix,
             << " webdav_certificate_action=" << (elder_terms::webdav_connection_settings(store).prompt_certificate ? "prompt" : "reject")
             << " width=" << display.width << " height=" << display.height
             << " scrollback_lines=" << display.scrollback_lines
-            << " zoom=" << display.zoom
+            << " font_size_dip=" << display.font_size_dip
             << " encoding=" << text_settings.encoding
             << " backspace_code="
             << elder_terms::terminal_backspace_code_to_string(
@@ -920,8 +920,8 @@ static void print_store(const char *prefix,
   print_setting_metadata(
       store, "scrollback_lines",
       elder_terms::terminal_scrollback_lines_setting_key());
-  print_setting_metadata(store, "zoom",
-                         elder_terms::terminal_zoom_setting_key());
+  print_setting_metadata(store, "font_size_dip",
+                         elder_terms::terminal_font_size_dip_setting_key());
   print_setting_metadata(
       store, "font_families",
       elder_terms::terminal_font_families_setting_key());
@@ -1129,7 +1129,7 @@ int main(int argc, char **argv) {
                    .global_config_path =
                        std::filesystem::path(path).parent_path() /
                        "unused-global.ini"},
-                  1.0);
+                  12.0);
               if (!reloaded.loaded) {
                 return false;
               }

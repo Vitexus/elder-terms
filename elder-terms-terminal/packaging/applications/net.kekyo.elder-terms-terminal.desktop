@@ -1,0 +1,19 @@
+[Desktop Entry]
+Version=1.5
+Type=Application
+Name=elder-terms terminal
+Comment=Run an elder-terms terminal session
+TryExec=elder-terms-terminal
+Exec=elder-terms-terminal
+Icon=elder-terms
+Terminal=false
+NoDisplay=true
+Categories=System;TerminalEmulator;
+StartupNotify=true
+StartupWMClass=Elder-terms-terminal
+Actions=new-window;
+
+[Desktop Action new-window]
+# Keep the action name in English across locales to match application settings.
+Name=New Window
+Exec=elder-terms-terminal --new-window
