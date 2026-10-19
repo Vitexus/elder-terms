@@ -175,14 +175,16 @@ static void choose_image(GtkButton *, gpointer data) {
 }
 
 TerminalBackgroundEditor *create_terminal_background_editor(SettingsStore *store, std::string prefix,
-    std::function<void()> changed) {
+    GtkSizeGroup *labels, std::function<void()> changed) {
   auto *editor = new TerminalBackgroundEditor{store, std::move(prefix), std::move(changed),
       gtk_grid_new(), gtk_combo_box_text_new(), create_modal_color_button(), gtk_label_new(nullptr)};
   gtk_grid_set_row_spacing(GTK_GRID(editor->root), 8);
-  gtk_grid_set_column_spacing(GTK_GRID(editor->root), 12);
+  gtk_grid_set_column_spacing(GTK_GRID(editor->root), 16);
   const auto row = [&](const SettingKey &key, GtkWidget *widget, int index) {
     auto *label = gtk_label_new(setting_label(key).c_str());
     gtk_label_set_xalign(GTK_LABEL(label), 0);
+    gtk_widget_set_halign(label, GTK_ALIGN_START);
+    gtk_size_group_add_widget(labels, label);
     gtk_label_set_mnemonic_widget(GTK_LABEL(label), widget);
     gtk_widget_set_hexpand(widget, TRUE);
     gtk_grid_attach(GTK_GRID(editor->root), label, 0, index, 1, 1);
@@ -201,6 +203,7 @@ TerminalBackgroundEditor *create_terminal_background_editor(SettingsStore *store
     editor->changed();
   }), editor);
   int index = 1;
+  auto &image_opacity = editor->fields.back();
   for (auto &field : editor->fields) {
     field.entry = gtk_entry_new();
     identify(field.entry, editor->prefix + "_terminal_" + field.name + "_entry");
@@ -211,7 +214,7 @@ TerminalBackgroundEditor *create_terminal_background_editor(SettingsStore *store
       gtk_box_pack_start(GTK_BOX(control), field.entry, TRUE, TRUE, 0);
       gtk_box_pack_start(GTK_BOX(control), editor->color, FALSE, FALSE, 0);
     }
-    row(make_setting_key("terminal", field.name), control, index++);
+    if (&field != &image_opacity) row(make_setting_key("terminal", field.name), control, index++);
   }
   identify(editor->color, editor->prefix + "_terminal_background_tint_color_button");
   g_signal_connect(editor->color, "color-set", G_CALLBACK(+[](GtkColorButton *button, gpointer data) {
@@ -258,6 +261,7 @@ TerminalBackgroundEditor *create_terminal_background_editor(SettingsStore *store
     sync_terminal_background_editor(editor, true);
     editor->changed();
   }), editor);
+  row(terminal_background_image_opacity_setting_key(), image_opacity.entry, index++);
   editor->image_fit = gtk_combo_box_text_new();
   identify(editor->image_fit, editor->prefix + "_terminal_background_image_fit_combo");
   row(terminal_background_image_fit_setting_key(), editor->image_fit, index++);

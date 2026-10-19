@@ -1924,6 +1924,78 @@ describe.concurrent('shared settings widget', () => {
     }
   });
 
+  for (const mode of ['launcher', 'runtime']) {
+    it(`aligns all terminal appearance controls in ${mode} settings`, async (context) => {
+      await runSharedGtkTest(
+        context,
+        [
+          '--page=terminal',
+          mode === 'runtime' ? '--runtime' : '--hide-actions',
+        ],
+        async ({ app, directory }) => {
+          const reference = (
+            await (await app.getById('settings_terminal_width_entry')).capture()
+          ).bounds.x;
+          for (const suffix of [
+            'cursor_shape_combo',
+            'cursor_blink_combo',
+            'background_mode_combo',
+            'background_opacity_entry',
+            'background_tint_color_entry',
+            'background_tint_opacity_entry',
+            'background_image_entry',
+            'background_image_opacity_entry',
+            'background_image_fit_combo',
+            'color_filter_combo',
+          ]) {
+            const id = `settings_terminal_${suffix}`;
+            await scrollTerminalFieldIntoView(app, id);
+            expect(
+              (await (await app.getById(id)).capture()).bounds.x,
+              suffix
+            ).toBe(reference);
+          }
+          await writeFile(
+            join(directory, 'terminal-appearance-layout.png'),
+            (await app.capture()).image
+          );
+        }
+      );
+    });
+  }
+
+  it('places image opacity below the background image controls and before image placement', async (context) => {
+    await runSharedGtkTest(context, ['--page=terminal'], async ({ app }) => {
+      await scrollTerminalFieldIntoView(
+        app,
+        'settings_terminal_background_image_entry'
+      );
+      const path = (
+        await (
+          await app.getById('settings_terminal_background_image_entry')
+        ).capture()
+      ).bounds;
+      const browse = (
+        await (
+          await app.getById('settings_terminal_background_image_browse')
+        ).capture()
+      ).bounds;
+      const opacity = (
+        await (
+          await app.getById('settings_terminal_background_image_opacity_entry')
+        ).capture()
+      ).bounds;
+      const fit = (
+        await (
+          await app.getById('settings_terminal_background_image_fit_combo')
+        ).capture()
+      ).bounds;
+      expect(browse.y).toBeGreaterThan(path.y + path.height);
+      expect(opacity.y).toBeGreaterThan(browse.y + browse.height);
+      expect(fit.y).toBeGreaterThan(opacity.y + opacity.height);
+    });
+  });
+
   it('aligns the font label with the top and places every candidate in the page', async (context) => {
     await runSharedGtkTest(context, ['--page=terminal'], async ({ app }) => {
       await showTerminalPage(app);

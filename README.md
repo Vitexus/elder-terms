@@ -652,8 +652,9 @@ They can inherit connection defaults or be overridden for each connection.
 "Cancel" discards edits made since the last Apply. Previously applied changes remain active.
 If image loading or saving fails, the error is shown and the previously applied appearance is retained.
 
-The right side of the settings footer shows the active renderer and display connection, such as
+The left side of the settings footer shows the active renderer and display connection, such as
 `OpenGL / X11` or `Cairo / Wayland`. It also reflects a fallback from OpenGL to Cairo.
+Action buttons remain on the right.
 Scrollbars use colors that remain distinguishable from their background.
 
 Choose "Full box", "Vertical box", or "Underline box" for the cursor.

@@ -291,7 +291,7 @@ process.stdout.write('\\x1b]12;#ffffff\\x07\\x1b[48;2;0;0;0m\\x1b[2J\\x1b[H\\x1b
     });
   }
 
-  it('shows the active renderer at the right of the settings footer', async (context) => {
+  it('keeps the active renderer at the left and actions at the right of the settings footer', async (context) => {
     await withTemporaryDirectory(async (directory) => {
       const config = join(directory, 'renderer.ini');
       await writeFile(config, '[terminal]\n');
@@ -323,25 +323,37 @@ process.stdout.write('\\x1b]12;#ffffff\\x07\\x1b[48;2;0;0;0m\\x1b[2J\\x1b[H\\x1b
               native.includes('backend=opengl') ? 'OpenGL' : 'Cairo'
             )
           ).toBe(true);
-          await expectElementKind(
-            await app.getById('settings_dialog'),
-            'window'
-          ).resizeTo(560, 430);
-          const cancel = await (
-            await app.getById('settings_cancel_button')
-          ).capture();
-          const status = await label.capture();
-          expect(status.bounds.x).toBeGreaterThanOrEqual(
-            cancel.bounds.x + cancel.bounds.width
-          );
-          expect(
-            Math.abs(
-              status.bounds.y +
-                status.bounds.height / 2 -
-                cancel.bounds.y -
-                cancel.bounds.height / 2
-            )
-          ).toBeLessThan(2);
+          for (const width of [560, 900]) {
+            await expectElementKind(
+              await app.getById('settings_dialog'),
+              'window'
+            ).resizeTo(width, 430);
+            await waitForResult(async () => {
+              const panel = (
+                await (await app.getById('settings_action_row')).capture()
+              ).bounds;
+              const status = (await label.capture()).bounds;
+              const apply = (
+                await (await app.getById('settings_apply_button')).capture()
+              ).bounds;
+              const save = (
+                await (await app.getById('settings_save_button')).capture()
+              ).bounds;
+              const cancel = (
+                await (await app.getById('settings_cancel_button')).capture()
+              ).bounds;
+              expect(status.x - panel.x).toBe(12);
+              expect(status.x + status.width).toBeLessThanOrEqual(apply.x);
+              expect(apply.x + apply.width).toBeLessThan(save.x);
+              expect(save.x + save.width).toBeLessThan(cancel.x);
+              expect(panel.x + panel.width - cancel.x - cancel.width).toBe(12);
+              expect(
+                Math.abs(
+                  status.y + status.height / 2 - cancel.y - cancel.height / 2
+                )
+              ).toBeLessThan(2);
+            });
+          }
           await evidence.captureEvidence('renderer-footer', async () =>
             app.capture()
           );

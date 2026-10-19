@@ -7,10 +7,12 @@
 namespace elder_terms {
 /** Background controls owned by the parent settings editor. */
 struct TerminalBackgroundEditor;
-/** @param store Stable draft. @param prefix Accessible ID prefix. @param changed Draft/validation notification.
+/** @param store Stable draft. @param prefix Accessible ID prefix.
+ * @param labels Horizontal size group shared with the terminal page; retained by its labels.
+ * @param changed Draft/validation notification.
  * @returns Owned editor, released before its parent state. */
 TerminalBackgroundEditor *create_terminal_background_editor(SettingsStore *store, std::string prefix,
-    std::function<void()> changed);
+    GtkSizeGroup *labels, std::function<void()> changed);
 /** @param editor Live editor. @returns Widget owned by its GTK parent. */
 GtkWidget *terminal_background_editor_root(TerminalBackgroundEditor *editor);
 /** @param editor Live editor or null. @param preserve_invalid Retain unfinished input on rebase. */

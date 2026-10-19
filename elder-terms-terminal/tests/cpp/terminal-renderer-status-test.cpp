@@ -54,7 +54,7 @@ int main(int argc, char **argv) {
     assert((label != nullptr) == runtime);
     if (label) {
       assert(std::string(gtk_label_get_text(GTK_LABEL(label))) == fallback.text);
-      assert(gtk_label_get_xalign(GTK_LABEL(label)) == 1);
+      assert(gtk_label_get_xalign(GTK_LABEL(label)) == 0);
       assert(gtk_label_get_ellipsize(GTK_LABEL(label)) == PANGO_ELLIPSIZE_END);
     }
     assert(!settings_widget_is_dirty(state) && changed == before);

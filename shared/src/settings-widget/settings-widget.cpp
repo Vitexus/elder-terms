@@ -5294,8 +5294,9 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
     g_signal_connect(combo, "changed", G_CALLBACK(on_terminal_cursor_changed), state);
   attach_row(page, 16, terminal_cursor_shape_setting_key(), state->terminal_cursor_shape_combo);
   attach_row(page, 17, terminal_cursor_blink_setting_key(), state->terminal_cursor_blink_combo);
+  auto *labels = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
   state->terminal_background_editor = create_terminal_background_editor(&state->draft_store, state->id_prefix,
-      [state] { notify_changed(state); });
+      labels, [state] { notify_changed(state); });
   gtk_grid_attach(GTK_GRID(page), terminal_background_editor_root(state->terminal_background_editor), 0, 18, 2, 1);
   state->terminal_color_filter_combo = create_combo_box(widget_id(state, "terminal_color_filter_combo").c_str());
   gtk_widget_set_tooltip_text(state->terminal_color_filter_combo,
@@ -5310,6 +5311,11 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
     notify_changed(state);
   }), state);
   attach_row(page, 19, terminal_color_filter_setting_key(), state->terminal_color_filter_combo);
+  for (int row = 0; row <= 19; row++) {
+    auto *label = gtk_grid_get_child_at(GTK_GRID(page), 0, row);
+    if (GTK_IS_LABEL(label)) gtk_size_group_add_widget(labels, label);
+  }
+  g_object_unref(labels);
 
   return scroller;
 }
@@ -6191,15 +6197,15 @@ static GtkWidget *create_button_box(SettingsWidgetState *state) {
                    G_CALLBACK(on_cancel_clicked), state);
   gtk_container_add(GTK_CONTAINER(button_box), state->cancel_button);
 
-  gtk_box_pack_start(
+  gtk_box_pack_end(
       GTK_BOX(panel), button_box, !state->is_runtime, !state->is_runtime, 0);
   if (state->is_runtime) {
     state->runtime_status = gtk_label_new("");
     assign_accessible_id(state->runtime_status, widget_id(state, "runtime_status").c_str());
-    gtk_label_set_xalign(GTK_LABEL(state->runtime_status), 1);
+    gtk_label_set_xalign(GTK_LABEL(state->runtime_status), 0);
     gtk_label_set_ellipsize(GTK_LABEL(state->runtime_status), PANGO_ELLIPSIZE_END);
     gtk_label_set_max_width_chars(GTK_LABEL(state->runtime_status), 28);
-    gtk_widget_set_margin_end(state->runtime_status, 12);
+    gtk_widget_set_margin_start(state->runtime_status, 12);
     gtk_widget_set_no_show_all(state->runtime_status, TRUE);
     gtk_box_pack_start(GTK_BOX(panel), state->runtime_status, TRUE, TRUE, 0);
   }
