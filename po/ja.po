@@ -2596,8 +2596,8 @@ msgstr "色補正"
 msgid "No correction"
 msgstr "補正しない"
 
-msgid "Blue visibility (Oklch)"
-msgstr "青の視認性を改善 (Oklch)"
+msgid "Improve visibility (Oklch)"
+msgstr "視認性を改善 (Oklch)"
 
-msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
-msgstr "青い文字の色相を保ちながらコントラストを改善します。背景画像は補正しません。"
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "灰色を含むすべての文字色のコントラスト不足を補正します。色相を保ち、背景は変更しません。"

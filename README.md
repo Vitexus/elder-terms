@@ -683,12 +683,12 @@ The settings panel reports the actual state. Unavailable blur falls back to tran
 "Frosted glass requested" means the request was accepted; compositor effect settings still determine whether the blur appears.
 See [boxrig's background effects](https://github.com/kekyo/boxrig/blob/9d4b25a/docs/en/background.md) for platform requirements.
 
-## Improving Blue Text Visibility
+## Improving Text Color Visibility
 
-Select "Blue visibility (Oklch)" under "Color filter" on the "Terminal" tab to improve contrast for blue text and markers that are difficult to distinguish from their background.
+Select "Improve visibility (Oklch)" under "Color filter" on the "Terminal" tab to improve contrast for text and markers that are difficult to distinguish from their background. All hues, including red, green, and blue, and neutral gray, black, and white are included.
 Oklch represents color using separate lightness, chroma, and hue components. This correction preserves hue and primarily adjusts lightness.
-Blues with sufficient contrast and text outside the blue range retain their colors. The default is "No correction".
-Background images, communication, copied text, and logs remain unchanged.
+Colors with a contrast ratio of at least 4.5:1 against the background are retained; only colors below that threshold are adjusted. Chroma is reduced when necessary to fit the displayable color range, and neutral colors remain neutral. The default is "No correction".
+Background colors, background images, communication, copied text, and logs remain unchanged.
 Correction uses the cell's background color as its reference; it does not adapt to individual pixels in a background image or transparent desktop.
 
 ```ini
@@ -702,7 +702,7 @@ background_tint_opacity=20
 background_image=/home/user/Pictures/terminal.png
 background_image_opacity=70
 background_image_fit=cover
-color_filter=oklch-blue
+color_filter=oklch
 ```
 
 ## Configuring Font Families

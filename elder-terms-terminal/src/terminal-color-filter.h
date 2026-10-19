@@ -15,13 +15,14 @@ Oklch srgb_to_oklch(RgbColor color);
  * @param color Oklch color; lightness is clamped, nonfinite input yields black.
  * @returns Eight-bit sRGB color. */
 RgbColor oklch_to_srgb(Oklch color);
-/** @param foreground Original sRGB foreground. @param background Reference background.
- * @returns Hue-preserving blue correction, or the unchanged foreground. */
-RgbColor improve_blue_visibility(RgbColor foreground, RgbColor background);
+/** Adjusts Oklch lightness to reach 4.5:1 contrast, reducing chroma only to fit sRGB.
+ * @param foreground Original sRGB foreground. @param background Reference background.
+ * @returns Hue-preserving contrast correction for all hues and neutrals, or the unchanged foreground. */
+RgbColor improve_color_visibility(RgbColor foreground, RgbColor background);
 /** Stable application-owned color hook context. */
 struct TerminalColorFilterContext {
   std::optional<RgbColor> background; /**< Connection override for the default background. */
-  bool blue_visibility = false;      /**< Enable Oklch correction after default-color resolution. */
+  bool visibility_correction = false; /**< Enable Oklch correction after default-color resolution. */
 };
 /** Pure boxrig display-color callback; never changes the terminal or its underlay.
  * @param input Original resolved colors and already-filtered underlay.

@@ -73,38 +73,38 @@ RgbColor oklch_to_srgb(Oklch color) {
   return encode(gamut_map(std::clamp(color.lightness, 0.0, 1.0), std::clamp(color.chroma, 0.0, 1.0), std::cos(angle), std::sin(angle)));
 }
 
-static double smoothstep(double value) {
-  value = std::clamp(value, 0.0, 1.0);
-  return value * value * (3 - 2 * value);
-}
-
-RgbColor improve_blue_visibility(RgbColor foreground, RgbColor background) {
-  // Neutral text dominates ordinary shell output and never needs blue correction.
-  if (foreground.red == foreground.green && foreground.green == foreground.blue) return foreground;
+RgbColor improve_color_visibility(RgbColor foreground, RgbColor background) {
   const auto bg = luminance(linear_rgb(background));
   const auto original_contrast = contrast(luminance(linear_rgb(foreground)), bg);
   if (original_contrast >= 4.5) return foreground;
-  const auto color = srgb_to_oklch(foreground);
-  const double weight = smoothstep((color.hue - 230) / 20) * (1 - smoothstep((color.hue - 285) / 20)) *
-      smoothstep((color.chroma - .015) / .025);
-  if (weight == 0) return foreground;
+  auto color = srgb_to_oklch(foreground);
+  // Exact neutrals must remain neutral despite matrix roundoff.
+  if (foreground.red == foreground.green && foreground.green == foreground.blue) color.chroma = 0;
   const double cosine = std::cos(color.hue * std::numbers::pi / 180), sine = std::sin(color.hue * std::numbers::pi / 180);
-  const double direction = contrast(1, bg) >= contrast(0, bg) ? 1 : -1;
-  const double endpoint = std::clamp(color.lightness + direction * .42 * weight, 0.0, 1.0);
-  auto best = gamut_map(endpoint, color.chroma, cosine, sine);
-  if (contrast(luminance(best), bg) >= 4.6) {
-    // Search linear-light colors; encode once after convergence. The margin above
-    // 4.5 keeps eight-bit rounding from retriggering correction of these samples.
+  const auto toward = [&](double endpoint) {
+    const double direction = endpoint > color.lightness ? 1 : -1;
+    const auto limit = gamut_map(endpoint, color.chroma, cosine, sine);
+    auto best = limit;
+    // Keep rounding headroom where possible. Near mid-gray, neither endpoint
+    // may reach 4.6, so reduce the margin without dropping the 4.5 requirement.
+    const double target = std::min(4.6, 4.5 + (contrast(luminance(limit), bg) - 4.5) / 2);
     double low = 0, high = std::abs(endpoint - color.lightness);
     for (int iteration = 0; iteration < 16; iteration++) {
       const double distance = (low + high) / 2;
       const auto candidate = gamut_map(color.lightness + direction * distance, color.chroma, cosine, sine);
-      if (contrast(luminance(candidate), bg) >= 4.6) { high = distance; best = candidate; }
+      if (contrast(luminance(candidate), bg) >= target) { high = distance; best = candidate; }
       else low = distance;
     }
-  }
-  const auto corrected = encode(best);
-  return contrast(luminance(linear_rgb(corrected)), bg) > original_contrast ? corrected : foreground;
+    const auto corrected = encode(best);
+    return contrast(luminance(linear_rgb(corrected)), bg) >= 4.5 ? corrected : encode(limit);
+  };
+  if (contrast(0, bg) < 4.5) return toward(1);
+  if (contrast(1, bg) < 4.5) return toward(0);
+  // If both directions work, retain the closest perceptual lightness instead
+  // of turning dark text nearly white just because white has more contrast.
+  const auto darker = toward(0), lighter = toward(1);
+  return std::abs(srgb_to_oklch(darker).lightness - color.lightness) <=
+      std::abs(srgb_to_oklch(lighter).lightness - color.lightness) ? darker : lighter;
 }
 
 boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filter_input *input, void *data) {
@@ -124,9 +124,9 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
     result.underline = replace_default(result.underline, input->underline_source.role);
     result.marker = replace_default(result.marker, input->marker_source.role);
   }
-  if (!context.blue_visibility) return result;
+  if (!context.visibility_correction) return result;
   const auto correct = [](boxrig_rgb foreground, boxrig_rgb background) {
-    const auto color = improve_blue_visibility({foreground.red, foreground.green, foreground.blue},
+    const auto color = improve_color_visibility({foreground.red, foreground.green, foreground.blue},
         {background.red, background.green, background.blue});
     return boxrig_rgb{color.red, color.green, color.blue};
   };

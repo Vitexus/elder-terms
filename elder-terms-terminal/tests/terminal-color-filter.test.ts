@@ -14,6 +14,13 @@ const samples = [
   ['00ffff', 'CYAN'],
   ['808080', 'GRAY'],
   ['ff0000', 'RED'],
+  ['800000', 'DARK RED'],
+  ['008000', 'GREEN'],
+  ['808000', 'OLIVE'],
+  ['800080', 'MAGENTA'],
+  ['505050', 'DARK GRAY'],
+  ['000000', 'BLACK'],
+  ['ffffff', 'WHITE'],
 ] as const;
 const corrected: Record<string, string[]> = {
   '000000': [
@@ -24,6 +31,13 @@ const corrected: Record<string, string[]> = {
     '00ffff',
     '808080',
     'ff0000',
+    'c64f41',
+    '168913',
+    '808000',
+    'b748b5',
+    '767676',
+    '767676',
+    'ffffff',
   ],
   '202020': [
     '4e82fb',
@@ -31,23 +45,37 @@ const corrected: Record<string, string[]> = {
     '5080ff',
     '996cff',
     '00ffff',
-    '808080',
-    'ff0000',
+    '888888',
+    'ff3c2d',
+    'db6354',
+    '329c2d',
+    '8c8d1c',
+    'cc5cc9',
+    '888888',
+    '888888',
+    'ffffff',
   ],
   ffffff: [
     '000080',
     '0000ff',
     '3f6dea',
     '8000ff',
-    '00ffff',
-    '808080',
-    'ff0000',
+    '008383',
+    '757575',
+    'ec0000',
+    '800000',
+    '008000',
+    '797900',
+    '800080',
+    '505050',
+    '000000',
+    '757575',
   ],
 };
 
 for (const backend of ['cairo', 'opengl'])
   for (const background of Object.keys(corrected)) {
-    it(`corrects native blue colors through Settings and preserves connection defaults (${backend}, ${background})`, async (context) => {
+    it(`corrects all native colors through Settings and preserves connection defaults (${backend}, ${background})`, async (context) => {
       await withTemporaryDirectory(async (directory) => {
         const config = join(directory, 'filter.ini');
         const peer = join(directory, 'colors.mjs');
@@ -142,6 +170,10 @@ for (const backend of ['cairo', 'opengl'])
               await app.input.setMouseButton('left', true);
               await app.input.setMouseButton('left', false);
               const item = (await combo.childAt(index))!;
+              if (index === 2)
+                expect((await item.info()).name).toBe(
+                  'Improve visibility (Oklch)'
+                );
               await waitForResult(async () =>
                 expect((await item.info()).states).toContain('showing')
               );
@@ -199,9 +231,7 @@ for (const backend of ['cairo', 'opengl'])
           },
           { env }
         );
-        expect(await readFile(config, 'utf8')).toContain(
-          'color_filter=oklch-blue'
-        );
+        expect(await readFile(config, 'utf8')).toContain('color_filter=oklch');
         expect(await readFile(logPath, 'utf8')).toBe(receivedOutput);
         await runGtkTest(
           context,

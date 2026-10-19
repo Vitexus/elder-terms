@@ -2522,8 +2522,8 @@ msgstr "颜色校正"
 msgid "No correction"
 msgstr "不校正"
 
-msgid "Blue visibility (Oklch)"
-msgstr "蓝色可见性 (Oklch)"
+msgid "Improve visibility (Oklch)"
+msgstr "提高可见性 (Oklch)"
 
-msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
-msgstr "在保持色相的同时提高蓝色文字的对比度。背景图像保持不变。"
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "改善包括灰色在内的所有颜色文字的低对比度。保持色相，不改变背景。"

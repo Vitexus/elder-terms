@@ -2552,8 +2552,8 @@ msgstr "Цветовой фильтр"
 msgid "No correction"
 msgstr "Без коррекции"
 
-msgid "Blue visibility (Oklch)"
-msgstr "Видимость синего (Oklch)"
+msgid "Improve visibility (Oklch)"
+msgstr "Улучшение видимости (Oklch)"
 
-msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
-msgstr "Улучшает контраст синего текста, сохраняя оттенок. Фоновые изображения не изменяются."
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "Улучшает текст с низким контрастом всех цветов, включая серый. Сохраняет оттенок и не изменяет фон."

@@ -27,7 +27,7 @@ for (const backend of ['cairo', 'opengl']) {
       );
       await writeFile(
         config,
-        `[terminal]\ncursor_shape=bar\ncursor_blink=false\ncolor_filter=oklch-blue\nbackground_mode=blur\nbackground_opacity=0\n[local]\ncommand_line=${process.execPath} ${peer}\n`
+        `[terminal]\ncursor_shape=bar\ncursor_blink=false\ncolor_filter=oklch\nbackground_mode=blur\nbackground_opacity=0\n[local]\ncommand_line=${process.execPath} ${peer}\n`
       );
       await writeFile(
         join(directory, 'kwinrc'),

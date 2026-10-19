@@ -93,7 +93,7 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   set_setting_value(&store, terminal_background_image_setting_key(), std::string("/missing-cached-image.png"));
   set_setting_value(&store, terminal_background_image_opacity_setting_key(), gint64{50});
   set_setting_value(&store, terminal_background_image_fit_setting_key(), std::string("contain"));
-  set_setting_value(&store, terminal_color_filter_setting_key(), std::string("oklch-blue"));
+  set_setting_value(&store, terminal_color_filter_setting_key(), std::string("oklch"));
   const auto image = std::make_shared<TerminalBackgroundImage>(TerminalBackgroundImage{
       "/missing-cached-image.png", 2, 1, {255, 0, 0, 128, 0, 255, 0, 255}});
   const std::pair<const char *, boxrig_ui_cursor_shape_policy> shapes[] = {

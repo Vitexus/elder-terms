@@ -194,7 +194,7 @@ static constexpr std::array setting_choices{
     SettingChoiceEntry{"terminal", "cursor_key_mode", "normal", N_("Normal")},
     SettingChoiceEntry{"terminal", "cursor_shape", "block", N_("Full box")},
     SettingChoiceEntry{"terminal", "color_filter", "none", N_("No correction")},
-    SettingChoiceEntry{"terminal", "color_filter", "oklch-blue", N_("Blue visibility (Oklch)")},
+    SettingChoiceEntry{"terminal", "color_filter", "oklch", N_("Improve visibility (Oklch)")},
     SettingChoiceEntry{"terminal", "background_mode", "opaque", N_("Opaque")},
     SettingChoiceEntry{"terminal", "background_mode", "transparent", N_("Transparent")},
     SettingChoiceEntry{"terminal", "background_mode", "blur", N_("Frosted glass")},

@@ -2530,8 +2530,8 @@ msgstr "색상 보정"
 msgid "No correction"
 msgstr "보정 안 함"
 
-msgid "Blue visibility (Oklch)"
-msgstr "파란색 가시성 (Oklch)"
+msgid "Improve visibility (Oklch)"
+msgstr "가시성 개선 (Oklch)"
 
-msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
-msgstr "파란색 글자의 색조를 유지하면서 대비를 개선합니다. 배경 이미지는 변경하지 않습니다."
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "회색을 포함한 모든 글자색의 낮은 대비를 개선합니다. 색조를 유지하고 배경은 변경하지 않습니다."

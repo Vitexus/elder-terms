@@ -210,8 +210,8 @@ static bool validate_terminal_cursor_shape(const SettingValue &value, std::strin
 
 static bool validate_color_filter(const SettingValue &value, std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
-  if (text && (*text == "none" || *text == "oklch-blue")) return true;
-  *reason = "must be none or oklch-blue";
+  if (text && (*text == "none" || *text == "oklch")) return true;
+  *reason = "must be none or oklch";
   return false;
 }
 
@@ -311,8 +311,8 @@ SettingKey terminal_cursor_shape_setting_key() { return terminal_key("cursor_sha
 SettingKey terminal_cursor_blink_setting_key() { return terminal_key("cursor_blink"); }
 SettingKey terminal_color_filter_setting_key() { return terminal_key("color_filter"); }
 TerminalColorFilter terminal_color_filter(const SettingsStore &store) {
-  return setting_string_value_or_default(store, terminal_color_filter_setting_key(), "none") == "oklch-blue"
-      ? TerminalColorFilter::oklch_blue : TerminalColorFilter::none;
+  return setting_string_value_or_default(store, terminal_color_filter_setting_key(), "none") == "oklch"
+      ? TerminalColorFilter::oklch : TerminalColorFilter::none;
 }
 
 TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store) {

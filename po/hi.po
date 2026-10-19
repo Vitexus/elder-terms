@@ -2529,8 +2529,8 @@ msgstr "रंग फ़िल्टर"
 msgid "No correction"
 msgstr "कोई सुधार नहीं"
 
-msgid "Blue visibility (Oklch)"
-msgstr "नीले रंग की दृश्यता (Oklch)"
+msgid "Improve visibility (Oklch)"
+msgstr "दृश्यता सुधारें (Oklch)"
 
-msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
-msgstr "नीले पाठ की रंगत बनाए रखते हुए उसका कंट्रास्ट सुधारता है। पृष्ठभूमि की छवियाँ नहीं बदलतीं।"
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "धूसर सहित सभी रंगों के कम कंट्रास्ट वाले पाठ को सुधारता है। रंगत बनाए रखता है और पृष्ठभूमि नहीं बदलता।"

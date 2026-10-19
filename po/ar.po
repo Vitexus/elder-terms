@@ -2548,8 +2548,8 @@ msgstr "مرشح الألوان"
 msgid "No correction"
 msgstr "دون تصحيح"
 
-msgid "Blue visibility (Oklch)"
-msgstr "وضوح اللون الأزرق (Oklch)"
+msgid "Improve visibility (Oklch)"
+msgstr "تحسين الوضوح (Oklch)"
 
-msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
-msgstr "يحسن تباين النص الأزرق مع الحفاظ على درجته. لا تتغير صور الخلفية."
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "يحسن النص منخفض التباين بجميع الألوان، بما فيها الرمادي. يحافظ على درجة اللون ولا يغير الخلفيات."

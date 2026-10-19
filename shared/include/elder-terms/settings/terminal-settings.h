@@ -14,8 +14,8 @@ namespace elder_terms {
 
 /** Display-only correction; terminal bytes and logical colors are preserved. */
 enum class TerminalColorFilter {
-  none,       /**< Preserve the terminal colors after connection defaults. */
-  oklch_blue, /**< Improve low-contrast blue text and markers in Oklch. */
+  none,  /**< Preserve the terminal colors after connection defaults. */
+  oklch, /**< Improve low-contrast text and markers of any hue, including neutrals, in Oklch. */
 };
 /** @returns Key for the selected display-color correction. */
 ELDER_TERMS_API SettingKey terminal_color_filter_setting_key();

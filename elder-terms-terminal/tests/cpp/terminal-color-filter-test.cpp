@@ -38,22 +38,36 @@ int main() {
     assert(equal(color, oklch_to_srgb(perceptual)));
   }
   assert(equal(oklch_to_srgb({std::numeric_limits<double>::quiet_NaN(), 1, 270}), {0, 0, 0}));
-  for (const RgbColor background : {RgbColor{0, 0, 0}, RgbColor{32, 32, 32}, RgbColor{255, 255, 255}}) {
-    for (const RgbColor color : {RgbColor{0, 0, 128}, RgbColor{0, 0, 255}, RgbColor{80, 128, 255}, RgbColor{128, 0, 255}}) {
-      const auto adjusted = improve_blue_visibility(color, background);
+  for (const RgbColor background : {RgbColor{0, 0, 0}, RgbColor{32, 32, 32}, RgbColor{117, 117, 117},
+      RgbColor{255, 255, 255}, RgbColor{64, 16, 80}, RgbColor{190, 210, 170}}) {
+    for (const RgbColor color : {RgbColor{0, 0, 128}, RgbColor{0, 0, 255}, RgbColor{80, 128, 255}, RgbColor{128, 0, 255},
+        RgbColor{255, 0, 0}, RgbColor{128, 0, 0}, RgbColor{0, 128, 0}, RgbColor{0, 255, 255},
+        RgbColor{128, 128, 0}, RgbColor{128, 0, 128}, RgbColor{80, 80, 80}, RgbColor{128, 128, 128},
+        RgbColor{0, 0, 0}, RgbColor{255, 255, 255}}) {
+      const auto adjusted = improve_color_visibility(color, background);
       const auto before = srgb_to_oklch(color), after = srgb_to_oklch(adjusted);
       const auto delta = std::abs(before.hue - after.hue);
-      assert(std::min(delta, 360 - delta) < 3);
+      if (before.chroma > .02 && after.chroma > .02) assert(std::min(delta, 360 - delta) < 3);
+      assert(after.chroma <= before.chroma + .003);
+      if (color.red == color.green && color.green == color.blue)
+        assert(adjusted.red == adjusted.green && adjusted.green == adjusted.blue);
       assert(contrast(adjusted, background) >= contrast(color, background) - 1e-8);
-      if (color.red == 0 && background.red < 40) assert(contrast(adjusted, background) >= 4.5);
+      assert(contrast(adjusted, background) >= 4.5);
+      if (contrast({0, 0, 0}, background) >= 4.5 && contrast({255, 255, 255}, background) >= 4.5)
+        assert(std::abs(after.lightness - before.lightness) <= std::min(before.lightness, 1 - before.lightness) + 1e-6);
       if (contrast(color, background) >= 4.5) assert(equal(adjusted, color));
-      for (int frame = 0; frame < 100; frame++) assert(equal(adjusted, improve_blue_visibility(color, background)));
+      assert(equal(adjusted, improve_color_visibility(adjusted, background)));
+      for (int frame = 0; frame < 100; frame++) assert(equal(adjusted, improve_color_visibility(color, background)));
       std::printf("bg=%02x%02x%02x #%02x%02x%02x -> #%02x%02x%02x contrast=%.3f->%.3f hue_delta=%.3f\n",
           background.red, background.green, background.blue, color.red, color.green, color.blue,
           adjusted.red, adjusted.green, adjusted.blue, contrast(color, background), contrast(adjusted, background), delta);
     }
-    for (const RgbColor color : {RgbColor{255, 0, 0}, RgbColor{0, 128, 0}, RgbColor{0, 255, 255}, RgbColor{80, 80, 80}})
-      assert(equal(color, improve_blue_visibility(color, background)));
+    for (int r = 0; r <= 255; r += 17) for (int g = 0; g <= 255; g += 17) for (int b = 0; b <= 255; b += 17) {
+      const RgbColor color{static_cast<guint8>(r), static_cast<guint8>(g), static_cast<guint8>(b)};
+      const auto adjusted = improve_color_visibility(color, background);
+      assert(contrast(adjusted, background) >= 4.5);
+      if (contrast(color, background) >= 4.5) assert(equal(adjusted, color));
+    }
   }
   TerminalColorFilterContext context{RgbColor{255, 255, 255}, false};
   boxrig_ui_color_filter_input input{};
@@ -68,7 +82,7 @@ int main() {
   assert(equal(rgb(result.foreground), {255, 255, 255}) && equal(rgb(result.background), {0, 0, 0}));
   context = {std::nullopt, true};
   input = {};
-  input.colors = {{0, 0, 128}, {0, 0, 0}, {0, 0, 255}, {0, 0, 128}, false};
+  input.colors = {{128, 0, 0}, {0, 0, 0}, {0, 96, 0}, {80, 80, 80}, false};
   input.foreground_source.role = input.underline_source.role = input.marker_source.role = BOXRIG_UI_COLOR_RGB;
   for (const auto target : {BOXRIG_UI_COLOR_CELL, BOXRIG_UI_COLOR_IME}) {
     input.target = target;
@@ -92,7 +106,7 @@ int main() {
   }
   input.target = BOXRIG_UI_COLOR_SURFACE;
   assert(equal(rgb(filter_terminal_colors(&input, &context).background), {0, 0, 0}));
-  context.blue_visibility = false;
+  context.visibility_correction = false;
   assert(equal(rgb(filter_terminal_colors(&input, &context).foreground), rgb(input.colors.foreground)));
 
   auto config = boxrig_terminal_config_default();

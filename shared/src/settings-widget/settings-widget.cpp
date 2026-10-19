@@ -3356,7 +3356,7 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
     const auto key = terminal_color_filter_setting_key();
     const auto fallback = std::get<std::string>(setting_fallback_value(state->draft_store, key, std::string("none")));
     std::vector<ComboOption> options;
-    for (const auto *filter : {"none", "oklch-blue"}) options.push_back({filter, setting_choice_label(key, filter)});
+    for (const auto *filter : {"none", "oklch"}) options.push_back({filter, setting_choice_label(key, filter)});
     populate_inheritable_combo(state->terminal_color_filter_combo, state->draft_store, key,
         setting_choice_label(key, fallback), options, setting_string_value_or_default(state->draft_store, key, "none"));
   }
@@ -5300,7 +5300,7 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
   gtk_grid_attach(GTK_GRID(page), terminal_background_editor_root(state->terminal_background_editor), 0, 18, 2, 1);
   state->terminal_color_filter_combo = create_combo_box(widget_id(state, "terminal_color_filter_combo").c_str());
   gtk_widget_set_tooltip_text(state->terminal_color_filter_combo,
-      _("Improve blue text contrast while preserving its hue. Background images are unchanged."));
+      _("Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."));
   g_signal_connect(state->terminal_color_filter_combo, "changed", G_CALLBACK(+[](GtkComboBox *, gpointer data) {
     auto *state = static_cast<SettingsWidgetState *>(data);
     if (state->synchronizing) return;

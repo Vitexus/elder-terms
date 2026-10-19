@@ -861,12 +861,12 @@ static void test_terminal_color_filter_settings() {
   write_config(global, ""); write_config(path, "");
   auto loaded = load_settings(options, 1.0);
   expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "none", "color correction should default to off");
-  write_config(global, "[terminal]\ncolor_filter=oklch-blue\n");
+  write_config(global, "[terminal]\ncolor_filter=oklch\n");
   loaded = load_settings(options, 1.0);
-  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "oklch-blue" &&
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "oklch" &&
       setting_value_source(loaded.store, key) == SettingValueSource::global, "color correction should inherit");
   expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "inherited filter should stay inherited");
-  for (const auto *value : {"none", "oklch-blue"}) {
+  for (const auto *value : {"none", "oklch"}) {
     expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}) &&
         save_settings(loaded.store, path).saved, "selected correction should save");
     loaded = load_settings(options, 1.0);
