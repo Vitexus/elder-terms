@@ -644,6 +644,66 @@ Zooming preserves the row and column counts reported to the connection. Resizing
 font_size_dip=14.5
 ```
 
+## Configuring the Cursor and Background
+
+Cursor, background, and color correction options are near the bottom of the "Terminal" tab.
+They can inherit connection defaults or be overridden for each connection.
+"Apply" changes the current terminal; "Save" also keeps the settings for its next start.
+"Cancel" discards edits made since the last Apply. Previously applied changes remain active.
+If image loading or saving fails, the error is shown and the previously applied appearance is retained.
+
+The right side of the settings footer shows the active renderer and display connection, such as
+`OpenGL / X11` or `Cairo / Wayland`. It also reflects a fallback from OpenGL to Cairo.
+Scrollbars use colors that remain distinguishable from their background.
+
+Choose "Full box", "Vertical box", or "Underline box" for the cursor.
+The cursor is filled while the terminal has input focus and outlined in the same shape when focus leaves.
+The vertical width and underline height are based on 4 DIP, with a 1 DIP outline, scaled with the display.
+Blinking is a separate option. An unfocused outline stays steady.
+Remote cursor hiding and composition handling remain effective.
+
+Background modes are "Opaque", "Transparent", and "Frosted glass".
+Lower "Background opacity (%)" to reveal more of the background image or desktop.
+"Background tint" and "Tint opacity (%)" add a color over the image and desktop.
+Opacity ranges from 0 to 100%; a 0% tint adds no visible color. Text itself stays opaque.
+
+Choose a local PNG or JPEG file, or enter its absolute path.
+Image placement can preserve the aspect ratio while covering the viewport, contain the whole image, or stretch both axes.
+The image stays fixed within the terminal viewport while text scrolls.
+Image opacity and transparent PNG pixels let the image combine with desktop transparency.
+Images also work in opaque mode; lower the background opacity if the image is difficult to see.
+"Clear image" explicitly selects no image for this connection. "Inherit" follows connection defaults.
+The file is neither moved nor embedded, so keep it available at the same path for future starts.
+Both the file and decoded RGBA pixels are limited to 64 MiB, with a maximum of 16384 pixels per edge.
+
+Desktop transparency requires a compositor that combines the windows on your desktop.
+Frosted glass requests a compositor effect that blurs the desktop behind the terminal; text and background images remain sharp.
+The settings panel reports the actual state. Unavailable blur falls back to transparency, and unavailable transparency falls back to an opaque background.
+"Frosted glass requested" means the request was accepted; compositor effect settings still determine whether the blur appears.
+See [boxrig's background effects](https://github.com/kekyo/boxrig/blob/9d4b25a/docs/en/background.md) for platform requirements.
+
+## Improving Blue Text Visibility
+
+Select "Blue visibility (Oklch)" under "Color filter" on the "Terminal" tab to improve contrast for blue text and markers that are difficult to distinguish from their background.
+Oklch represents color using separate lightness, chroma, and hue components. This correction preserves hue and primarily adjusts lightness.
+Blues with sufficient contrast and text outside the blue range retain their colors. The default is "No correction".
+Background images, communication, copied text, and logs remain unchanged.
+Correction uses the cell's background color as its reference; it does not adapt to individual pixels in a background image or transparent desktop.
+
+```ini
+[terminal]
+cursor_shape=bar
+cursor_blink=false
+background_mode=blur
+background_opacity=40
+background_tint_color=#203040
+background_tint_opacity=20
+background_image=/home/user/Pictures/terminal.png
+background_image_opacity=70
+background_image_fit=cover
+color_filter=oklch-blue
+```
+
 ## Configuring Font Families
 
 Scroll down on the "Terminal" tab to edit an ordered list of font families.
