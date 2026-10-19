@@ -743,6 +743,16 @@ static bool attach_widget(TerminalRuntime *runtime) {
   auto *previous_widget = runtime->widget;
   auto *previous_scroll = runtime->scroll;
   auto widget_config = boxrig_gtk3_terminal_widget_config_default();
+  boxrig_font_specification font{};
+  boxrig_font_effective_metrics metrics{};
+  if (previous_widget &&
+      boxrig_gtk3_terminal_widget_get_font_specification(previous_widget, &font) == BOXRIG_UI_OK &&
+      boxrig_gtk3_terminal_widget_get_effective_metrics(previous_widget, &metrics) == BOXRIG_FONT_CATALOG_OK) {
+    // The model still has the old view's metrics. Resolve the same font during
+    // creation, before the replacement joins the model and claims layout.
+    font.size_dip = metrics.requested_size_dip;
+    widget_config.initial_font = &font;
+  }
   widget_config.render_policy = BOXRIG_GTK_RENDER_OPENGL_PREFERRED;
   widget_config.ime_policy = BOXRIG_GTK_IME_AUTO;
   widget_config.accessibility_enabled = previous_widget &&
@@ -761,13 +771,6 @@ static bool attach_widget(TerminalRuntime *runtime) {
   g_object_ref_sink(scroll);
   if (previous_widget) {
     if (runtime->links) terminal_links_attach_view(runtime->links.get(), nullptr);
-    boxrig_font_specification font{};
-    boxrig_font_effective_metrics metrics{};
-    if (boxrig_gtk3_terminal_widget_get_font_specification(previous_widget, &font) == BOXRIG_UI_OK &&
-        boxrig_gtk3_terminal_widget_get_effective_metrics(previous_widget, &metrics) == BOXRIG_FONT_CATALOG_OK) {
-      font.size_dip = metrics.requested_size_dip;
-      ui_result(boxrig_gtk3_terminal_widget_set_font_specification(widget, &font), "restore font");
-    }
     g_signal_handlers_disconnect_by_data(previous_widget, runtime);
     gtk_widget_destroy(GTK_WIDGET(previous_widget));
     g_object_unref(previous_widget);
