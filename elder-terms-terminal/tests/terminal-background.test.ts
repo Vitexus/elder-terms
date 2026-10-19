@@ -22,6 +22,8 @@ const backdropPath = fileURLToPath(
 );
 
 for (const backend of ['cairo', 'opengl']) {
+  // Composition, repeated settings edits, and a compositor-free restart can
+  // exceed the global one-minute budget when using software rendering.
   it(`composites only the terminal background over the desktop (${backend})`, async (context) => {
     await withTemporaryDirectory(async (directory) => {
       const config = join(directory, 'background.ini');
@@ -375,5 +377,5 @@ process.stdout.write('\\x1b[?25l\\x1b[48;2;0;0;0m\\x1b[38;2;255;255;255m\\x1b[2J
         }
       );
     });
-  });
+  }, 180_000);
 }
