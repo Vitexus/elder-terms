@@ -26,6 +26,10 @@ for (const backend of ['cairo', 'opengl']) {
     await withTemporaryDirectory(async (directory) => {
       const config = join(directory, 'background.ini');
       const peer = join(directory, 'peer.mjs');
+      const backgroundImage = join(directory, 'green.png');
+      const image = new PNG({ width: 1, height: 1 });
+      image.data.set([0, 255, 0, 128]);
+      await writeFile(backgroundImage, PNG.sync.write(image));
       await writeFile(
         peer,
         `process.stdin.setRawMode(true); process.stdin.resume();
@@ -178,6 +182,7 @@ process.stdout.write('\\x1b[?25l\\x1b[48;2;0;0;0m\\x1b[38;2;255;255;255m\\x1b[2J
               await app.input.pressKey('Home');
               for (let i = 0; i < index; i++) await app.input.pressKey('Down');
               await app.input.pressKey('Return');
+              await waitForResult(async () => expect(await expectElementKind(await app.getById('settings_terminal_background_mode_combo'), 'comboBox').isChildSelected(index)).toBe(true));
             };
             for (const step of [
               { opacity: '0', tint: '0', rgb: [224, 48, 32] },
@@ -269,6 +274,37 @@ process.stdout.write('\\x1b[?25l\\x1b[48;2;0;0;0m\\x1b[38;2;255;255;255m\\x1b[2J
             expect(await readFile(config, 'utf8')).toContain(
               'background_tint_color=#0000ff'
             );
+            await openSettings();
+            await setEntry('tint_opacity', '0');
+            await setEntry('image', backgroundImage);
+            await setEntry('image_opacity', '50');
+            await expectElementKind(
+              await app.getById('settings_apply_button'),
+              'button'
+            ).click();
+            await expectBackground([168, 100, 24]);
+            await evidence.captureEvidence(
+              'transparent-image-alpha',
+              async () => app.capture()
+            );
+            await openSettings();
+            await setEntry('tint_opacity', '50');
+            await expectElementKind(
+              await app.getById('settings_apply_button'),
+              'button'
+            ).click();
+            await expectBackground([84, 50, 140]);
+            await openSettings();
+            await expectElementKind(
+              await app.getById('settings_terminal_background_image_clear'),
+              'button'
+            ).click();
+            await setEntry('tint_opacity', '100');
+            await expectElementKind(
+              await app.getById('settings_save_button'),
+              'button'
+            ).click();
+            await expectBackground([0, 0, 255]);
           } finally {
             for (const child of processes.reverse()) child.kill('SIGTERM');
             await Promise.all(finished);

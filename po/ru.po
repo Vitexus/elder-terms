@@ -2476,3 +2476,57 @@ msgstr "Прозрачный фон"
 
 msgid "Opaque background: desktop transparency is unavailable"
 msgstr "Непрозрачный фон: прозрачность рабочего стола недоступна"
+
+msgid "Background image"
+msgstr "Фоновое изображение"
+
+msgid "Image opacity (%)"
+msgstr "Непрозрачность изображения (%)"
+
+msgid "Image placement"
+msgstr "Размещение изображения"
+
+msgid "Cover"
+msgstr "Заполнить"
+
+msgid "Contain"
+msgstr "Вписать"
+
+msgid "Stretch"
+msgstr "Растянуть"
+
+msgid "No image"
+msgstr "Без изображения"
+
+msgid "Clear image"
+msgstr "Убрать изображение"
+
+msgid "Inherit"
+msgstr "Наследовать"
+
+msgid "Select a background image"
+msgstr "Выберите фоновое изображение"
+
+msgid "PNG and JPEG images"
+msgstr "Изображения PNG и JPEG"
+
+msgid "Enter an absolute local image path"
+msgstr "Введите абсолютный путь к локальному изображению"
+
+msgid "Cannot decode the background image"
+msgstr "Не удалось декодировать фоновое изображение"
+
+msgid "Not enough memory for the background image"
+msgstr "Недостаточно памяти для фонового изображения"
+
+msgid "Background image exceeds the 64 MiB limit"
+msgstr "Фоновое изображение превышает предел 64 МиБ"
+
+msgid "Background image exceeds 16384 pixels or 64 MiB"
+msgstr "Фоновое изображение превышает 16384 пикселя или 64 МиБ"
+
+msgid "Select a PNG or JPEG background image"
+msgstr "Выберите фоновое изображение PNG или JPEG"
+
+msgid "Select a regular local image file"
+msgstr "Выберите обычный локальный файл изображения"

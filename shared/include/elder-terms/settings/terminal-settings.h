@@ -35,6 +35,27 @@ ELDER_TERMS_API SettingKey terminal_background_tint_opacity_setting_key();
 /** @param store Layered settings. @returns Requested background preferences. */
 ELDER_TERMS_API TerminalBackgroundSettings terminal_background_settings(const SettingsStore &store);
 
+/** Centered background-image placement. */
+enum class TerminalBackgroundImageFit {
+  cover,   /**< Fill the viewport, cropping while preserving aspect ratio. */
+  contain, /**< Fit the whole image, preserving aspect ratio and leaving margins. */
+  stretch, /**< Scale both axes independently to fill the viewport. */
+};
+/** Background image preferences, independent of desktop transparency. */
+struct TerminalBackgroundImageSettings {
+  std::string path;                 /**< Absolute UTF-8 filename; empty explicitly disables the image. */
+  int opacity;                      /**< Image opacity from zero through one hundred. */
+  TerminalBackgroundImageFit fit;   /**< Centered placement in the terminal viewport. */
+};
+/** @returns Key for the absolute image path or explicit empty override. */
+ELDER_TERMS_API SettingKey terminal_background_image_setting_key();
+/** @returns Key for image opacity. */
+ELDER_TERMS_API SettingKey terminal_background_image_opacity_setting_key();
+/** @returns Key for image placement. */
+ELDER_TERMS_API SettingKey terminal_background_image_fit_setting_key();
+/** @param store Layered settings. @returns Effective image preferences. */
+ELDER_TERMS_API TerminalBackgroundImageSettings terminal_background_image_settings(const SettingsStore &store);
+
 /** User-selected cursor geometry, independent of the terminal's DECSCUSR state. */
 enum class TerminalCursorShape {
   block,     /**< Full-cell box. */

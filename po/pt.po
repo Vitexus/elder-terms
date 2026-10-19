@@ -2470,3 +2470,57 @@ msgstr "Fundo transparente"
 
 msgid "Opaque background: desktop transparency is unavailable"
 msgstr "Fundo opaco: a transparência do ambiente de trabalho não está disponível"
+
+msgid "Background image"
+msgstr "Imagem de fundo"
+
+msgid "Image opacity (%)"
+msgstr "Opacidade da imagem (%)"
+
+msgid "Image placement"
+msgstr "Posicionamento da imagem"
+
+msgid "Cover"
+msgstr "Cobrir"
+
+msgid "Contain"
+msgstr "Conter"
+
+msgid "Stretch"
+msgstr "Esticar"
+
+msgid "No image"
+msgstr "Sem imagem"
+
+msgid "Clear image"
+msgstr "Remover imagem"
+
+msgid "Inherit"
+msgstr "Herdar"
+
+msgid "Select a background image"
+msgstr "Selecionar imagem de fundo"
+
+msgid "PNG and JPEG images"
+msgstr "Imagens PNG e JPEG"
+
+msgid "Enter an absolute local image path"
+msgstr "Introduza um caminho local absoluto para a imagem"
+
+msgid "Cannot decode the background image"
+msgstr "Não foi possível descodificar a imagem de fundo"
+
+msgid "Not enough memory for the background image"
+msgstr "Memória insuficiente para a imagem de fundo"
+
+msgid "Background image exceeds the 64 MiB limit"
+msgstr "A imagem de fundo excede o limite de 64 MiB"
+
+msgid "Background image exceeds 16384 pixels or 64 MiB"
+msgstr "A imagem de fundo excede 16384 píxeis ou 64 MiB"
+
+msgid "Select a PNG or JPEG background image"
+msgstr "Selecione uma imagem de fundo PNG ou JPEG"
+
+msgid "Select a regular local image file"
+msgstr "Selecione um ficheiro de imagem local normal"

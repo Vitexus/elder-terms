@@ -96,6 +96,7 @@ elder_terms_sources = [
   'src/main.cpp',
   'src/main-window.cpp',
   'src/terminal-background.cpp',
+  'src/terminal-background-image.cpp',
   'src/sftp/sftp-client.cpp',
   'src/sftp/sftp-fixture-client.cpp',
   'src/file-transfer/file-hash.cpp',
@@ -149,6 +150,16 @@ test('terminal-renderer-status-test', find_program('xvfb-run'),
   env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
 
 executable('appearance-backdrop', 'tests/cpp/appearance-backdrop.cpp', dependencies: [gtk_dep])
+
+background_image_test = executable('terminal-background-image-test',
+  ['tests/cpp/terminal-background-image-test.cpp', 'src/terminal-background-image.cpp'], dependencies: [gtk_dep])
+test('terminal-background-image-test', background_image_test, env: ['G_DEBUG=fatal-criticals'])
+
+background_state_test = executable('terminal-background-state-test',
+  ['tests/cpp/terminal-background-state-test.cpp', 'src/terminal-background.cpp', 'src/terminal-background-image.cpp'],
+  dependencies: [boxrig_runtime_dep])
+test('terminal-background-state-test', find_program('xvfb-run'), args: ['-a', background_state_test],
+  env: ['GDK_GL=disable', 'NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
 
 terminal_dispatch_test = executable('terminal-dispatch-test',
   'tests/cpp/terminal-dispatch-test.cpp',

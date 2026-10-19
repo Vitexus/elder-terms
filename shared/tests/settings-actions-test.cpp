@@ -48,6 +48,16 @@ int main(int argc, char **argv) {
   gtk_button_clicked(GTK_BUTTON(find(root, "settings_cancel_button")));
   assert(terminal_background_settings(settings_widget_draft_store(state)).opacity == 80);
   auto *shape = find(root, "settings_terminal_cursor_shape_combo");
+  auto *image_path = find(root, "settings_terminal_background_image_entry");
+  gtk_entry_set_text(GTK_ENTRY(image_path), "relative.png");
+  assert(!gtk_widget_get_sensitive(find(root, "settings_apply_button")));
+  gtk_entry_set_text(GTK_ENTRY(image_path), "/tmp/image.png");
+  assert(gtk_widget_get_sensitive(find(root, "settings_apply_button")));
+  gtk_button_clicked(GTK_BUTTON(find(root, "settings_terminal_background_image_clear")));
+  assert(setting_has_explicit_value(settings_widget_draft_store(state), terminal_background_image_setting_key()));
+  assert(terminal_background_image_settings(settings_widget_draft_store(state)).path.empty());
+  gtk_button_clicked(GTK_BUTTON(find(root, "settings_terminal_background_image_inherit")));
+  assert(!setting_has_explicit_value(settings_widget_draft_store(state), terminal_background_image_setting_key()));
   gtk_combo_box_set_active_id(GTK_COMBO_BOX(shape), "bar");
   gtk_button_clicked(GTK_BUTTON(find(root, "settings_apply_button")));
   assert(settings_widget_is_dirty(state));
@@ -83,7 +93,22 @@ int main(int argc, char **argv) {
   assert(terminal_cursor_settings(settings_widget_draft_store(state)).shape == TerminalCursorShape::underline);
   gtk_combo_box_set_active_id(GTK_COMBO_BOX(shape), "bar");
   gtk_button_clicked(GTK_BUTTON(find(root, "settings_apply_button")));
+  gtk_button_clicked(GTK_BUTTON(find(root, "settings_terminal_background_image_browse")));
+  auto *toplevels = gtk_window_list_toplevels();
+  GtkWidget *chooser = nullptr;
+  for (auto *item = toplevels; item; item = item->next) {
+    auto *candidate = GTK_WIDGET(item->data);
+    if (std::strcmp(gtk_widget_get_name(candidate), "settings_terminal_background_image_dialog") == 0) chooser = candidate;
+  }
+  g_list_free(toplevels);
+  assert(chooser && gtk_widget_get_visible(chooser) && GTK_IS_FILE_CHOOSER(chooser));
+  assert(gtk_file_chooser_get_local_only(GTK_FILE_CHOOSER(chooser)));
+  bool chooser_destroyed = false;
+  g_signal_connect(chooser, "destroy", G_CALLBACK(+[](GtkWidget *, gpointer data) {
+    *static_cast<bool *>(data) = true;
+  }), &chooser_destroyed);
   gtk_widget_destroy(window);
+  assert(chooser_destroyed);
   assert(!pending.current());
   pending.complete(true, {});
   std::cout << "PASS failed, pending, accepted, edited, cancelled and destroyed settings actions\n";

@@ -9,6 +9,7 @@ elder-terms/src/tray-backend.cpp
 elder-terms-terminal/src/main.cpp
 elder-terms-terminal/src/terminal-renderer-status.cpp
 elder-terms-terminal/src/terminal-background.cpp
+elder-terms-terminal/src/terminal-background-image.cpp
 shared/src/settings-widget/terminal-background-editor.cpp
 elder-terms-terminal/src/main-window.ui
 elder-terms-terminal/src/main-window.cpp

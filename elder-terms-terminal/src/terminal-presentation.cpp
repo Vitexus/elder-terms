@@ -168,12 +168,25 @@ boxrig_input_mouse_route route_terminal_presentation_mouse(
   return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
 }
 
-bool apply_terminal_presentation(TerminalPresentation *presentation, const SettingsStore &settings) {
+TerminalBackgroundImagePtr terminal_presentation_background_image(const TerminalPresentation *presentation) {
+  return terminal_background_image(presentation->background);
+}
+
+void prepare_terminal_presentation_background(TerminalPresentation *presentation, const SettingsStore &settings,
+    std::function<bool()> current, std::function<void(TerminalBackgroundImagePtr, std::string)> complete) {
+  prepare_terminal_background_image(presentation->background, settings, std::move(current), std::move(complete));
+}
+
+void cancel_terminal_presentation_background(TerminalPresentation *presentation) {
+  if (presentation) cancel_terminal_background_image(presentation->background);
+}
+
+bool apply_terminal_presentation(TerminalPresentation *presentation, const SettingsStore &settings, TerminalBackgroundImagePtr image) {
   auto *window = presentation->window;
   auto *widget = terminal_runtime_widget(window->runtime);
   const auto display = terminal_display_settings(settings);
   if (!apply_cursor(presentation, terminal_cursor_settings(settings))) return false;
-  if (!apply_terminal_background(presentation->background, settings)) return false;
+  if (!apply_terminal_background(presentation->background, settings, std::move(image))) return false;
   const auto accessibility_status = boxrig_gtk3_terminal_widget_set_accessibility_enabled(
       widget, terminal_accessibility_enabled(settings));
   if (accessibility_status != BOXRIG_UI_OK) {

@@ -745,6 +745,7 @@ static void application_terminal_changed(void *context) {
 
 static void on_settings_dialog_destroy(GtkWidget *, gpointer user_data) {
   auto *state = static_cast<ApplicationState *>(user_data);
+  elder_terms::cancel_terminal_presentation_background(state->presentation);
   if (state->settings_dialog_close_idle_id != 0) {
     g_source_remove(state->settings_dialog_close_idle_id);
     state->settings_dialog_close_idle_id = 0;
@@ -797,9 +798,10 @@ static void schedule_settings_dialog_close(ApplicationState *state) {
 }
 
 static bool apply_runtime_settings(ApplicationState *state,
-                                   const elder_terms::SettingsStore &store) {
-  if (!elder_terms::apply_terminal_presentation(state->presentation, store)) {
-    if (!elder_terms::apply_terminal_presentation(state->presentation, state->settings_store))
+    const elder_terms::SettingsStore &store, elder_terms::TerminalBackgroundImagePtr image) {
+  const auto previous_image = elder_terms::terminal_presentation_background_image(state->presentation);
+  if (!elder_terms::apply_terminal_presentation(state->presentation, store, std::move(image))) {
+    if (!elder_terms::apply_terminal_presentation(state->presentation, state->settings_store, previous_image))
       std::cerr << "Failed to restore terminal presentation\n";
     return false;
   }
@@ -872,13 +874,14 @@ static bool apply_runtime_settings(ApplicationState *state,
 }
 
 static bool save_runtime_settings(
-  ApplicationState *state, const elder_terms::SettingsStore &store) {
+  ApplicationState *state, const elder_terms::SettingsStore &store, elder_terms::TerminalBackgroundImagePtr image) {
   if (!state->config_path.has_value()) {
     return false;
   }
 
   const auto previous = state->settings_store;
-  if (!apply_runtime_settings(state, store)) return false;
+  const auto previous_image = elder_terms::terminal_presentation_background_image(state->presentation);
+  if (!apply_runtime_settings(state, store, std::move(image))) return false;
 
   const elder_terms::SettingsSaveResult save_result =
       elder_terms::save_settings(store, state->config_path.value());
@@ -886,12 +889,25 @@ static bool save_runtime_settings(
     std::cerr << warning << '\n';
   }
   if (!save_result.saved) {
-    if (!apply_runtime_settings(state, previous))
+    if (!apply_runtime_settings(state, previous, previous_image))
       std::cerr << "Failed to restore settings after save failure\n";
     return false;
   }
 
   return true;
+}
+
+static void request_runtime_settings(ApplicationState *state, const elder_terms::SettingsStore &store,
+    elder_terms::SettingsWidgetAction action, bool save) {
+  const auto current = action.current;
+  elder_terms::prepare_terminal_presentation_background(state->presentation, store, current,
+      [state, store, action = std::move(action), save](elder_terms::TerminalBackgroundImagePtr image, std::string error) {
+        if (!error.empty()) { action.complete(false, std::move(error)); return; }
+        const bool accepted = save ? save_runtime_settings(state, store, std::move(image)) :
+            apply_runtime_settings(state, store, std::move(image));
+        action.complete(accepted, accepted ? "" : save ? _("Failed to save connection") : _("Failed to apply terminal settings"));
+        if (accepted) schedule_settings_dialog_close(state);
+      });
 }
 
 static void update_runtime_terminal_display_settings(
@@ -940,18 +956,18 @@ static void open_settings_dialog(ApplicationState *state) {
 
   elder_terms::SettingsWidgetCallbacks callbacks;
   callbacks.apply = [state](const elder_terms::SettingsStore &store, elder_terms::SettingsWidgetAction action) {
-    const bool accepted = apply_runtime_settings(state, store);
-    action.complete(accepted, accepted ? "" : _("Failed to apply terminal settings"));
-    if (accepted) schedule_settings_dialog_close(state);
+    request_runtime_settings(state, store, std::move(action), false);
   };
   if (state->config_path.has_value()) {
     callbacks.save = [state](const elder_terms::SettingsStore &store, elder_terms::SettingsWidgetAction action) {
-      const bool accepted = save_runtime_settings(state, store);
-      action.complete(accepted, accepted ? "" : _("Failed to save connection"));
-      if (accepted) schedule_settings_dialog_close(state);
+      request_runtime_settings(state, store, std::move(action), true);
     };
   }
-  callbacks.cancel = [state]() { schedule_settings_dialog_close(state); };
+  callbacks.cancel = [state]() {
+    elder_terms::cancel_terminal_presentation_background(state->presentation);
+    schedule_settings_dialog_close(state);
+  };
+  callbacks.changed = [state] { elder_terms::cancel_terminal_presentation_background(state->presentation); };
 
   elder_terms::SettingsWidgetOptions options{
       .store = state->settings_store,
@@ -1931,7 +1947,7 @@ int main(int argc, char **argv) {
         }
         elder_terms::write_terminal_log(app_state.log_state, raw, cooked);
       });
-  (void)elder_terms::apply_terminal_presentation(app_state.presentation, app_state.settings_store);
+  (void)elder_terms::apply_terminal_presentation(app_state.presentation, app_state.settings_store, nullptr);
   elder_terms::terminal_runtime_request_input_settings(app_state.runtime, connection_profile->text_settings);
   apply_received_macros(&app_state);
   apply_terminal_hyperlink_settings(&app_state);
@@ -2027,6 +2043,16 @@ int main(int argc, char **argv) {
             &app_state, *launch_options.test.ssh_prompt));
   }
 
+  if (!elder_terms::terminal_background_image_settings(app_state.settings_store).path.empty())
+    elder_terms::prepare_terminal_presentation_background(app_state.presentation, app_state.settings_store,
+      [&app_state] { return !app_state.closing; },
+      [&app_state](elder_terms::TerminalBackgroundImagePtr image, std::string error) {
+        // Missing startup images keep the stored path and an operable terminal.
+        // The background status exposes the error when Settings is opened.
+        if (error.empty() && !apply_runtime_settings(&app_state, app_state.settings_store, std::move(image)))
+          std::cerr << "Failed to apply startup background image\n";
+        update_settings_renderer_status(&app_state);
+      });
   dispatcher.park();
 
   if (app_state.sftp_cancel_source.has_value()) {

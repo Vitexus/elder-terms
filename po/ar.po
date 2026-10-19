@@ -2472,3 +2472,57 @@ msgstr "خلفية شفافة"
 
 msgid "Opaque background: desktop transparency is unavailable"
 msgstr "خلفية معتمة: شفافية سطح المكتب غير متاحة"
+
+msgid "Background image"
+msgstr "صورة الخلفية"
+
+msgid "Image opacity (%)"
+msgstr "عتامة الصورة (%)"
+
+msgid "Image placement"
+msgstr "موضع الصورة"
+
+msgid "Cover"
+msgstr "تغطية"
+
+msgid "Contain"
+msgstr "احتواء"
+
+msgid "Stretch"
+msgstr "تمديد"
+
+msgid "No image"
+msgstr "بلا صورة"
+
+msgid "Clear image"
+msgstr "إزالة الصورة"
+
+msgid "Inherit"
+msgstr "وراثة"
+
+msgid "Select a background image"
+msgstr "اختر صورة خلفية"
+
+msgid "PNG and JPEG images"
+msgstr "صور PNG وJPEG"
+
+msgid "Enter an absolute local image path"
+msgstr "أدخل مسارًا محليًا مطلقًا للصورة"
+
+msgid "Cannot decode the background image"
+msgstr "تعذر فك ترميز صورة الخلفية"
+
+msgid "Not enough memory for the background image"
+msgstr "لا توجد ذاكرة كافية لصورة الخلفية"
+
+msgid "Background image exceeds the 64 MiB limit"
+msgstr "تتجاوز صورة الخلفية حد 64 MiB"
+
+msgid "Background image exceeds 16384 pixels or 64 MiB"
+msgstr "تتجاوز صورة الخلفية 16384 بكسل أو 64 MiB"
+
+msgid "Select a PNG or JPEG background image"
+msgstr "اختر صورة خلفية بصيغة PNG أو JPEG"
+
+msgid "Select a regular local image file"
+msgstr "اختر ملف صورة محليًا عاديًا"

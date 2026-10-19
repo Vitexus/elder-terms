@@ -770,6 +770,36 @@ static void test_general_indicator_color_round_trip_and_layering() {
   remove_config(global_path);
 }
 
+static void test_terminal_background_image_settings() {
+  using namespace elder_terms;
+  auto store = create_default_settings(default_terminal_display_settings(12), "Image");
+  const auto path_key = make_setting_key("terminal", "background_image");
+  const auto fit_key = make_setting_key("terminal", "background_image_fit");
+  const auto opacity_key = make_setting_key("terminal", "background_image_opacity");
+  expect_true(set_explicit_setting_value(&store, path_key, std::string("/tmp/background.png")), "accept local absolute image path");
+  for (const auto *fit : {"cover", "contain", "stretch"})
+    expect_true(set_explicit_setting_value(&store, fit_key, std::string(fit)), "accept image placement");
+  for (const auto opacity : {0, 50, 100})
+    expect_true(set_explicit_setting_value(&store, opacity_key, gint64{opacity}), "accept image opacity");
+  for (const auto *invalid : {"relative.png", "https://example.com/image.png", "/tmp/image\n.png"})
+    expect_true(!set_explicit_setting_value(&store, path_key, std::string(invalid)), "reject invalid image paths");
+  expect_true(!set_explicit_setting_value(&store, fit_key, std::string("tile")), "reject unsupported image placement");
+  expect_true(!set_explicit_setting_value(&store, opacity_key, gint64{101}), "reject excessive image opacity");
+  const auto global_path = temporary_config_path("image-global");
+  const auto connection_path = temporary_config_path("image-connection");
+  write_config(global_path, "[terminal]\nbackground_image=/tmp/global.png\nbackground_image_fit=contain\n");
+  write_config(connection_path, "[terminal]\nbackground_image=\n");
+  auto layered = load_settings(SettingsLoadOptions{.config_path = connection_path, .startup_config_path = std::nullopt,
+      .global_config_path = global_path}, 12).store;
+  expect_true(setting_string_value_or_default(layered, path_key, "missing").empty(), "explicit clear overrides inherited image");
+  expect_true(save_settings(layered, connection_path).saved, "save explicit image clear");
+  expect_true(read_config(connection_path).find("background_image=\n") != std::string::npos, "preserve explicit clear in file");
+  clear_explicit_setting_value(&layered, path_key);
+  expect_true(setting_string_value_or_default(layered, path_key, "") == "/tmp/global.png", "restore inherited image");
+  std::filesystem::remove(global_path);
+  std::filesystem::remove(connection_path);
+}
+
 static void test_terminal_background_settings() {
   const auto global = temporary_config_path("background-global");
   const auto path = temporary_config_path("background-connection");
@@ -4530,6 +4560,7 @@ int main() {
     elder_terms_settings_test::test_independent_inactive_indicator_color();
     elder_terms_settings_test::test_terminal_cursor_settings();
     elder_terms_settings_test::test_terminal_background_settings();
+    elder_terms_settings_test::test_terminal_background_image_settings();
     elder_terms_settings_test::test_terminal_font_list_round_trip_and_validation();
     elder_terms_settings_test::test_default_settings();
     elder_terms_settings_test::test_general_indicator_color_round_trip_and_layering();

@@ -15,6 +15,13 @@ struct TerminalBackground {
   TerminalBackgroundSettings settings{TerminalBackgroundMode::opaque, 80, {0, 0, 0}, 0};
   RgbColor backing{0, 0, 0};
   bool desktop_transparent = false;
+  TerminalBackgroundImagePtr image;
+  TerminalBackgroundImageSettings image_settings{"", 100, TerminalBackgroundImageFit::cover};
+  GCancellable *image_cancel = nullptr;
+  std::size_t image_generation = 0;
+  std::shared_ptr<TerminalBackground *> owner;
+  std::string image_error;
+  TerminalBackgroundImageLoader loader;
 };
 
 static void select_visual(GtkWidget *window, GdkScreen *, gpointer) {
@@ -63,25 +70,44 @@ static gboolean draw_backing(GtkWidget *root, cairo_t *cr, gpointer data) {
 }
 
 static bool apply_native(TerminalBackground *background, const TerminalBackgroundSettings &settings,
-    RgbColor backing) {
+    RgbColor backing, TerminalBackgroundImagePtr image, const TerminalBackgroundImageSettings &image_settings, bool reattach) {
   auto *widget = terminal_runtime_widget(background->window->runtime);
   auto *view = boxrig_gtk3_terminal_widget_view(widget);
   const bool requested = settings.mode != TerminalBackgroundMode::opaque;
   auto config = boxrig_ui_transparency_config_default();
-  config.request = requested ? BOXRIG_UI_TRANSPARENCY_PREFERRED : BOXRIG_UI_TRANSPARENCY_OPAQUE;
+  const bool surface_alpha = requested || image;
+  config.request = surface_alpha ? BOXRIG_UI_TRANSPARENCY_PREFERRED : BOXRIG_UI_TRANSPARENCY_OPAQUE;
   config.requested_scopes = BOXRIG_UI_TRANSPARENCY_VIEW_SURFACE;
-  config.background_opacity = requested ? static_cast<uint8_t>((settings.opacity * 255 + 50) / 100) : 255;
+  config.background_opacity = surface_alpha ? static_cast<uint8_t>((settings.opacity * 255 + 50) / 100) : 255;
   boxrig_ui_transparency_state previous{};
   if (boxrig_gtk3_terminal_widget_get_transparency(widget, &previous) != BOXRIG_UI_OK ||
       boxrig_gtk3_terminal_widget_set_transparency(widget, &config) != BOXRIG_UI_OK) return false;
   const boxrig_ui_rgba tint{settings.tint.red, settings.tint.green, settings.tint.blue,
       static_cast<uint8_t>((settings.tint_opacity * 255 + 50) / 100)};
+  const auto previous_tint = boxrig_ui_view_get_background_color(view);
   if (boxrig_ui_view_set_background_color(view, tint) != BOXRIG_UI_OK) {
     boxrig_gtk3_terminal_widget_set_transparency(widget, &previous.config);
     return false;
   }
+  if (reattach || image != background->image || image_settings.opacity != background->image_settings.opacity ||
+      image_settings.fit != background->image_settings.fit) {
+    boxrig_ui_background_image native{};
+    if (image) {
+      native = {image->width, image->height, image->width * 4, image->rgba.size(), image->rgba.data(),
+          static_cast<uint8_t>((image_settings.opacity * 255 + 50) / 100),
+          image_settings.fit == TerminalBackgroundImageFit::contain ? BOXRIG_UI_BACKGROUND_CONTAIN :
+          image_settings.fit == TerminalBackgroundImageFit::stretch ? BOXRIG_UI_BACKGROUND_STRETCH : BOXRIG_UI_BACKGROUND_COVER};
+    }
+    if (boxrig_ui_view_set_background_image(view, image ? &native : nullptr) != BOXRIG_UI_OK) {
+      boxrig_ui_view_set_background_color(view, previous_tint);
+      boxrig_gtk3_terminal_widget_set_transparency(widget, &previous.config);
+      return false;
+    }
+  }
   background->settings = settings;
   background->backing = backing;
+  background->image = std::move(image);
+  background->image_settings = image_settings;
   boxrig_ui_transparency_state actual{};
   boxrig_gtk3_terminal_widget_get_transparency(widget, &actual);
   auto *window = background->window->window;
@@ -114,13 +140,17 @@ void attach_terminal_background(TerminalBackground *background) {
     gtk_style_context_add_provider(context, GTK_STYLE_PROVIDER(background->provider), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 4);
     if (parent == background->window->window) break;
   }
-  if (!apply_native(background, background->settings, background->backing))
+  if (!apply_native(background, background->settings, background->backing, background->image, background->image_settings, true))
     g_printerr("Failed to restore terminal background\n");
 }
 
-TerminalBackground *create_terminal_background(MainWindow *window) {
-  auto *background = new TerminalBackground{window, gtk_css_provider_new(),
-      GDK_SCREEN(g_object_ref(gtk_widget_get_screen(window->window))), {}};
+TerminalBackground *create_terminal_background(MainWindow *window, TerminalBackgroundImageLoader loader) {
+  auto *background = new TerminalBackground{};
+  background->window = window;
+  background->provider = gtk_css_provider_new();
+  background->screen = GDK_SCREEN(g_object_ref(gtk_widget_get_screen(window->window)));
+  background->loader = std::move(loader);
+  background->owner = std::make_shared<TerminalBackground *>(background);
   gtk_css_provider_load_from_data(background->provider,
       ".terminal-background-path { background-color: transparent; background-image: none; }", -1, nullptr);
   g_signal_connect(window->root_box, "draw", G_CALLBACK(draw_backing), background);
@@ -128,27 +158,66 @@ TerminalBackground *create_terminal_background(MainWindow *window) {
   g_signal_connect(window->window, "realize", G_CALLBACK(update_opaque_region), background);
   g_signal_connect(background->screen, "composited-changed", G_CALLBACK(+[](GdkScreen *, gpointer data) {
     auto *background = static_cast<TerminalBackground *>(data);
-    if (!apply_native(background, background->settings, background->backing))
+    if (!apply_native(background, background->settings, background->backing, background->image, background->image_settings, false))
       g_printerr("Failed to update terminal compositor state\n");
   }), background);
   attach_terminal_background(background);
   return background;
 }
 
-bool apply_terminal_background(TerminalBackground *background, const SettingsStore &settings) {
+bool apply_terminal_background(TerminalBackground *background, const SettingsStore &settings, TerminalBackgroundImagePtr image) {
   return apply_native(background, terminal_background_settings(settings),
-      general_color_settings(settings).background.value_or(RgbColor{0, 0, 0}));
+      general_color_settings(settings).background.value_or(RgbColor{0, 0, 0}), std::move(image), terminal_background_image_settings(settings), false);
+}
+
+TerminalBackgroundImagePtr terminal_background_image(const TerminalBackground *background) {
+  return background->image;
+}
+
+void cancel_terminal_background_image(TerminalBackground *background) {
+  if (!background) return;
+  ++background->image_generation;
+  if (background->image_cancel) g_cancellable_cancel(background->image_cancel);
+  g_clear_object(&background->image_cancel);
+}
+
+void prepare_terminal_background_image(TerminalBackground *background, const SettingsStore &settings,
+    std::function<bool()> current, std::function<void(TerminalBackgroundImagePtr, std::string)> complete) {
+  cancel_terminal_background_image(background);
+  const auto path = terminal_background_image_settings(settings).path;
+  if ((background->image && background->image->path == path) || path.empty()) {
+    if (current()) {
+      background->image_error.clear();
+      complete(path.empty() ? nullptr : background->image, {});
+    }
+    return;
+  }
+  background->image_cancel = g_cancellable_new();
+  const auto generation = background->image_generation;
+  background->loader(path, background->image_cancel,
+      [owner = background->owner, generation, current = std::move(current), complete = std::move(complete)]
+      (TerminalBackgroundImagePtr image, std::string error) {
+        auto *background = *owner;
+        if (!background || background->image_generation != generation) return;
+        g_clear_object(&background->image_cancel);
+        if (!current()) return;
+        background->image_error = error;
+        complete(std::move(image), std::move(error));
+      });
 }
 
 std::string terminal_background_status(const TerminalBackground *background) {
   if (!background) return {};
-  if (background->settings.mode == TerminalBackgroundMode::opaque) return _("Opaque background");
-  return background->desktop_transparent ? _("Transparent background") :
-      _("Opaque background: desktop transparency is unavailable");
+  std::string status = background->settings.mode == TerminalBackgroundMode::opaque ? _("Opaque background") :
+      background->desktop_transparent ? _("Transparent background") : _("Opaque background: desktop transparency is unavailable");
+  if (!background->image_error.empty()) status += "\n" + std::string(_("Background image")) + ": " + background->image_error;
+  return status;
 }
 
 void destroy_terminal_background(TerminalBackground *background) {
   if (!background) return;
+  *background->owner = nullptr;
+  cancel_terminal_background_image(background);
   g_signal_handlers_disconnect_by_data(background->window->root_box, background);
   g_signal_handlers_disconnect_by_data(background->window->window, background);
   g_signal_handlers_disconnect_by_data(background->screen, background);
