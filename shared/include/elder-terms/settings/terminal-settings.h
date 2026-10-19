@@ -12,6 +12,16 @@
 
 namespace elder_terms {
 
+/** Display-only correction; terminal bytes and logical colors are preserved. */
+enum class TerminalColorFilter {
+  none,       /**< Preserve the terminal colors after connection defaults. */
+  oklch_blue, /**< Improve low-contrast blue text and markers in Oklch. */
+};
+/** @returns Key for the selected display-color correction. */
+ELDER_TERMS_API SettingKey terminal_color_filter_setting_key();
+/** @param store Layered settings. @returns Selected display correction. */
+ELDER_TERMS_API TerminalColorFilter terminal_color_filter(const SettingsStore &store);
+
 /** Desired desktop background mode; actual support is determined by the window owner. */
 enum class TerminalBackgroundMode {
   opaque,      /**< Opaque application backing. */

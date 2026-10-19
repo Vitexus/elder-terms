@@ -2545,3 +2545,15 @@ msgstr "Fondo transparente: falló la solicitud de vidrio esmerilado"
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "Fondo transparente: vidrio esmerilado no disponible"
+
+msgid "Color filter"
+msgstr "Filtro de color"
+
+msgid "No correction"
+msgstr "Sin corrección"
+
+msgid "Blue visibility (Oklch)"
+msgstr "Visibilidad del azul (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "Mejora el contraste del texto azul conservando su tono. Las imágenes de fondo no cambian."

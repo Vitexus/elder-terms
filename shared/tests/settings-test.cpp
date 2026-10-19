@@ -853,6 +853,31 @@ static void test_terminal_background_settings() {
   remove_config(global);
 }
 
+static void test_terminal_color_filter_settings() {
+  const auto global = temporary_config_path("filter-global");
+  const auto path = temporary_config_path("filter-connection");
+  const auto key = elder_terms::make_setting_key("terminal", "color_filter");
+  const SettingsLoadOptions options{.config_path = path, .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, ""); write_config(path, "");
+  auto loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "none", "color correction should default to off");
+  write_config(global, "[terminal]\ncolor_filter=oklch-blue\n");
+  loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "oklch-blue" &&
+      setting_value_source(loaded.store, key) == SettingValueSource::global, "color correction should inherit");
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "inherited filter should stay inherited");
+  for (const auto *value : {"none", "oklch-blue"}) {
+    expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}) &&
+        save_settings(loaded.store, path).saved, "selected correction should save");
+    loaded = load_settings(options, 1.0);
+    expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == value, "correction should survive restart");
+  }
+  expect_true(!set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string("unknown")}), "unknown filter should be rejected");
+  clear_explicit_setting_value(&loaded.store, key);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "reset should restore inherited correction");
+  remove_config(path); remove_config(global);
+}
+
 static void test_terminal_cursor_settings() {
   const auto global = temporary_config_path("cursor-global");
   const auto path = temporary_config_path("cursor-connection");
@@ -4564,6 +4589,7 @@ int main() {
     elder_terms_settings_test::test_independent_inactive_indicator_color();
     elder_terms_settings_test::test_terminal_cursor_settings();
     elder_terms_settings_test::test_terminal_background_settings();
+    elder_terms_settings_test::test_terminal_color_filter_settings();
     elder_terms_settings_test::test_terminal_background_image_settings();
     elder_terms_settings_test::test_terminal_font_list_round_trip_and_validation();
     elder_terms_settings_test::test_default_settings();

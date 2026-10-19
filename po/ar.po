@@ -2541,3 +2541,15 @@ msgstr "خلفية شفافة: فشل طلب الزجاج المصنفر"
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "خلفية شفافة: الزجاج المصنفر غير متاح"
+
+msgid "Color filter"
+msgstr "مرشح الألوان"
+
+msgid "No correction"
+msgstr "دون تصحيح"
+
+msgid "Blue visibility (Oklch)"
+msgstr "وضوح اللون الأزرق (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "يحسن تباين النص الأزرق مع الحفاظ على درجته. لا تتغير صور الخلفية."

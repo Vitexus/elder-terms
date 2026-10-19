@@ -2545,3 +2545,15 @@ msgstr "Прозрачный фон: не удалось запросить ма
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "Прозрачный фон: матовое стекло недоступно"
+
+msgid "Color filter"
+msgstr "Цветовой фильтр"
+
+msgid "No correction"
+msgstr "Без коррекции"
+
+msgid "Blue visibility (Oklch)"
+msgstr "Видимость синего (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "Улучшает контраст синего текста, сохраняя оттенок. Фоновые изображения не изменяются."

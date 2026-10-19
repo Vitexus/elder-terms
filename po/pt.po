@@ -2539,3 +2539,15 @@ msgstr "Fundo transparente: falha na solicitação de vidro fosco"
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "Fundo transparente: vidro fosco indisponível"
+
+msgid "Color filter"
+msgstr "Filtro de cor"
+
+msgid "No correction"
+msgstr "Sem correção"
+
+msgid "Blue visibility (Oklch)"
+msgstr "Visibilidade do azul (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "Melhora o contraste do texto azul preservando seu tom. As imagens de fundo permanecem inalteradas."

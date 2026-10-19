@@ -2515,3 +2515,15 @@ msgstr "透明背景：磨砂玻璃请求失败"
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "透明背景：磨砂玻璃不可用"
+
+msgid "Color filter"
+msgstr "颜色校正"
+
+msgid "No correction"
+msgstr "不校正"
+
+msgid "Blue visibility (Oklch)"
+msgstr "蓝色可见性 (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "在保持色相的同时提高蓝色文字的对比度。背景图像保持不变。"

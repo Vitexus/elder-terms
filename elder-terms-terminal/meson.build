@@ -97,6 +97,7 @@ elder_terms_sources = [
   'src/main-window.cpp',
   'src/terminal-background.cpp',
   'src/terminal-background-image.cpp',
+  'src/terminal-color-filter.cpp',
   'src/sftp/sftp-client.cpp',
   'src/sftp/sftp-fixture-client.cpp',
   'src/file-transfer/file-hash.cpp',
@@ -143,6 +144,11 @@ elder_terms_terminal = executable(
 )
 
 if get_option('build_tests')
+color_filter_test = executable('terminal-color-filter-test',
+  ['tests/cpp/terminal-color-filter-test.cpp', 'src/terminal-color-filter.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
+test('terminal-color-filter-test', color_filter_test)
+
 terminal_renderer_status_test = executable('terminal-renderer-status-test',
   ['tests/cpp/terminal-renderer-status-test.cpp', 'src/terminal-renderer-status.cpp'],
   dependencies: [elder_terms_dep, boxrig_deps['boxrig-gtk3']])

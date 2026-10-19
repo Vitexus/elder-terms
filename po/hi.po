@@ -2522,3 +2522,15 @@ msgstr "पारदर्शी पृष्ठभूमि: धुंधले
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "पारदर्शी पृष्ठभूमि: धुंधला काँच उपलब्ध नहीं है"
+
+msgid "Color filter"
+msgstr "रंग फ़िल्टर"
+
+msgid "No correction"
+msgstr "कोई सुधार नहीं"
+
+msgid "Blue visibility (Oklch)"
+msgstr "नीले रंग की दृश्यता (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "नीले पाठ की रंगत बनाए रखते हुए उसका कंट्रास्ट सुधारता है। पृष्ठभूमि की छवियाँ नहीं बदलतीं।"

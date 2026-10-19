@@ -21,7 +21,7 @@ TerminalPresentation *create_terminal_presentation(MainWindow *window, TestOptio
     std::function<void(TerminalDisplaySettings)> changed, std::function<void()> send_break);
 
 /**
- * Attaches shortcuts and restores cursor preferences after widget reattachment.
+ * Attaches shortcuts and restores cursor, background and color-filter preferences after widget reattachment.
  * @param presentation Live integration.
  */
 void attach_terminal_presentation(TerminalPresentation *presentation);
@@ -36,11 +36,11 @@ boxrig_input_mouse_route route_terminal_presentation_mouse(
     TerminalPresentation *presentation, const boxrig_mouse_event &event);
 
 /**
- * Applies cursor presentation, direct font size, families, history, grid, chrome and shortcuts.
+ * Applies cursor, background, color filtering, font, history, grid, chrome and shortcuts.
  * @param presentation Live integration.
  * @param settings Effective application settings.
  * @param image Prepared image, or null to clear it.
- * @return Whether the native cursor, font, history and grid preferences were accepted.
+ * @return Whether the native presentation, font, history and grid preferences were accepted.
  */
 bool apply_terminal_presentation(TerminalPresentation *presentation, const SettingsStore &settings, TerminalBackgroundImagePtr image);
 

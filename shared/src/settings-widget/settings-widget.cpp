@@ -160,6 +160,7 @@ struct SettingsWidgetState {
   GtkWidget *terminal_backspace_code_combo = nullptr;
   GtkWidget *terminal_cursor_key_mode_combo = nullptr;
   GtkWidget *terminal_cursor_shape_combo = nullptr;
+  GtkWidget *terminal_color_filter_combo = nullptr;
   GtkWidget *terminal_cursor_blink_combo = nullptr;
   TerminalBackgroundEditor *terminal_background_editor = nullptr;
   GtkWidget *terminal_return_code_combo = nullptr;
@@ -3351,6 +3352,14 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
                            terminal_accessibility_enabled_setting_key(),
                            terminal_accessibility_enabled(state->draft_store));
   }
+  if (state->terminal_color_filter_combo) {
+    const auto key = terminal_color_filter_setting_key();
+    const auto fallback = std::get<std::string>(setting_fallback_value(state->draft_store, key, std::string("none")));
+    std::vector<ComboOption> options;
+    for (const auto *filter : {"none", "oklch-blue"}) options.push_back({filter, setting_choice_label(key, filter)});
+    populate_inheritable_combo(state->terminal_color_filter_combo, state->draft_store, key,
+        setting_choice_label(key, fallback), options, setting_string_value_or_default(state->draft_store, key, "none"));
+  }
   if (state->terminal_cursor_shape_combo) {
     const auto key = terminal_cursor_shape_setting_key();
     const auto fallback = std::get<std::string>(setting_fallback_value(state->draft_store, key, std::string("block")));
@@ -5288,6 +5297,19 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
   state->terminal_background_editor = create_terminal_background_editor(&state->draft_store, state->id_prefix,
       [state] { notify_changed(state); });
   gtk_grid_attach(GTK_GRID(page), terminal_background_editor_root(state->terminal_background_editor), 0, 18, 2, 1);
+  state->terminal_color_filter_combo = create_combo_box(widget_id(state, "terminal_color_filter_combo").c_str());
+  gtk_widget_set_tooltip_text(state->terminal_color_filter_combo,
+      _("Improve blue text contrast while preserving its hue. Background images are unchanged."));
+  g_signal_connect(state->terminal_color_filter_combo, "changed", G_CALLBACK(+[](GtkComboBox *, gpointer data) {
+    auto *state = static_cast<SettingsWidgetState *>(data);
+    if (state->synchronizing) return;
+    const auto key = terminal_color_filter_setting_key();
+    const auto choice = active_combo_id(state->terminal_color_filter_combo, inherit_choice);
+    if (choice == inherit_choice) clear_explicit_setting_value(&state->draft_store, key);
+    else set_explicit_setting_value(&state->draft_store, key, SettingValue{choice});
+    notify_changed(state);
+  }), state);
+  attach_row(page, 19, terminal_color_filter_setting_key(), state->terminal_color_filter_combo);
 
   return scroller;
 }

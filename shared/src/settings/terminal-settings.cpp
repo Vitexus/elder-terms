@@ -208,6 +208,13 @@ static bool validate_terminal_cursor_shape(const SettingValue &value, std::strin
   return true;
 }
 
+static bool validate_color_filter(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && (*text == "none" || *text == "oklch-blue")) return true;
+  *reason = "must be none or oklch-blue";
+  return false;
+}
+
 static bool validate_background_mode(const SettingValue &value, std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
   if (text && (*text == "opaque" || *text == "transparent" || *text == "blur")) return true;
@@ -302,6 +309,11 @@ SettingKey terminal_font_families_setting_key() {
 
 SettingKey terminal_cursor_shape_setting_key() { return terminal_key("cursor_shape"); }
 SettingKey terminal_cursor_blink_setting_key() { return terminal_key("cursor_blink"); }
+SettingKey terminal_color_filter_setting_key() { return terminal_key("color_filter"); }
+TerminalColorFilter terminal_color_filter(const SettingsStore &store) {
+  return setting_string_value_or_default(store, terminal_color_filter_setting_key(), "none") == "oklch-blue"
+      ? TerminalColorFilter::oklch_blue : TerminalColorFilter::none;
+}
 
 TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store) {
   const auto shape = setting_string_value_or_default(store, terminal_cursor_shape_setting_key(), "block");
@@ -454,6 +466,7 @@ terminal_setting_definitions(TerminalDisplaySettings terminal_defaults) {
       {.key = terminal_cursor_shape_setting_key(), .default_value = SettingValue{std::string("block")},
        .validate = validate_terminal_cursor_shape},
       {.key = terminal_cursor_blink_setting_key(), .default_value = SettingValue{true}, .validate = nullptr},
+      {.key = terminal_color_filter_setting_key(), .default_value = SettingValue{std::string("none")}, .validate = validate_color_filter},
       {.key = terminal_background_mode_setting_key(), .default_value = SettingValue{std::string("opaque")}, .validate = validate_background_mode},
       {.key = terminal_background_opacity_setting_key(), .default_value = SettingValue{gint64{80}}, .validate = validate_background_percent},
       {.key = terminal_background_tint_color_setting_key(), .default_value = SettingValue{std::string("#000000")}, .validate = validate_background_tint},

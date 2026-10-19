@@ -2589,3 +2589,15 @@ msgstr "透過表示: すりガラスの要求に失敗しました"
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "透過表示: すりガラスを利用できません"
+
+msgid "Color filter"
+msgstr "色補正"
+
+msgid "No correction"
+msgstr "補正しない"
+
+msgid "Blue visibility (Oklch)"
+msgstr "青の視認性を改善 (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "青い文字の色相を保ちながらコントラストを改善します。背景画像は補正しません。"

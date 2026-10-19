@@ -2523,3 +2523,15 @@ msgstr "투명 배경: 반투명 유리 효과 요청 실패"
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "투명 배경: 반투명 유리 효과를 사용할 수 없음"
+
+msgid "Color filter"
+msgstr "색상 보정"
+
+msgid "No correction"
+msgstr "보정 안 함"
+
+msgid "Blue visibility (Oklch)"
+msgstr "파란색 가시성 (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "파란색 글자의 색조를 유지하면서 대비를 개선합니다. 배경 이미지는 변경하지 않습니다."

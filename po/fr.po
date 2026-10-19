@@ -2550,3 +2550,15 @@ msgstr "Fond transparent : échec de la demande de verre dépoli"
 
 msgid "Transparent background: frosted glass is unavailable"
 msgstr "Fond transparent : verre dépoli indisponible"
+
+msgid "Color filter"
+msgstr "Filtre de couleur"
+
+msgid "No correction"
+msgstr "Sans correction"
+
+msgid "Blue visibility (Oklch)"
+msgstr "Visibilité du bleu (Oklch)"
+
+msgid "Improve blue text contrast while preserving its hue. Background images are unchanged."
+msgstr "Améliore le contraste du texte bleu en préservant sa teinte. Les images de fond restent inchangées."
