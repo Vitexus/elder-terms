@@ -384,8 +384,11 @@ GtkCssProvider *create_scoped_widget_surface_background_provider(
     const RgbColor &color, const char *style_class,
     const char *target_name) {
   const std::string selector = "." + std::string(style_class);
+  // Direct labels belong to the surface. Otherwise the settings body provider
+  // paints the expanding renderer label over the footer's exterior color.
   return create_css_provider(
-      rgb_color_css(color, selector) + "\n" + selector +
+      rgb_color_css(color, selector + ", " + selector + " > label") +
+          "\n" + selector +
           " * { color: " + rgb_hex(contrasting_foreground(color)) + "; }",
       target_name);
 }

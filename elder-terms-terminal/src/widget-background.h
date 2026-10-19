@@ -96,13 +96,14 @@ GtkCssProvider *create_scoped_widget_background_provider(
     const char *target_name);
 
 /**
- * Creates a screen-safe CSS provider for one classed surface only.
+ * Creates a screen-safe CSS provider for a classed surface and its direct labels.
  *
  * @param color RGB color to paint.
- * @param style_class Style class whose own node is painted.
+ * @param style_class Style class whose own node and direct labels are painted.
  * @param target_name Diagnostic name used when CSS parsing fails.
  * @returns Owned provider, or null when the CSS could not be loaded.
- * @remarks Descendant controls retain their own component backgrounds.
+ * @remarks Direct labels share the surface color. Descendant controls retain
+ * their own component backgrounds.
  */
 GtkCssProvider *create_scoped_widget_surface_background_provider(
     const RgbColor &color, const char *style_class,
