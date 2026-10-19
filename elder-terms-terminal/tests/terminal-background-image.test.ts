@@ -116,31 +116,31 @@ for (const backend of ['cairo', 'opengl']) {
             'stretch',
           ].entries()) {
             await openSettings();
-            const bounds = (
-              await (
-                await app.getById(
-                  'settings_terminal_background_image_fit_combo'
-                )
-              ).capture()
-            ).bounds;
+            const combo = expectElementKind(
+              await app.getById('settings_terminal_background_image_fit_combo'),
+              'comboBox'
+            );
+            const bounds = (await combo.capture()).bounds;
             await app.input.moveMouseTo(
-              bounds.x + bounds.width / 2,
-              bounds.y + bounds.height / 2
+              Math.round(bounds.x + bounds.width / 2),
+              Math.round(bounds.y + bounds.height / 2)
             );
             await app.input.setMouseButton('left', true);
             await app.input.setMouseButton('left', false);
-            await app.input.pressKey('Home');
-            for (let i = 0; i <= index; i++) await app.input.pressKey('Down');
-            await app.input.pressKey('Return');
+            // GTK must expose the popup before native input selects its item.
+            const item = (await combo.childAt(index + 1))!;
             await waitForResult(async () =>
-              expect(
-                await expectElementKind(
-                  await app.getById(
-                    'settings_terminal_background_image_fit_combo'
-                  ),
-                  'comboBox'
-                ).isChildSelected(index + 1)
-              ).toBe(true)
+              expect((await item.info()).states).toContain('showing')
+            );
+            const target = (await item.capture()).bounds;
+            await app.input.moveMouseTo(
+              Math.round(target.x + target.width / 2),
+              Math.round(target.y + target.height / 2)
+            );
+            await app.input.setMouseButton('left', true);
+            await app.input.setMouseButton('left', false);
+            await waitForResult(async () =>
+              expect(await combo.isChildSelected(index + 1)).toBe(true)
             );
             await expectElementKind(
               await app.getById('settings_apply_button'),
