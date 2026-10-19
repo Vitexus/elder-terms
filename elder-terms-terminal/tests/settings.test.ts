@@ -185,6 +185,38 @@ const captureKeyBinding = async (
   modifiers: readonly GtkKeyboardModifier[],
   key: GtkKeyInput
 ): Promise<void> => {
+  const scrollbar = expectElementKind(
+    await app.getById('settings_terminal_page_scrollbar'),
+    'scrollbar'
+  );
+  const page = (await (await app.getById('settings_terminal_page')).capture())
+    .bounds;
+  const range = await scrollbar.valueInfo();
+  const step = Math.max(1, Math.floor(page.height / 3));
+  let visible = false;
+  // Key bindings can precede other settings; find the row before clicking it.
+  for (let value = range.minimum; value < range.maximum + step; value += step) {
+    await scrollbar.setValue(Math.min(value, range.maximum));
+    if (!(await entry.info()).states.includes('showing')) continue;
+    const bounds = (await entry.capture()).bounds;
+    const current = (await scrollbar.valueInfo()).value;
+    await scrollbar.setValue(
+      Math.max(
+        range.minimum,
+        Math.min(range.maximum, current + bounds.y - page.y - 40)
+      )
+    );
+    await toPass(async () => {
+      const bounds = (await entry.capture()).bounds;
+      expect(bounds.y).toBeGreaterThanOrEqual(page.y);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(
+        page.y + page.height
+      );
+    });
+    visible = true;
+    break;
+  }
+  expect(visible).toBe(true);
   await focusEntry(app, entry);
   for (const modifier of modifiers) {
     await app.input.setModifier(modifier, true);
@@ -2863,13 +2895,6 @@ describe.concurrent('elder-terms-terminal settings', () => {
 
       await openSettingsDialog(app);
       await showTerminalSettingsPage(app);
-      const terminalScrollbar = expectElementKind(
-        await app.getById('settings_terminal_page_scrollbar'),
-        'scrollbar'
-      );
-      await terminalScrollbar.setValue(
-        (await terminalScrollbar.valueInfo()).maximum
-      );
       const zoomInKey = expectElementKind(
         await app.getById('settings_terminal_zoom_in_key_entry'),
         'entry'
