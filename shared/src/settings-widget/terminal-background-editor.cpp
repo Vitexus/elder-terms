@@ -72,7 +72,7 @@ void sync_terminal_background_editor(TerminalBackgroundEditor *editor, bool pres
   const auto inherited = inherited_setting_label(setting_choice_label(key, fallback), setting_fallback_source(*editor->store, key));
   gtk_combo_box_text_remove_all(GTK_COMBO_BOX_TEXT(editor->mode));
   gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(editor->mode), "inherit", inherited.c_str());
-  for (const auto *mode : {"opaque", "transparent"})
+  for (const auto *mode : {"opaque", "transparent", "blur"})
     gtk_combo_box_text_append(GTK_COMBO_BOX_TEXT(editor->mode), mode, setting_choice_label(key, mode).c_str());
   const auto effective = setting_string_value_or_default(*editor->store, key, "opaque");
   gtk_combo_box_set_active_id(GTK_COMBO_BOX(editor->mode),

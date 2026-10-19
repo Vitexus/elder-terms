@@ -2535,3 +2535,18 @@ msgstr "Choisissez une image de fond PNG ou JPEG"
 
 msgid "Select a regular local image file"
 msgstr "Choisissez un fichier image local ordinaire"
+
+msgid "Frosted glass"
+msgstr "Verre dépoli"
+
+msgid "Frosted glass requested"
+msgstr "Verre dépoli demandé"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "Fond transparent : vérification de la prise en charge du verre dépoli"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "Fond transparent : échec de la demande de verre dépoli"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "Fond transparent : verre dépoli indisponible"

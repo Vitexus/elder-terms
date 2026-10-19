@@ -828,10 +828,14 @@ static void test_terminal_background_settings() {
                 "background tint must be a six-digit RGB color");
   expect_true(!set_explicit_setting_value(&loaded.store, mode, elder_terms::SettingValue{std::string("invalid")}),
               "unknown background modes must be rejected");
+  expect_true(set_explicit_setting_value(&loaded.store, mode, elder_terms::SettingValue{std::string("blur")}),
+              "frosted glass can be requested independently of current desktop support");
   expect_true(set_explicit_setting_value(&loaded.store, tint, elder_terms::SettingValue{std::string("#a0B1c2")}) &&
                   save_settings(loaded.store, path).saved,
               "valid background preferences should save");
   loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "blur",
+              "requested frosted glass survives persistence");
   expect_true(elder_terms::setting_string_value_or_default(loaded.store, tint, "missing") == "#a0B1c2" &&
                   elder_terms::setting_integer_value_or_default(loaded.store, tint_opacity, -1) == 100,
               "tint and opacity should survive restart");

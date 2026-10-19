@@ -2574,3 +2574,18 @@ msgstr "PNGまたはJPEGの背景画像を選択してください"
 
 msgid "Select a regular local image file"
 msgstr "通常のローカル画像ファイルを選択してください"
+
+msgid "Frosted glass"
+msgstr "すりガラス"
+
+msgid "Frosted glass requested"
+msgstr "すりガラスを要求しています"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "透過表示: すりガラスへの対応を確認しています"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "透過表示: すりガラスの要求に失敗しました"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "透過表示: すりガラスを利用できません"

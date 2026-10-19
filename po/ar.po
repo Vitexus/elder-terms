@@ -2526,3 +2526,18 @@ msgstr "اختر صورة خلفية بصيغة PNG أو JPEG"
 
 msgid "Select a regular local image file"
 msgstr "اختر ملف صورة محليًا عاديًا"
+
+msgid "Frosted glass"
+msgstr "زجاج مصنفر"
+
+msgid "Frosted glass requested"
+msgstr "تم طلب الزجاج المصنفر"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "خلفية شفافة: جارٍ التحقق من دعم الزجاج المصنفر"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "خلفية شفافة: فشل طلب الزجاج المصنفر"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "خلفية شفافة: الزجاج المصنفر غير متاح"

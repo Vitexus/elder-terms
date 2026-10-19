@@ -1,5 +1,6 @@
 #include "terminal-background.h"
 #include "terminal-runtime.h"
+#include <boxrig/gtk3/background_effect.h>
 #include <vector>
 
 #define GETTEXT_PACKAGE "elder-terms"
@@ -22,6 +23,9 @@ struct TerminalBackground {
   std::shared_ptr<TerminalBackground *> owner;
   std::string image_error;
   TerminalBackgroundImageLoader loader;
+  boxrig_gtk3_background_effect *effect = nullptr;
+  boxrig_ui_background_effect_request effect_request = BOXRIG_UI_BACKGROUND_EFFECT_NONE;
+  boxrig_ui_background_effect_rectangle effect_rectangle{};
 };
 
 static void select_visual(GtkWidget *window, GdkScreen *, gpointer) {
@@ -69,11 +73,34 @@ static gboolean draw_backing(GtkWidget *root, cairo_t *cr, gpointer data) {
   return FALSE;
 }
 
+static bool update_effect(TerminalBackground *background, TerminalBackgroundMode mode) {
+  const auto request = mode == TerminalBackgroundMode::blur ? BOXRIG_UI_BACKGROUND_EFFECT_PREFER :
+      BOXRIG_UI_BACKGROUND_EFFECT_NONE;
+  if (!background->effect) return request == BOXRIG_UI_BACKGROUND_EFFECT_NONE;
+  boxrig_ui_background_effect_rectangle rectangle{};
+  auto *terminal = GTK_WIDGET(terminal_runtime_widget(background->window->runtime));
+  if (request != BOXRIG_UI_BACKGROUND_EFFECT_NONE && terminal &&
+      gtk_widget_translate_coordinates(terminal, background->window->window, 0, 0, &rectangle.x, &rectangle.y)) {
+    rectangle.width = gtk_widget_get_allocated_width(terminal);
+    rectangle.height = gtk_widget_get_allocated_height(terminal);
+  }
+  const auto &previous = background->effect_rectangle;
+  if (request == background->effect_request && rectangle.x == previous.x && rectangle.y == previous.y &&
+      rectangle.width == previous.width && rectangle.height == previous.height) return true;
+  const bool area = rectangle.width > 0 && rectangle.height > 0;
+  if (boxrig_gtk3_background_effect_set(background->effect, request, area ? &rectangle : nullptr, area ? 1 : 0) != BOXRIG_UI_OK)
+    return false;
+  background->effect_request = request;
+  background->effect_rectangle = rectangle;
+  return true;
+}
+
 static bool apply_native(TerminalBackground *background, const TerminalBackgroundSettings &settings,
     RgbColor backing, TerminalBackgroundImagePtr image, const TerminalBackgroundImageSettings &image_settings, bool reattach) {
   auto *widget = terminal_runtime_widget(background->window->runtime);
   auto *view = boxrig_gtk3_terminal_widget_view(widget);
   const bool requested = settings.mode != TerminalBackgroundMode::opaque;
+  if (!update_effect(background, settings.mode)) return false;
   auto config = boxrig_ui_transparency_config_default();
   const bool surface_alpha = requested || image;
   config.request = surface_alpha ? BOXRIG_UI_TRANSPARENCY_PREFERRED : BOXRIG_UI_TRANSPARENCY_OPAQUE;
@@ -81,12 +108,16 @@ static bool apply_native(TerminalBackground *background, const TerminalBackgroun
   config.background_opacity = surface_alpha ? static_cast<uint8_t>((settings.opacity * 255 + 50) / 100) : 255;
   boxrig_ui_transparency_state previous{};
   if (boxrig_gtk3_terminal_widget_get_transparency(widget, &previous) != BOXRIG_UI_OK ||
-      boxrig_gtk3_terminal_widget_set_transparency(widget, &config) != BOXRIG_UI_OK) return false;
+      boxrig_gtk3_terminal_widget_set_transparency(widget, &config) != BOXRIG_UI_OK) {
+    update_effect(background, background->settings.mode);
+    return false;
+  }
   const boxrig_ui_rgba tint{settings.tint.red, settings.tint.green, settings.tint.blue,
       static_cast<uint8_t>((settings.tint_opacity * 255 + 50) / 100)};
   const auto previous_tint = boxrig_ui_view_get_background_color(view);
   if (boxrig_ui_view_set_background_color(view, tint) != BOXRIG_UI_OK) {
     boxrig_gtk3_terminal_widget_set_transparency(widget, &previous.config);
+    update_effect(background, background->settings.mode);
     return false;
   }
   if (reattach || image != background->image || image_settings.opacity != background->image_settings.opacity ||
@@ -101,6 +132,7 @@ static bool apply_native(TerminalBackground *background, const TerminalBackgroun
     if (boxrig_ui_view_set_background_image(view, image ? &native : nullptr) != BOXRIG_UI_OK) {
       boxrig_ui_view_set_background_color(view, previous_tint);
       boxrig_gtk3_terminal_widget_set_transparency(widget, &previous.config);
+      update_effect(background, background->settings.mode);
       return false;
     }
   }
@@ -151,9 +183,19 @@ TerminalBackground *create_terminal_background(MainWindow *window, TerminalBackg
   background->screen = GDK_SCREEN(g_object_ref(gtk_widget_get_screen(window->window)));
   background->loader = std::move(loader);
   background->owner = std::make_shared<TerminalBackground *>(background);
+  boxrig_gtk3_background_effect_create(GTK_WINDOW(window->window), +[](void *data) {
+    // The adapter retains requests across map/unmap and capability changes.
+    // Refresh status through the normal frame notification, never destroy here.
+    auto *background = static_cast<TerminalBackground *>(data);
+    terminal_runtime_refresh(background->window->runtime);
+  }, background, &background->effect);
   gtk_css_provider_load_from_data(background->provider,
       ".terminal-background-path { background-color: transparent; background-image: none; }", -1, nullptr);
   g_signal_connect(window->root_box, "draw", G_CALLBACK(draw_backing), background);
+  g_signal_connect_after(window->root_box, "size-allocate", G_CALLBACK(+[](GtkWidget *, GtkAllocation *, gpointer data) {
+    auto *background = static_cast<TerminalBackground *>(data);
+    if (!update_effect(background, background->settings.mode)) g_printerr("Failed to resize terminal background effect\n");
+  }), background);
   g_signal_connect(window->window, "style-updated", G_CALLBACK(update_opaque_region), background);
   g_signal_connect(window->window, "realize", G_CALLBACK(update_opaque_region), background);
   g_signal_connect(background->screen, "composited-changed", G_CALLBACK(+[](GdkScreen *, gpointer data) {
@@ -206,10 +248,21 @@ void prepare_terminal_background_image(TerminalBackground *background, const Set
       });
 }
 
+std::string format_terminal_background_status(TerminalBackgroundMode mode, bool transparent,
+    const boxrig_ui_background_effect_state &effect) {
+  if (mode == TerminalBackgroundMode::opaque) return _("Opaque background");
+  if (!transparent) return _("Opaque background: desktop transparency is unavailable");
+  if (mode != TerminalBackgroundMode::blur) return _("Transparent background");
+  if (effect.accepted && effect.reason == BOXRIG_UI_BACKGROUND_EFFECT_ACCEPTED) return _("Frosted glass requested");
+  if (effect.reason == BOXRIG_UI_BACKGROUND_EFFECT_PENDING) return _("Transparent background: checking frosted glass support");
+  if (effect.reason == BOXRIG_UI_BACKGROUND_EFFECT_FAILED) return _("Transparent background: frosted glass request failed");
+  return _("Transparent background: frosted glass is unavailable");
+}
+
 std::string terminal_background_status(const TerminalBackground *background) {
   if (!background) return {};
-  std::string status = background->settings.mode == TerminalBackgroundMode::opaque ? _("Opaque background") :
-      background->desktop_transparent ? _("Transparent background") : _("Opaque background: desktop transparency is unavailable");
+  std::string status = format_terminal_background_status(background->settings.mode, background->desktop_transparent,
+      boxrig_gtk3_background_effect_get_state(background->effect));
   if (!background->image_error.empty()) status += "\n" + std::string(_("Background image")) + ": " + background->image_error;
   return status;
 }
@@ -218,6 +271,7 @@ void destroy_terminal_background(TerminalBackground *background) {
   if (!background) return;
   *background->owner = nullptr;
   cancel_terminal_background_image(background);
+  boxrig_gtk3_background_effect_destroy(background->effect);
   g_signal_handlers_disconnect_by_data(background->window->root_box, background);
   g_signal_handlers_disconnect_by_data(background->window->window, background);
   g_signal_handlers_disconnect_by_data(background->screen, background);

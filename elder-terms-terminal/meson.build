@@ -132,6 +132,7 @@ elder_terms_terminal = executable(
     ssh_transport_dep,
     libudev_dep,
     boxrig_runtime_dep,
+    boxrig_background_dep,
   ],
   link_with: [
     libxyzm_async_static_library,
@@ -157,7 +158,7 @@ test('terminal-background-image-test', background_image_test, env: ['G_DEBUG=fat
 
 background_state_test = executable('terminal-background-state-test',
   ['tests/cpp/terminal-background-state-test.cpp', 'src/terminal-background.cpp', 'src/terminal-background-image.cpp'],
-  dependencies: [boxrig_runtime_dep])
+  dependencies: [boxrig_runtime_dep, boxrig_background_dep])
 test('terminal-background-state-test', find_program('xvfb-run'), args: ['-a', background_state_test],
   env: ['GDK_GL=disable', 'NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
 
@@ -165,7 +166,7 @@ terminal_dispatch_test = executable('terminal-dispatch-test',
   'tests/cpp/terminal-dispatch-test.cpp',
   objects: elder_terms_terminal.extract_all_objects(recursive: false),
   dependencies: [cardio_dep, elder_terms_dep, canberra_dep, gio_dep, gtk_dep,
-    liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep],
+    liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep, boxrig_background_dep],
   link_with: libxyzm_async_static_library,
   link_args: ['-Wl,--wrap=main'])
 test('terminal-dispatch-test', find_program('xvfb-run'),

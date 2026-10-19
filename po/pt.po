@@ -2524,3 +2524,18 @@ msgstr "Selecione uma imagem de fundo PNG ou JPEG"
 
 msgid "Select a regular local image file"
 msgstr "Selecione um ficheiro de imagem local normal"
+
+msgid "Frosted glass"
+msgstr "Vidro fosco"
+
+msgid "Frosted glass requested"
+msgstr "Vidro fosco solicitado"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "Fundo transparente: verificando suporte a vidro fosco"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "Fundo transparente: falha na solicitação de vidro fosco"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "Fundo transparente: vidro fosco indisponível"

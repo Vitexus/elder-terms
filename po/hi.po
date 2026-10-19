@@ -2507,3 +2507,18 @@ msgstr "PNG या JPEG पृष्ठभूमि चित्र चुने
 
 msgid "Select a regular local image file"
 msgstr "एक सामान्य स्थानीय चित्र फ़ाइल चुनें"
+
+msgid "Frosted glass"
+msgstr "धुंधला काँच"
+
+msgid "Frosted glass requested"
+msgstr "धुंधले काँच का अनुरोध किया गया"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "पारदर्शी पृष्ठभूमि: धुंधले काँच के समर्थन की जाँच हो रही है"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "पारदर्शी पृष्ठभूमि: धुंधले काँच का अनुरोध विफल हुआ"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "पारदर्शी पृष्ठभूमि: धुंधला काँच उपलब्ध नहीं है"

@@ -16,6 +16,7 @@ namespace elder_terms {
 enum class TerminalBackgroundMode {
   opaque,      /**< Opaque application backing. */
   transparent, /**< Prefer desktop alpha composition when supported. */
+  blur,        /**< Prefer compositor blur behind the transparent terminal region. */
 };
 /** Independent cell-background and tint-layer preferences. */
 struct TerminalBackgroundSettings {

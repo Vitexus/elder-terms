@@ -194,6 +194,7 @@ static constexpr std::array setting_choices{
     SettingChoiceEntry{"terminal", "cursor_shape", "block", N_("Full box")},
     SettingChoiceEntry{"terminal", "background_mode", "opaque", N_("Opaque")},
     SettingChoiceEntry{"terminal", "background_mode", "transparent", N_("Transparent")},
+    SettingChoiceEntry{"terminal", "background_mode", "blur", N_("Frosted glass")},
     SettingChoiceEntry{"terminal", "background_image_fit", "cover", N_("Cover")},
     SettingChoiceEntry{"terminal", "background_image_fit", "contain", N_("Contain")},
     SettingChoiceEntry{"terminal", "background_image_fit", "stretch", N_("Stretch")},

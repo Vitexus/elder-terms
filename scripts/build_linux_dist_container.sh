@@ -167,6 +167,7 @@ validate_installed_package() {
 		/usr/share/doc/elder-terms/licenses/boxrig/zlib-LICENSE \
 		/usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
 		/usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
+		/usr/share/doc/elder-terms/licenses/boxrig/Wayland-protocols-NOTICES.md \
 		/usr/share/doc/elder-terms/copyright; do
 		assert_file "$installed_file"
 	done
@@ -298,6 +299,7 @@ for staged_file in \
 	usr/share/doc/elder-terms/licenses/boxrig/zlib-LICENSE \
 	usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
 	usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
+	usr/share/doc/elder-terms/licenses/boxrig/Wayland-protocols-NOTICES.md \
 	usr/share/doc/elder-terms/copyright; do
 	assert_file "$stage_dir/$staged_file"
 done

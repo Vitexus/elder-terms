@@ -5,6 +5,19 @@
 
 int main(int argc, char **argv) {
   using namespace elder_terms;
+  boxrig_ui_background_effect_state effect{BOXRIG_UI_BACKGROUND_EFFECT_PREFER, true, true,
+      BOXRIG_UI_BACKGROUND_EFFECT_ACCEPTED, 0};
+  assert(format_terminal_background_status(TerminalBackgroundMode::blur, true, effect) == "Frosted glass requested");
+  effect.accepted = false;
+  effect.reason = BOXRIG_UI_BACKGROUND_EFFECT_PENDING;
+  assert(format_terminal_background_status(TerminalBackgroundMode::blur, true, effect) == "Transparent background: checking frosted glass support");
+  effect.reason = BOXRIG_UI_BACKGROUND_EFFECT_FAILED;
+  assert(format_terminal_background_status(TerminalBackgroundMode::blur, true, effect) == "Transparent background: frosted glass request failed");
+  effect.reason = BOXRIG_UI_BACKGROUND_EFFECT_UNSUPPORTED;
+  assert(format_terminal_background_status(TerminalBackgroundMode::blur, true, effect) == "Transparent background: frosted glass is unavailable");
+  assert(format_terminal_background_status(TerminalBackgroundMode::blur, false, effect) == "Opaque background: desktop transparency is unavailable");
+  assert(format_terminal_background_status(TerminalBackgroundMode::transparent, true, effect) == "Transparent background");
+  assert(format_terminal_background_status(TerminalBackgroundMode::opaque, true, effect) == "Opaque background");
   gtk_init(&argc, &argv);
   cardio::dispatcher_group_glib group;
   cardio::dispatcher_host_glib_auto dispatcher(group);

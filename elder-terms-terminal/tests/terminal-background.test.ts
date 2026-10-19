@@ -182,7 +182,16 @@ process.stdout.write('\\x1b[?25l\\x1b[48;2;0;0;0m\\x1b[38;2;255;255;255m\\x1b[2J
               await app.input.pressKey('Home');
               for (let i = 0; i < index; i++) await app.input.pressKey('Down');
               await app.input.pressKey('Return');
-              await waitForResult(async () => expect(await expectElementKind(await app.getById('settings_terminal_background_mode_combo'), 'comboBox').isChildSelected(index)).toBe(true));
+              await waitForResult(async () =>
+                expect(
+                  await expectElementKind(
+                    await app.getById(
+                      'settings_terminal_background_mode_combo'
+                    ),
+                    'comboBox'
+                  ).isChildSelected(index)
+                ).toBe(true)
+              );
             };
             for (const step of [
               { opacity: '0', tint: '0', rgb: [224, 48, 32] },

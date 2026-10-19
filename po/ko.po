@@ -2508,3 +2508,18 @@ msgstr "PNG 또는 JPEG 배경 이미지를 선택하세요"
 
 msgid "Select a regular local image file"
 msgstr "일반 로컬 이미지 파일을 선택하세요"
+
+msgid "Frosted glass"
+msgstr "반투명 유리"
+
+msgid "Frosted glass requested"
+msgstr "반투명 유리 효과를 요청했습니다"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "투명 배경: 반투명 유리 지원 확인 중"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "투명 배경: 반투명 유리 효과 요청 실패"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "투명 배경: 반투명 유리 효과를 사용할 수 없음"

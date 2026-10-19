@@ -210,8 +210,8 @@ static bool validate_terminal_cursor_shape(const SettingValue &value, std::strin
 
 static bool validate_background_mode(const SettingValue &value, std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
-  if (text && (*text == "opaque" || *text == "transparent")) return true;
-  *reason = "must be opaque or transparent";
+  if (text && (*text == "opaque" || *text == "transparent" || *text == "blur")) return true;
+  *reason = "must be opaque, transparent, or blur";
   return false;
 }
 
@@ -327,7 +327,8 @@ TerminalBackgroundImageSettings terminal_background_image_settings(const Setting
 }
 
 TerminalBackgroundSettings terminal_background_settings(const SettingsStore &store) {
-  return {setting_string_value_or_default(store, terminal_background_mode_setting_key(), "opaque") == "transparent"
+  const auto mode = setting_string_value_or_default(store, terminal_background_mode_setting_key(), "opaque");
+  return {mode == "blur" ? TerminalBackgroundMode::blur : mode == "transparent"
           ? TerminalBackgroundMode::transparent : TerminalBackgroundMode::opaque,
       static_cast<int>(setting_integer_value_or_default(store, terminal_background_opacity_setting_key(), 80)),
       parse_rgb_color(setting_string_value_or_default(store, terminal_background_tint_color_setting_key(), "#000000"))

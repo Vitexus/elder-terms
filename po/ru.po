@@ -2530,3 +2530,18 @@ msgstr "Выберите фоновое изображение PNG или JPEG"
 
 msgid "Select a regular local image file"
 msgstr "Выберите обычный локальный файл изображения"
+
+msgid "Frosted glass"
+msgstr "Матовое стекло"
+
+msgid "Frosted glass requested"
+msgstr "Запрошен эффект матового стекла"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "Прозрачный фон: проверка поддержки матового стекла"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "Прозрачный фон: не удалось запросить матовое стекло"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "Прозрачный фон: матовое стекло недоступно"

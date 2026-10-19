@@ -54,6 +54,7 @@ libssh-dev
 libudev-dev
 liburing-dev
 libx11-dev
+libxfixes-dev
 libxkbcommon-dev
 libxml2-dev
 meson

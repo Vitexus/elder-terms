@@ -2,6 +2,7 @@
 
 #include "main-window.h"
 #include "terminal-background-image.h"
+#include <boxrig/ui/background_effect.h>
 
 namespace elder_terms {
 /** Application-owned background composition for one terminal window. */
@@ -32,6 +33,11 @@ void prepare_terminal_background_image(TerminalBackground *background, const Set
 void cancel_terminal_background_image(TerminalBackground *background);
 /** @param background Live state or null. @returns Actual desktop transparency status. */
 std::string terminal_background_status(const TerminalBackground *background);
+/** Formats native acceptance separately from observed pixels.
+ * @param mode Requested mode. @param transparent Actual desktop alpha support.
+ * @param effect Latest compositor request state. @returns Localized actual status. */
+std::string format_terminal_background_status(TerminalBackgroundMode mode, bool transparent,
+    const boxrig_ui_background_effect_state &effect);
 /** @param background Owned state or null; destroy before GTK objects. */
 void destroy_terminal_background(TerminalBackground *background);
 }

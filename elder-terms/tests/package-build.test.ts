@@ -181,6 +181,7 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     'zlib-LICENSE',
     'Unicode-LICENSE.txt',
     'WHATWG-Encoding-LICENSE',
+    'Wayland-protocols-NOTICES.md',
   ]) {
     textFiles.set(
       `usr/share/doc/elder-terms/licenses/boxrig/${name}`,
@@ -928,6 +929,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         'zlib-LICENSE',
         'Unicode-LICENSE.txt',
         'WHATWG-Encoding-LICENSE',
+        'Wayland-protocols-NOTICES.md',
       ].map((name) => `usr/share/doc/elder-terms/licenses/boxrig/${name}`),
     ]) {
       const name = missingPath.replace(/\//g, '-');

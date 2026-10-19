@@ -2500,3 +2500,18 @@ msgstr "请选择 PNG 或 JPEG 背景图像"
 
 msgid "Select a regular local image file"
 msgstr "请选择普通的本地图像文件"
+
+msgid "Frosted glass"
+msgstr "磨砂玻璃"
+
+msgid "Frosted glass requested"
+msgstr "已请求磨砂玻璃效果"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "透明背景：正在检查磨砂玻璃支持"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "透明背景：磨砂玻璃请求失败"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "透明背景：磨砂玻璃不可用"

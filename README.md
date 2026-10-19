@@ -1070,7 +1070,7 @@ Rendering requires GTK3 3.24 or later, Pango 1.50 or later, Cairo 1.18 or later,
 ```bash
 sudo apt update
 sudo apt install build-essential git meson ninja-build pkg-config gettext \
-  libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev \
+  libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev libxfixes-dev \
   libxkbcommon-dev liburing-dev libudev-dev libssh-dev libcurl4-openssl-dev \
   libcairo2-dev libpango1.0-dev libfontconfig1-dev libepoxy-dev libibus-1.0-dev \
   libwayland-dev libgl-dev libegl-dev libssl-dev libxml2-dev ca-certificates xdg-utils
