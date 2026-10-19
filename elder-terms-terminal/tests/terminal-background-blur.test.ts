@@ -23,11 +23,11 @@ for (const backend of ['cairo', 'opengl']) {
       const peer = join(directory, 'peer.mjs');
       await writeFile(
         peer,
-        "process.stdin.setRawMode(true); process.stdin.resume(); process.stdout.write('\\x1b[?25l\\x1b[48;2;0;0;0m\\x1b[38;2;255;255;255m\\x1b[2J\\x1b[HFOREGROUND');"
+        "process.stdin.setRawMode(true); process.stdin.resume(); process.stdout.write('\\x1b[?25l\\x1b[48;2;0;0;0m\\x1b[38;2;255;255;255m\\x1b[2J\\x1b[HFOREGROUND\\r\\n\\x1b[38;2;0;0;255m████████');"
       );
       await writeFile(
         config,
-        `[terminal]\nbackground_mode=blur\nbackground_opacity=0\n[local]\ncommand_line=${process.execPath} ${peer}\n`
+        `[terminal]\ncursor_shape=bar\ncursor_blink=false\ncolor_filter=oklch-blue\nbackground_mode=blur\nbackground_opacity=0\n[local]\ncommand_line=${process.execPath} ${peer}\n`
       );
       await writeFile(
         join(directory, 'kwinrc'),
@@ -93,7 +93,8 @@ for (const backend of ['cairo', 'opengl']) {
                 let sum = 0,
                   square = 0,
                   count = 0,
-                  white = 0;
+                  white = 0,
+                  correctedBlue = 0;
                 for (let y = 60; y < frame.height - 60; y++)
                   for (let x = 60; x < frame.width - 60; x++) {
                     const value = frame.data[(y * frame.width + x) * 4];
@@ -120,6 +121,17 @@ for (const backend of ['cairo', 'opengl']) {
                       white++;
                   }
                 expect(white).toBeGreaterThan(20);
+                for (let y = layout.cellHeight; y < 2 * layout.cellHeight; y++)
+                  for (let x = 0; x < 10 * layout.cellWidth; x++) {
+                    const at = (y * frame.width + x) * 4;
+                    if (
+                      frame.data[at] === 46 &&
+                      frame.data[at + 1] === 105 &&
+                      frame.data[at + 2] === 255
+                    )
+                      correctedBlue++;
+                  }
+                expect(correctedBlue).toBeGreaterThan(20);
               });
             };
             await expectBlur(true);
