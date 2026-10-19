@@ -167,30 +167,32 @@ process.stdout.write('\\x1b[?25l\\x1b[48;2;0;0;0m\\x1b[38;2;255;255;255m\\x1b[2J
               ).setText(value);
             };
             const selectMode = async (index: number): Promise<void> => {
-              // Native input completes GTK's popup grab before applying settings.
-              const bounds = (
-                await (
-                  await app.getById('settings_terminal_background_mode_combo')
-                ).capture()
-              ).bounds;
+              // Wait for the popup item before sending native selection input.
+              // Key events sent while GTK creates the popup can be lost.
+              const combo = expectElementKind(
+                await app.getById('settings_terminal_background_mode_combo'),
+                'comboBox'
+              );
+              const bounds = (await combo.capture()).bounds;
               await app.input.moveMouseTo(
-                bounds.x + bounds.width / 2,
-                bounds.y + bounds.height / 2
+                Math.round(bounds.x + bounds.width / 2),
+                Math.round(bounds.y + bounds.height / 2)
               );
               await app.input.setMouseButton('left', true);
               await app.input.setMouseButton('left', false);
-              await app.input.pressKey('Home');
-              for (let i = 0; i < index; i++) await app.input.pressKey('Down');
-              await app.input.pressKey('Return');
+              const item = (await combo.childAt(index))!;
               await waitForResult(async () =>
-                expect(
-                  await expectElementKind(
-                    await app.getById(
-                      'settings_terminal_background_mode_combo'
-                    ),
-                    'comboBox'
-                  ).isChildSelected(index)
-                ).toBe(true)
+                expect((await item.info()).states).toContain('showing')
+              );
+              const target = (await item.capture()).bounds;
+              await app.input.moveMouseTo(
+                Math.round(target.x + target.width / 2),
+                Math.round(target.y + target.height / 2)
+              );
+              await app.input.setMouseButton('left', true);
+              await app.input.setMouseButton('left', false);
+              await waitForResult(async () =>
+                expect(await combo.isChildSelected(index)).toBe(true)
               );
             };
             for (const step of [
