@@ -2395,3 +2395,19 @@ msgstr "Usar para \"New Window\""
 #: elder-terms/src/main.cpp
 msgid "Failed to save New Window connection"
 msgstr "Falha ao salvar a conexão para uma nova janela"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Initializing"
+msgstr "Inicializando"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "switching"
+msgstr "alternando"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Requested OpenGL; using Cairo"
+msgstr "OpenGL solicitado; usando Cairo"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Other display"
+msgstr "Outro sistema de janelas"

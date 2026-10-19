@@ -110,6 +110,7 @@ elder_terms_sources = [
   'src/terminal-log.cpp',
   'src/widget-background.cpp',
   'src/terminal-presentation.cpp',
+  'src/terminal-renderer-status.cpp',
 ]
 
 elder_terms_terminal = executable(
@@ -139,6 +140,13 @@ elder_terms_terminal = executable(
 )
 
 if get_option('build_tests')
+terminal_renderer_status_test = executable('terminal-renderer-status-test',
+  ['tests/cpp/terminal-renderer-status-test.cpp', 'src/terminal-renderer-status.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-gtk3']])
+test('terminal-renderer-status-test', find_program('xvfb-run'),
+  args: ['-a', terminal_renderer_status_test], timeout: 120,
+  env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
+
 terminal_dispatch_test = executable('terminal-dispatch-test',
   'tests/cpp/terminal-dispatch-test.cpp',
   objects: elder_terms_terminal.extract_all_objects(recursive: false),

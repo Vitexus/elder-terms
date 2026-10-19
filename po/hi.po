@@ -2378,3 +2378,19 @@ msgstr "\"New Window\" के लिए उपयोग करें"
 #: elder-terms/src/main.cpp
 msgid "Failed to save New Window connection"
 msgstr "नई विंडो का कनेक्शन सहेजने में विफल"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Initializing"
+msgstr "प्रारंभ हो रहा है"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "switching"
+msgstr "बदल रहा है"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Requested OpenGL; using Cairo"
+msgstr "OpenGL का अनुरोध किया गया; Cairo उपयोग में है"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Other display"
+msgstr "अन्य डिस्प्ले"

@@ -28,6 +28,68 @@ const luminance = (rgb: number): number => {
 };
 
 describe('terminal appearance', () => {
+  it('shows the active renderer at the right of the settings footer', async (context) => {
+    await withTemporaryDirectory(async (directory) => {
+      const config = join(directory, 'renderer.ini');
+      await writeFile(config, '[terminal]\n');
+      await runGtkTest(
+        context,
+        ['--test-fixture', '-c', config],
+        async (app, evidence) => {
+          await expectElementKind(
+            await app.getById('application_menu_button'),
+            'toggleButton'
+          ).click();
+          await expectElementKind(
+            await app.getById('settings_menu_item'),
+            'menuItem'
+          ).click();
+          const label = expectElementKind(
+            await app.getById('settings_runtime_status'),
+            'label'
+          );
+          await waitForResult(async () =>
+            expect(await label.text()).toMatch(/^(OpenGL( ES)?|Cairo) \/ X11$/)
+          );
+          const native = await expectElementKind(
+            await app.getById('fixture_terminal_state_label'),
+            'label'
+          ).text();
+          expect(
+            (await label.text()).startsWith(
+              native.includes('backend=opengl') ? 'OpenGL' : 'Cairo'
+            )
+          ).toBe(true);
+          await expectElementKind(
+            await app.getById('settings_dialog'),
+            'window'
+          ).resizeTo(560, 430);
+          const cancel = await (
+            await app.getById('settings_cancel_button')
+          ).capture();
+          const status = await label.capture();
+          expect(status.bounds.x).toBeGreaterThanOrEqual(
+            cancel.bounds.x + cancel.bounds.width
+          );
+          expect(
+            Math.abs(
+              status.bounds.y +
+                status.bounds.height / 2 -
+                cancel.bounds.y -
+                cancel.bounds.height / 2
+            )
+          ).toBeLessThan(2);
+          await evidence.captureEvidence('renderer-footer', async () =>
+            app.capture()
+          );
+          expect(
+            (await (await app.getById('settings_save_button')).info()).states
+          ).toContain('showing');
+        }
+      );
+    });
+  });
+
   for (const background of ['none', '#101010', '#efefef', '#613583']) {
     it(`keeps the scrollbar visible and usable on ${background}`, async (context) => {
       await withTemporaryDirectory(async (directory) => {

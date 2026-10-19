@@ -2379,3 +2379,19 @@ msgstr "\"New Window\"에 사용"
 #: elder-terms/src/main.cpp
 msgid "Failed to save New Window connection"
 msgstr "새 창 연결을 저장하지 못했습니다"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Initializing"
+msgstr "초기화 중"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "switching"
+msgstr "전환 중"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Requested OpenGL; using Cairo"
+msgstr "OpenGL을 요청했지만 Cairo를 사용합니다"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Other display"
+msgstr "기타 디스플레이"

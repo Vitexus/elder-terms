@@ -2371,3 +2371,19 @@ msgstr "用于“New Window”"
 #: elder-terms/src/main.cpp
 msgid "Failed to save New Window connection"
 msgstr "无法保存新窗口连接"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Initializing"
+msgstr "正在初始化"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "switching"
+msgstr "正在切换"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Requested OpenGL; using Cairo"
+msgstr "已请求 OpenGL；正在使用 Cairo"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Other display"
+msgstr "其他显示系统"

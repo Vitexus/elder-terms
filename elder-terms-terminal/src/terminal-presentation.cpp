@@ -209,7 +209,8 @@ void refresh_terminal_presentation(TerminalPresentation *presentation) {
   {
     char report[256];
     std::snprintf(report, sizeof(report), "backend=%s grid=%zux%zu font=%.2f history=%zu cell=%ux%u scale=%d ready=%d a11y=%s",
-        render.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL ? "opengl" : "cairo",
+        render.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL ? "opengl" :
+            render.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO ? "cairo" : "initializing",
         columns, rows, metrics.requested_size_dip, history, metrics.cell_width, metrics.cell_height,
         gtk_widget_get_scale_factor(GTK_WIDGET(widget)), settled,
         boxrig_gtk3_terminal_widget_get_accessibility_enabled(widget) ? "on" : "off");

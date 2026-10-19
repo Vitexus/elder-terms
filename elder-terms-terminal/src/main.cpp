@@ -40,6 +40,7 @@
 #include "terminal-bell.h"
 #include "terminal-hyperlink-action.h"
 #include "terminal-presentation.h"
+#include "terminal-renderer-status.h"
 #include "terminal-runtime.h"
 #include "terminal-transports.h"
 #include "terminal-log.h"
@@ -697,10 +698,17 @@ static bool connect_application_terminal(ApplicationState *state) {
   }, profile->settings);
 }
 
+static void update_settings_renderer_status(ApplicationState *state) {
+  if (!state->settings_widget || !state->runtime) return;
+  const auto status = elder_terms::terminal_renderer_status(elder_terms::terminal_runtime_widget(state->runtime));
+  elder_terms::settings_widget_set_runtime_status(state->settings_widget, status.text, status.tooltip);
+}
+
 static void application_terminal_changed(void *context) {
   auto *state = static_cast<ApplicationState *>(context);
   if (!state->window || state->closing) return;
   elder_terms::refresh_terminal_presentation(state->presentation);
+  update_settings_renderer_status(state);
   if (state->test_options.fixture) return;
   if (state->connect_when_ready && elder_terms::terminal_runtime_is_settled(state->runtime)) {
     state->connect_when_ready = false;
@@ -942,6 +950,7 @@ static void open_settings_dialog(ApplicationState *state) {
   };
   state->settings_widget =
       elder_terms::create_settings_widget(std::move(options));
+  update_settings_renderer_status(state);
   GtkWidget *settings_root =
       elder_terms::settings_widget_root(state->settings_widget);
   gtk_container_add(

@@ -249,6 +249,9 @@ struct SettingsWidgetState {
   GtkWidget *apply_button = nullptr;
   GtkWidget *save_button = nullptr;
   GtkWidget *cancel_button = nullptr;
+  GtkWidget *runtime_status = nullptr;
+  std::string runtime_status_text;
+  std::string runtime_status_tooltip;
   std::vector<ConnectionSettingsPage> connection_pages;
 };
 
@@ -6050,10 +6053,10 @@ static GtkWidget *create_logging_page(SettingsWidgetState *state) {
 
 static GtkWidget *create_button_box(SettingsWidgetState *state) {
   GtkWidget *panel =
-      gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+      gtk_box_new(state->is_runtime ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *button_box = gtk_button_box_new(GTK_ORIENTATION_HORIZONTAL);
   const std::string action_row_id = widget_id(state, "action_row");
-  assign_accessible_id(button_box, action_row_id.c_str());
+  assign_accessible_id(panel, action_row_id.c_str());
   gtk_button_box_set_layout(GTK_BUTTON_BOX(button_box), GTK_BUTTONBOX_END);
   gtk_box_set_spacing(GTK_BOX(button_box), 8);
   gtk_widget_set_margin_top(button_box, 12);
@@ -6092,8 +6095,30 @@ static GtkWidget *create_button_box(SettingsWidgetState *state) {
   gtk_container_add(GTK_CONTAINER(button_box), state->cancel_button);
 
   gtk_box_pack_start(
-      GTK_BOX(panel), button_box, TRUE, TRUE, 0);
+      GTK_BOX(panel), button_box, !state->is_runtime, !state->is_runtime, 0);
+  if (state->is_runtime) {
+    state->runtime_status = gtk_label_new("");
+    assign_accessible_id(state->runtime_status, widget_id(state, "runtime_status").c_str());
+    gtk_label_set_xalign(GTK_LABEL(state->runtime_status), 1);
+    gtk_label_set_ellipsize(GTK_LABEL(state->runtime_status), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(state->runtime_status), 28);
+    gtk_widget_set_margin_end(state->runtime_status, 12);
+    gtk_widget_set_no_show_all(state->runtime_status, TRUE);
+    gtk_box_pack_start(GTK_BOX(panel), state->runtime_status, TRUE, TRUE, 0);
+  }
   return panel;
+}
+
+void settings_widget_set_runtime_status(SettingsWidgetState *state,
+    const std::string &text, const std::string &tooltip) {
+  if (!state || !state->runtime_status) return;
+  if (state->runtime_status_text == text && state->runtime_status_tooltip == tooltip) return;
+  state->runtime_status_text = text;
+  state->runtime_status_tooltip = tooltip;
+  gtk_label_set_text(GTK_LABEL(state->runtime_status), text.c_str());
+  gtk_widget_set_tooltip_text(state->runtime_status, tooltip.c_str());
+  atk_object_set_description(gtk_widget_get_accessible(state->runtime_status), tooltip.c_str());
+  gtk_widget_set_visible(state->runtime_status, !text.empty());
 }
 
 SettingsWidgetState *create_settings_widget(SettingsWidgetOptions options) {

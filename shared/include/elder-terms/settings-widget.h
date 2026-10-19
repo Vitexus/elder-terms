@@ -187,6 +187,17 @@ ELDER_TERMS_API void settings_widget_show_general_page(SettingsWidgetState *stat
 ELDER_TERMS_API GtkWidget *settings_widget_root(SettingsWidgetState *state);
 
 /**
+ * Sets read-only information at the right of a runtime editor's action row.
+ * @param state Live settings state, or null for no operation.
+ * @param text Short status; an empty string hides the label.
+ * @param tooltip Complete status and diagnostics for truncated text.
+ * @remarks Non-runtime editors do not show this label. Draft values, dirty
+ * state and callbacks remain unchanged. Text is copied by GTK.
+ */
+ELDER_TERMS_API void settings_widget_set_runtime_status(SettingsWidgetState *state,
+    const std::string &text, const std::string &tooltip);
+
+/**
  * Releases settings widget state.
  *
  * @param state Settings widget state to destroy.
