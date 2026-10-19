@@ -2442,3 +2442,42 @@ msgstr "Bloc vertical"
 #: shared/src/settings-widget/settings-presentation.cpp
 msgid "Underline box"
 msgstr "Bloc de soulignement"
+
+msgid "Background mode"
+msgstr "Mode du fond"
+
+msgid "Background opacity (%)"
+msgstr "Opacité du fond (%)"
+
+msgid "Background tint"
+msgstr "Teinte du fond"
+
+msgid "Tint opacity (%)"
+msgstr "Opacité de la teinte (%)"
+
+msgid "Opaque"
+msgstr "Opaque"
+
+msgid "Transparent"
+msgstr "Transparent"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "Saisissez un entier de 0 à 100"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "Saisissez une couleur au format #RRGGBB"
+
+msgid "Applying settings…"
+msgstr "Application des paramètres…"
+
+msgid "Failed to apply terminal settings"
+msgstr "Impossible d’appliquer les paramètres du terminal"
+
+msgid "Opaque background"
+msgstr "Fond opaque"
+
+msgid "Transparent background"
+msgstr "Fond transparent"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "Fond opaque : la transparence du bureau est indisponible"

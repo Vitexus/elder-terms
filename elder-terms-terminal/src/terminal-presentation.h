@@ -48,6 +48,9 @@ bool apply_terminal_presentation(TerminalPresentation *presentation, const Setti
  */
 void refresh_terminal_presentation(TerminalPresentation *presentation);
 
+/** @param presentation Live integration or null. @returns Actual background capabilities and fallback status. */
+std::string terminal_presentation_background_status(const TerminalPresentation *presentation);
+
 /**
  * Releases presentation sources and callbacks before GTK ownership is released.
  * @param presentation Owned integration, or nullptr.

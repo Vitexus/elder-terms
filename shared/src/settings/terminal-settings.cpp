@@ -208,6 +208,27 @@ static bool validate_terminal_cursor_shape(const SettingValue &value, std::strin
   return true;
 }
 
+static bool validate_background_mode(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && (*text == "opaque" || *text == "transparent")) return true;
+  *reason = "must be opaque or transparent";
+  return false;
+}
+
+static bool validate_background_percent(const SettingValue &value, std::string *reason) {
+  const auto *number = std::get_if<gint64>(&value);
+  if (number && *number >= 0 && *number <= 100) return true;
+  *reason = "must be an integer from 0 to 100";
+  return false;
+}
+
+static bool validate_background_tint(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && parse_rgb_color(*text)) return true;
+  *reason = "must be #RRGGBB";
+  return false;
+}
+
 static bool validate_terminal_return_code(const SettingValue &value,
                                           std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
@@ -271,6 +292,20 @@ TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store) {
   return {shape == "bar" ? TerminalCursorShape::bar :
           shape == "underline" ? TerminalCursorShape::underline : TerminalCursorShape::block,
       setting_boolean_value_or_default(store, terminal_cursor_blink_setting_key(), true)};
+}
+
+SettingKey terminal_background_mode_setting_key() { return terminal_key("background_mode"); }
+SettingKey terminal_background_opacity_setting_key() { return terminal_key("background_opacity"); }
+SettingKey terminal_background_tint_color_setting_key() { return terminal_key("background_tint_color"); }
+SettingKey terminal_background_tint_opacity_setting_key() { return terminal_key("background_tint_opacity"); }
+
+TerminalBackgroundSettings terminal_background_settings(const SettingsStore &store) {
+  return {setting_string_value_or_default(store, terminal_background_mode_setting_key(), "opaque") == "transparent"
+          ? TerminalBackgroundMode::transparent : TerminalBackgroundMode::opaque,
+      static_cast<int>(setting_integer_value_or_default(store, terminal_background_opacity_setting_key(), 80)),
+      parse_rgb_color(setting_string_value_or_default(store, terminal_background_tint_color_setting_key(), "#000000"))
+          .value_or(RgbColor{0, 0, 0}),
+      static_cast<int>(setting_integer_value_or_default(store, terminal_background_tint_opacity_setting_key(), 0))};
 }
 
 SettingKey terminal_show_border_setting_key() {
@@ -391,6 +426,10 @@ terminal_setting_definitions(TerminalDisplaySettings terminal_defaults) {
       {.key = terminal_cursor_shape_setting_key(), .default_value = SettingValue{std::string("block")},
        .validate = validate_terminal_cursor_shape},
       {.key = terminal_cursor_blink_setting_key(), .default_value = SettingValue{true}, .validate = nullptr},
+      {.key = terminal_background_mode_setting_key(), .default_value = SettingValue{std::string("opaque")}, .validate = validate_background_mode},
+      {.key = terminal_background_opacity_setting_key(), .default_value = SettingValue{gint64{80}}, .validate = validate_background_percent},
+      {.key = terminal_background_tint_color_setting_key(), .default_value = SettingValue{std::string("#000000")}, .validate = validate_background_tint},
+      {.key = terminal_background_tint_opacity_setting_key(), .default_value = SettingValue{gint64{0}}, .validate = validate_background_percent},
       {
           .key = terminal_width_setting_key(),
           .default_value =

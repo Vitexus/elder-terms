@@ -2414,3 +2414,42 @@ msgstr "लंबवत बॉक्स"
 #: shared/src/settings-widget/settings-presentation.cpp
 msgid "Underline box"
 msgstr "रेखांकन बॉक्स"
+
+msgid "Background mode"
+msgstr "पृष्ठभूमि मोड"
+
+msgid "Background opacity (%)"
+msgstr "पृष्ठभूमि की अपारदर्शिता (%)"
+
+msgid "Background tint"
+msgstr "पृष्ठभूमि का मिश्रित रंग"
+
+msgid "Tint opacity (%)"
+msgstr "मिश्रित रंग की अपारदर्शिता (%)"
+
+msgid "Opaque"
+msgstr "अपारदर्शी"
+
+msgid "Transparent"
+msgstr "पारदर्शी"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "0 से 100 तक कोई पूर्णांक दर्ज करें"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "#RRGGBB के रूप में रंग दर्ज करें"
+
+msgid "Applying settings…"
+msgstr "सेटिंग लागू की जा रही हैं…"
+
+msgid "Failed to apply terminal settings"
+msgstr "टर्मिनल सेटिंग लागू नहीं हो सकीं"
+
+msgid "Opaque background"
+msgstr "अपारदर्शी पृष्ठभूमि"
+
+msgid "Transparent background"
+msgstr "पारदर्शी पृष्ठभूमि"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "अपारदर्शी पृष्ठभूमि: डेस्कटॉप पारदर्शिता उपलब्ध नहीं है"

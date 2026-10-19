@@ -2407,3 +2407,42 @@ msgstr "竖方框"
 #: shared/src/settings-widget/settings-presentation.cpp
 msgid "Underline box"
 msgstr "下划线方框"
+
+msgid "Background mode"
+msgstr "背景模式"
+
+msgid "Background opacity (%)"
+msgstr "背景不透明度 (%)"
+
+msgid "Background tint"
+msgstr "背景混合色"
+
+msgid "Tint opacity (%)"
+msgstr "混合色不透明度 (%)"
+
+msgid "Opaque"
+msgstr "不透明"
+
+msgid "Transparent"
+msgstr "透明"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "请输入 0 到 100 之间的整数"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "请以 #RRGGBB 格式输入颜色"
+
+msgid "Applying settings…"
+msgstr "正在应用设置…"
+
+msgid "Failed to apply terminal settings"
+msgstr "无法应用终端设置"
+
+msgid "Opaque background"
+msgstr "不透明背景"
+
+msgid "Transparent background"
+msgstr "透明背景"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "不透明背景：桌面透明效果不可用"

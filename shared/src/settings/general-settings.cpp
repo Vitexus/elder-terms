@@ -52,7 +52,7 @@ static bool validate_connection_hotkey(const SettingValue &value,
   return global_hotkey_text_is_valid(*text, reason);
 }
 
-static std::optional<RgbColor> parse_indicator_color(const std::string &text) {
+std::optional<RgbColor> parse_rgb_color(const std::string &text) {
   if (text.size() != 7 || text.front() != '#') {
     return std::nullopt;
   }
@@ -73,7 +73,7 @@ static bool validate_indicator_color(const SettingValue &value,
                                       std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
   if (text != nullptr && (*text == "default" ||
-                          parse_indicator_color(*text).has_value())) {
+                          parse_rgb_color(*text).has_value())) {
     return true;
   }
   *reason = "must be default or #RRGGBB";
@@ -181,7 +181,7 @@ SettingKey general_indicator_color_setting_key() {
 }
 
 std::optional<RgbColor> general_indicator_color(const SettingsStore &store) {
-  return parse_indicator_color(setting_string_value_or_default(
+  return parse_rgb_color(setting_string_value_or_default(
       store, general_indicator_color_setting_key(), "default"));
 }
 
@@ -190,7 +190,7 @@ SettingKey general_indicator_off_color_setting_key() {
 }
 
 std::optional<RgbColor> general_indicator_off_color(const SettingsStore &store) {
-  return parse_indicator_color(setting_string_value_or_default(
+  return parse_rgb_color(setting_string_value_or_default(
       store, general_indicator_off_color_setting_key(), "default"));
 }
 

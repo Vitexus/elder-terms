@@ -25,13 +25,23 @@ enum class SettingsWidgetMode {
   global_defaults,
 };
 
+/** One pending Apply/Save request. Call its functions only on the GTK thread. */
+struct SettingsWidgetAction {
+  /** True until completion, a later edit, cancellation, or editor destruction.
+   * Check before committing asynchronous work; the check remains safe after destruction. */
+  std::function<bool()> current;
+  /** Completes once. Accepted requests become applied; failures retain the draft
+   * and show the supplied message. Stale requests have no effect. */
+  std::function<void(bool accepted, std::string message)> complete;
+};
+
 /**
- * Called when the user applies settings from the widget.
- *
- * @param store Draft settings after applying the current widget values.
+ * Requests settings application. The editor remains pending until completion.
+ * @param store Copied draft; asynchronous consumers must retain their own copy.
+ * @param action Safe request handle; check current before changing application state.
  */
 using SettingsWidgetApplyCallback =
-    std::function<void(const SettingsStore &store)>;
+    std::function<void(const SettingsStore &store, SettingsWidgetAction action)>;
 
 /**
  * Called when the user cancels settings editing.
@@ -55,10 +65,10 @@ using SettingsWidgetIpScannerDependenciesFactory =
  * Called when the user saves settings from the widget.
  *
  * @param store Draft settings after applying the current widget values.
- * @returns True when the settings were saved and should become applied.
+ * @param action Complete as accepted only after saving and applying both succeed.
  */
 using SettingsWidgetSaveCallback =
-    std::function<bool(const SettingsStore &store)>;
+    SettingsWidgetApplyCallback;
 
 /**
  * Optional callbacks emitted by the settings widget.
@@ -196,6 +206,9 @@ ELDER_TERMS_API GtkWidget *settings_widget_root(SettingsWidgetState *state);
  */
 ELDER_TERMS_API void settings_widget_set_runtime_status(SettingsWidgetState *state,
     const std::string &text, const std::string &tooltip);
+
+/** @param state Live editor or null. @param text Effective background status, without changing the draft. */
+ELDER_TERMS_API void settings_widget_set_background_status(SettingsWidgetState *state, const std::string &text);
 
 /**
  * Releases settings widget state.

@@ -1,5 +1,6 @@
 #include "terminal-presentation.h"
 #include "terminal-runtime.h"
+#include "terminal-background.h"
 
 #include <cmath>
 #include <cstdio>
@@ -22,6 +23,7 @@ struct TerminalPresentation {
   guint zoom_source = 0;
   std::optional<TerminalDisplaySettings> pending_grid;
   TerminalCursorSettings cursor{TerminalCursorShape::block, true};
+  TerminalBackground *background = nullptr;
 };
 
 static bool apply_cursor(TerminalPresentation *presentation, const TerminalCursorSettings &settings) {
@@ -131,6 +133,7 @@ TerminalPresentation *create_terminal_presentation(MainWindow *window, TestOptio
     std::function<void(TerminalDisplaySettings)> changed, std::function<void()> send_break) {
   auto *presentation = new TerminalPresentation{window, options, std::move(changed), std::move(send_break), {}, {}, 0, 0,
       options.maximize_window, {}, 0, {}};
+  presentation->background = create_terminal_background(window);
   g_signal_connect_after(window->root_box, "size-allocate", G_CALLBACK(+[](GtkWidget *, GtkAllocation *, gpointer context) {
     auto *current = static_cast<TerminalPresentation *>(context);
     if (!current->pending_grid) return;
@@ -149,6 +152,7 @@ void attach_terminal_presentation(TerminalPresentation *presentation) {
       terminal_runtime_widget(presentation->window->runtime), route_key, presentation);
   if (status != BOXRIG_UI_OK) g_printerr("Terminal shortcuts: %d\n", status);
   apply_cursor(presentation, presentation->cursor);
+  attach_terminal_background(presentation->background);
 }
 
 boxrig_input_mouse_route route_terminal_presentation_mouse(
@@ -169,6 +173,7 @@ bool apply_terminal_presentation(TerminalPresentation *presentation, const Setti
   auto *widget = terminal_runtime_widget(window->runtime);
   const auto display = terminal_display_settings(settings);
   if (!apply_cursor(presentation, terminal_cursor_settings(settings))) return false;
+  if (!apply_terminal_background(presentation->background, settings)) return false;
   const auto accessibility_status = boxrig_gtk3_terminal_widget_set_accessibility_enabled(
       widget, terminal_accessibility_enabled(settings));
   if (accessibility_status != BOXRIG_UI_OK) {
@@ -275,9 +280,14 @@ void refresh_terminal_presentation(TerminalPresentation *presentation) {
 }
 
 void destroy_terminal_presentation(TerminalPresentation *presentation) {
+  if (presentation) destroy_terminal_background(presentation->background);
   if (presentation && presentation->zoom_source) g_source_remove(presentation->zoom_source);
   if (presentation) g_signal_handlers_disconnect_by_data(presentation->window->root_box, presentation);
   delete presentation;
+}
+
+std::string terminal_presentation_background_status(const TerminalPresentation *presentation) {
+  return terminal_background_status(presentation ? presentation->background : nullptr);
 }
 
 }

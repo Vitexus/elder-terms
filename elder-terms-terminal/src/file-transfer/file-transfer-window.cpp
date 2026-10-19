@@ -2630,26 +2630,28 @@ static void open_file_settings(GtkMenuItem *, gpointer data) {
   gtk_header_bar_set_show_close_button(GTK_HEADER_BAR(header), TRUE);
   gtk_window_set_titlebar(GTK_WINDOW(dialog), header);
   SettingsWidgetCallbacks callbacks;
-  callbacks.apply = [window](const SettingsStore &settings) {
+  callbacks.apply = [window](const SettingsStore &settings, SettingsWidgetAction action) {
     window->settings = settings;
     set_file_transfer_window_colors(
         window->self.lock(), general_color_settings(settings));
     set_file_transfer_window_indicator_colors(window->self.lock(),
         general_indicator_color(settings), general_indicator_off_color(settings));
     apply_file_transfer_compact_mode(window, general_compact_mode(settings));
+    action.complete(true, {});
     schedule_file_settings_close(window);
   };
   if (window->config_path) {
     callbacks.save = [window, apply = callbacks.apply](
-                         const SettingsStore &settings) {
+                         const SettingsStore &settings, SettingsWidgetAction action) {
       const auto result = save_settings(settings, *window->config_path);
       if (!result.saved) {
         set_file_transfer_status(window, _("Failed to save connection"));
       }
       if (result.saved) {
-        apply(settings);
+        apply(settings, action);
+      } else {
+        action.complete(false, _("Failed to save connection"));
       }
-      return result.saved;
     };
   }
   callbacks.cancel = [window] { schedule_file_settings_close(window); };

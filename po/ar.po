@@ -2433,3 +2433,42 @@ msgstr "مربع رأسي"
 #: shared/src/settings-widget/settings-presentation.cpp
 msgid "Underline box"
 msgstr "مربع التسطير"
+
+msgid "Background mode"
+msgstr "وضع الخلفية"
+
+msgid "Background opacity (%)"
+msgstr "عتامة الخلفية (%)"
+
+msgid "Background tint"
+msgstr "لون مزج الخلفية"
+
+msgid "Tint opacity (%)"
+msgstr "عتامة اللون الممزوج (%)"
+
+msgid "Opaque"
+msgstr "معتم"
+
+msgid "Transparent"
+msgstr "شفاف"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "أدخل عدداً صحيحاً من 0 إلى 100"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "أدخل لوناً بالتنسيق #RRGGBB"
+
+msgid "Applying settings…"
+msgstr "جارٍ تطبيق الإعدادات…"
+
+msgid "Failed to apply terminal settings"
+msgstr "تعذر تطبيق إعدادات الطرفية"
+
+msgid "Opaque background"
+msgstr "خلفية معتمة"
+
+msgid "Transparent background"
+msgstr "خلفية شفافة"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "خلفية معتمة: شفافية سطح المكتب غير متاحة"

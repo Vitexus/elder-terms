@@ -8,8 +8,32 @@
 #include <elder-terms/export.h>
 #include <elder-terms/key-binding.h>
 #include <elder-terms/settings/settings-store.h>
+#include <elder-terms/settings/general-settings.h>
 
 namespace elder_terms {
+
+/** Desired desktop background mode; actual support is determined by the window owner. */
+enum class TerminalBackgroundMode {
+  opaque,      /**< Opaque application backing. */
+  transparent, /**< Prefer desktop alpha composition when supported. */
+};
+/** Independent cell-background and tint-layer preferences. */
+struct TerminalBackgroundSettings {
+  TerminalBackgroundMode mode; /**< Requested desktop transparency. */
+  int opacity;                /**< Cell background opacity, zero through one hundred. */
+  RgbColor tint;              /**< Unassociated sRGB tint color. */
+  int tint_opacity;           /**< Tint-layer opacity, zero through one hundred. */
+};
+/** @returns Key for the requested background mode. */
+ELDER_TERMS_API SettingKey terminal_background_mode_setting_key();
+/** @returns Key for terminal cell background opacity. */
+ELDER_TERMS_API SettingKey terminal_background_opacity_setting_key();
+/** @returns Key for the independent RGB tint. */
+ELDER_TERMS_API SettingKey terminal_background_tint_color_setting_key();
+/** @returns Key for tint-layer opacity. */
+ELDER_TERMS_API SettingKey terminal_background_tint_opacity_setting_key();
+/** @param store Layered settings. @returns Requested background preferences. */
+ELDER_TERMS_API TerminalBackgroundSettings terminal_background_settings(const SettingsStore &store);
 
 /** User-selected cursor geometry, independent of the terminal's DECSCUSR state. */
 enum class TerminalCursorShape {

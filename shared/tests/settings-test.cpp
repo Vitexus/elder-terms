@@ -770,6 +770,55 @@ static void test_general_indicator_color_round_trip_and_layering() {
   remove_config(global_path);
 }
 
+static void test_terminal_background_settings() {
+  const auto global = temporary_config_path("background-global");
+  const auto path = temporary_config_path("background-connection");
+  const auto mode = elder_terms::make_setting_key("terminal", "background_mode");
+  const auto opacity = elder_terms::make_setting_key("terminal", "background_opacity");
+  const auto tint = elder_terms::make_setting_key("terminal", "background_tint_color");
+  const auto tint_opacity = elder_terms::make_setting_key("terminal", "background_tint_opacity");
+  write_config(global, "[terminal]\nbackground_mode=transparent\nbackground_opacity=55\nbackground_tint_color=#336699\nbackground_tint_opacity=40\n");
+  write_config(path, "");
+  const SettingsLoadOptions options{.config_path = path,
+      .startup_config_path = std::nullopt, .global_config_path = global};
+  auto loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "transparent" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, opacity, -1) == 55,
+              "transparent backgrounds should inherit the requested mode and opacity");
+  for (const auto &key : {opacity, tint_opacity}) {
+    for (const gint64 value : {0, 50, 100})
+      expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{value}),
+                  "background percentages include both ends of the range");
+    for (const gint64 value : {-1, 101})
+      expect_true(!set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{value}),
+                  "background percentages outside zero to one hundred must be rejected");
+  }
+  for (const auto *invalid : {"", "white", "#abc", "#12345678", "#x12345"})
+    expect_true(!set_explicit_setting_value(&loaded.store, tint, elder_terms::SettingValue{std::string(invalid)}),
+                "background tint must be a six-digit RGB color");
+  expect_true(!set_explicit_setting_value(&loaded.store, mode, elder_terms::SettingValue{std::string("invalid")}),
+              "unknown background modes must be rejected");
+  expect_true(set_explicit_setting_value(&loaded.store, tint, elder_terms::SettingValue{std::string("#a0B1c2")}) &&
+                  save_settings(loaded.store, path).saved,
+              "valid background preferences should save");
+  loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, tint, "missing") == "#a0B1c2" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, tint_opacity, -1) == 100,
+              "tint and opacity should survive restart");
+  for (const auto &key : {mode, opacity, tint, tint_opacity}) clear_explicit_setting_value(&loaded.store, key);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "resetting background values should restore inheritance");
+  write_config(global, "");
+  loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "opaque" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, opacity, -1) == 80 &&
+                  elder_terms::setting_string_value_or_default(loaded.store, tint, "missing") == "#000000" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, tint_opacity, -1) == 0,
+              "background defaults should be opaque with optional tint disabled");
+  remove_config(path);
+  remove_config(global);
+}
+
 static void test_terminal_cursor_settings() {
   const auto global = temporary_config_path("cursor-global");
   const auto path = temporary_config_path("cursor-connection");
@@ -4480,6 +4529,7 @@ int main() {
     elder_terms_settings_test::test_webdav_invalid_numeric_settings_remain_invalid_after_save();
     elder_terms_settings_test::test_independent_inactive_indicator_color();
     elder_terms_settings_test::test_terminal_cursor_settings();
+    elder_terms_settings_test::test_terminal_background_settings();
     elder_terms_settings_test::test_terminal_font_list_round_trip_and_validation();
     elder_terms_settings_test::test_default_settings();
     elder_terms_settings_test::test_general_indicator_color_round_trip_and_layering();

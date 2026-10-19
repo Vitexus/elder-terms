@@ -13,6 +13,7 @@
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gestament/gtk.h>
 #include "terminal-runtime.h"
+#include "terminal-background.h"
 
 #define GETTEXT_PACKAGE "elder-terms"
 #include <glib/gi18n-lib.h>
@@ -1205,6 +1206,7 @@ std::optional<MainWindow> load_main_window() {
   gestament_gtk_assign_accessible_ids_from_builder(main_window.builder);
 
   main_window.window = required_widget(main_window.builder, "main_window");
+  if (main_window.window) prepare_terminal_background_window(main_window.window);
   main_window.header_bar = required_widget(main_window.builder, "header_bar");
   main_window.transfer_button =
       required_widget(main_window.builder, "transfer_button");

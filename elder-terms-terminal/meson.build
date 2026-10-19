@@ -95,6 +95,7 @@ elder_terms_sources = [
   'src/launch-options.cpp',
   'src/main.cpp',
   'src/main-window.cpp',
+  'src/terminal-background.cpp',
   'src/sftp/sftp-client.cpp',
   'src/sftp/sftp-fixture-client.cpp',
   'src/file-transfer/file-hash.cpp',
@@ -146,6 +147,8 @@ terminal_renderer_status_test = executable('terminal-renderer-status-test',
 test('terminal-renderer-status-test', find_program('xvfb-run'),
   args: ['-a', terminal_renderer_status_test], timeout: 120,
   env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
+
+executable('appearance-backdrop', 'tests/cpp/appearance-backdrop.cpp', dependencies: [gtk_dep])
 
 terminal_dispatch_test = executable('terminal-dispatch-test',
   'tests/cpp/terminal-dispatch-test.cpp',

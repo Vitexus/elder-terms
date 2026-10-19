@@ -8,6 +8,8 @@ elder-terms/src/connection-repository.cpp
 elder-terms/src/tray-backend.cpp
 elder-terms-terminal/src/main.cpp
 elder-terms-terminal/src/terminal-renderer-status.cpp
+elder-terms-terminal/src/terminal-background.cpp
+shared/src/settings-widget/terminal-background-editor.cpp
 elder-terms-terminal/src/main-window.ui
 elder-terms-terminal/src/main-window.cpp
 elder-terms-terminal/src/file-transfer/file-transfer-main.cpp

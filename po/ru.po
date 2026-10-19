@@ -2437,3 +2437,42 @@ msgstr "Вертикальный блок"
 #: shared/src/settings-widget/settings-presentation.cpp
 msgid "Underline box"
 msgstr "Блок подчёркивания"
+
+msgid "Background mode"
+msgstr "Режим фона"
+
+msgid "Background opacity (%)"
+msgstr "Непрозрачность фона (%)"
+
+msgid "Background tint"
+msgstr "Оттенок фона"
+
+msgid "Tint opacity (%)"
+msgstr "Непрозрачность оттенка (%)"
+
+msgid "Opaque"
+msgstr "Непрозрачный"
+
+msgid "Transparent"
+msgstr "Прозрачный"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "Введите целое число от 0 до 100"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "Введите цвет в формате #RRGGBB"
+
+msgid "Applying settings…"
+msgstr "Применение настроек…"
+
+msgid "Failed to apply terminal settings"
+msgstr "Не удалось применить настройки терминала"
+
+msgid "Opaque background"
+msgstr "Непрозрачный фон"
+
+msgid "Transparent background"
+msgstr "Прозрачный фон"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "Непрозрачный фон: прозрачность рабочего стола недоступна"

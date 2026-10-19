@@ -29,6 +29,7 @@
 #include "hyperlink-settings-editor.h"
 #include "webdav-settings-editor.h"
 #include "ssh-proxy-settings-editor.h"
+#include "terminal-background-editor.h"
 #include "settings-presentation.h"
 
 #define GETTEXT_PACKAGE "elder-terms"
@@ -109,6 +110,10 @@ struct SettingsWidgetState {
   bool is_runtime = false;
   bool show_actions = true;
   bool synchronizing = false;
+  bool action_pending = false;
+  std::size_t action_generation = 0;
+  std::shared_ptr<SettingsWidgetState *> action_owner;
+  GtkWidget *action_message = nullptr;
   SettingsWidgetCallbacks callbacks;
   SettingsWidgetIpScannerDependenciesFactory
       ip_scanner_dependencies_factory;
@@ -156,6 +161,7 @@ struct SettingsWidgetState {
   GtkWidget *terminal_cursor_key_mode_combo = nullptr;
   GtkWidget *terminal_cursor_shape_combo = nullptr;
   GtkWidget *terminal_cursor_blink_combo = nullptr;
+  TerminalBackgroundEditor *terminal_background_editor = nullptr;
   GtkWidget *terminal_return_code_combo = nullptr;
   bool terminal_width_valid = true;
   bool terminal_height_valid = true;
@@ -1491,7 +1497,8 @@ static bool macro_rules_are_valid(const SettingsWidgetState *state) {
 }
 
 static bool settings_inputs_valid(const SettingsWidgetState *state) {
-  return ssh_proxy_settings_editor_is_valid(state->ssh_proxy_editor) &&
+  return terminal_background_editor_is_valid(state->terminal_background_editor) &&
+         ssh_proxy_settings_editor_is_valid(state->ssh_proxy_editor) &&
          state->local_command_line_valid && state->terminal_width_valid &&
          state->terminal_height_valid &&
          state->terminal_scrollback_lines_valid &&
@@ -1512,20 +1519,23 @@ static bool settings_inputs_valid(const SettingsWidgetState *state) {
           hyperlink_settings_editor_is_valid(state->hyperlink_editor));
 }
 
-static void notify_changed(SettingsWidgetState *state) {
-  if (!state->synchronizing && state->callbacks.changed) {
-    state->callbacks.changed();
-  }
-}
-
 static void update_action_sensitivity(SettingsWidgetState *state) {
-  const gboolean sensitive = settings_inputs_valid(state) ? TRUE : FALSE;
+  const gboolean sensitive = !state->action_pending && settings_inputs_valid(state);
   if (state->apply_button != nullptr) {
     gtk_widget_set_sensitive(state->apply_button, sensitive);
   }
   if (state->save_button != nullptr) {
     gtk_widget_set_sensitive(state->save_button, sensitive);
   }
+}
+
+static void notify_changed(SettingsWidgetState *state) {
+  if (state->synchronizing) return;
+  ++state->action_generation;
+  state->action_pending = false;
+  if (state->action_message) gtk_widget_hide(state->action_message);
+  update_action_sensitivity(state);
+  if (state->callbacks.changed) state->callbacks.changed();
 }
 
 static void update_terminal_key_binding_validation(
@@ -3246,6 +3256,7 @@ static void create_ftp_tls_controls(SettingsWidgetState *state, GtkWidget *page)
 }
 
 static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_webdav_draft) {
+  sync_terminal_background_editor(state->terminal_background_editor, preserve_webdav_draft);
   sync_ftp_tls_controls(state);
   sync_webdav_settings_editor(state->webdav_editor, preserve_webdav_draft);
   sync_ssh_proxy_settings_editor(state->ssh_proxy_editor, preserve_webdav_draft);
@@ -4815,24 +4826,52 @@ static void on_log_mode_changed(GtkComboBox *, gpointer data) {
   notify_changed(state);
 }
 
+static void request_settings_action(SettingsWidgetState *state, SettingsWidgetApplyCallback callback) {
+  if (state->action_pending || !settings_inputs_valid(state)) return;
+  const auto draft = state->draft_store;
+  const auto generation = ++state->action_generation;
+  const auto owner = state->action_owner;
+  state->action_pending = true;
+  gtk_label_set_text(GTK_LABEL(state->action_message), _("Applying settings…"));
+  gtk_widget_show(state->action_message);
+  update_action_sensitivity(state);
+  SettingsWidgetAction action;
+  action.current = [owner, generation] {
+    return *owner && (*owner)->action_pending && (*owner)->action_generation == generation;
+  };
+  action.complete = [owner, current = action.current, draft](bool accepted, std::string message) {
+    if (!current()) return;
+    auto *state = *owner;
+    state->action_pending = false;
+    if (accepted) state->applied_store = draft;
+    gtk_label_set_text(GTK_LABEL(state->action_message), message.c_str());
+    gtk_widget_set_visible(state->action_message, !message.empty());
+    update_action_sensitivity(state);
+  };
+  if (callback) callback(draft, action);
+  else action.complete(true, {});
+}
+
 static void on_apply_clicked(GtkButton *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
-  state->applied_store = state->draft_store;
-  if (state->callbacks.apply) {
-    state->callbacks.apply(state->applied_store);
-  }
+  request_settings_action(state, state->callbacks.apply);
 }
 
 static void on_save_clicked(GtkButton *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
-  if (state->callbacks.save && state->callbacks.save(state->draft_store)) {
-    state->applied_store = state->draft_store;
-  }
+  request_settings_action(state, state->callbacks.save);
 }
 
 static void on_cancel_clicked(GtkButton *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
+  ++state->action_generation;
+  state->action_pending = false;
   state->draft_store = state->applied_store;
+  state->synchronizing = true;
+  sync_widgets_from_draft(state, false);
+  state->synchronizing = false;
+  if (state->action_message) gtk_widget_hide(state->action_message);
+  update_action_sensitivity(state);
   if (state->callbacks.cancel) {
     state->callbacks.cancel();
   }
@@ -5246,6 +5285,9 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
     g_signal_connect(combo, "changed", G_CALLBACK(on_terminal_cursor_changed), state);
   attach_row(page, 16, terminal_cursor_shape_setting_key(), state->terminal_cursor_shape_combo);
   attach_row(page, 17, terminal_cursor_blink_setting_key(), state->terminal_cursor_blink_combo);
+  state->terminal_background_editor = create_terminal_background_editor(&state->draft_store, state->id_prefix,
+      [state] { notify_changed(state); });
+  gtk_grid_attach(GTK_GRID(page), terminal_background_editor_root(state->terminal_background_editor), 0, 18, 2, 1);
 
   return scroller;
 }
@@ -6165,6 +6207,7 @@ SettingsWidgetState *create_settings_widget(SettingsWidgetOptions options) {
   state->is_runtime = options.is_runtime;
   state->show_actions = options.show_actions;
   state->callbacks = std::move(options.callbacks);
+  state->action_owner = std::make_shared<SettingsWidgetState *>(state);
   state->ip_scanner_dependencies_factory =
       std::move(options.ip_scanner_dependencies_factory);
   state->synchronizing = true;
@@ -6431,6 +6474,14 @@ SettingsWidgetState *create_settings_widget(SettingsWidgetOptions options) {
   }
 
   if (state->show_actions) {
+    state->action_message = gtk_label_new(nullptr);
+    assign_accessible_id(state->action_message, widget_id(state, "action_message").c_str());
+    gtk_widget_set_no_show_all(state->action_message, TRUE);
+    gtk_label_set_line_wrap(GTK_LABEL(state->action_message), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(state->action_message), 0);
+    gtk_widget_set_margin_start(state->action_message, 12);
+    gtk_widget_set_margin_end(state->action_message, 12);
+    gtk_box_pack_start(GTK_BOX(state->root), state->action_message, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(state->root), create_button_box(state), FALSE,
                        FALSE, 0);
   }
@@ -6667,10 +6718,16 @@ GtkWidget *settings_widget_root(SettingsWidgetState *state) {
   return state == nullptr ? nullptr : state->root;
 }
 
+void settings_widget_set_background_status(SettingsWidgetState *state, const std::string &text) {
+  if (state) terminal_background_editor_set_status(state->terminal_background_editor, text);
+}
+
 void destroy_settings_widget(SettingsWidgetState *state) {
   if (state == nullptr) {
     return;
   }
+  *state->action_owner = nullptr;
+  destroy_terminal_background_editor(state->terminal_background_editor);
 
   state->serial_device_event_monitor.reset();
   if (state->ip_scan_dialog != nullptr) {
