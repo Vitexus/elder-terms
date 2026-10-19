@@ -290,6 +290,32 @@ container_image_for_target debian trixie riscv64
     );
   });
 
+  it('reports the boxrig release version from the build SDK', () => {
+    const versions = run(
+      'pkg-config',
+      [
+        '--modversion',
+        'boxrig',
+        'boxrig-ui',
+        'boxrig-session',
+        'boxrig-posix',
+        'boxrig-gtk3',
+      ],
+      {
+        ...process.env,
+        PKG_CONFIG_PATH: join(projectRoot, '.build/boxrig/sdk/lib/pkgconfig'),
+      }
+    );
+    expectSuccess(versions, 'build SDK version lookup failed');
+    expect(versions.stdout.trim().split(/\s+/)).toEqual([
+      '0.3.0',
+      '0.3.0',
+      '0.3.0',
+      '0.3.0',
+      '0.3.0',
+    ]);
+  });
+
   it('builds a usable SDK from relocated host-prepared tools without target npm', () => {
     const prepared = join(temporaryRoot, 'prepared-tools');
     expectSuccess(
@@ -332,6 +358,13 @@ container_image_for_target debian trixie riscv64
       }
     );
     expectSuccess(flags, 'prepared SDK metadata lookup failed');
+    const versions = run(
+      'pkg-config',
+      ['--modversion', 'boxrig-ui', 'boxrig-posix'],
+      { ...process.env, PKG_CONFIG_PATH: join(sdk, 'lib/pkgconfig') }
+    );
+    expectSuccess(versions, 'prepared SDK version lookup failed');
+    expect(versions.stdout.trim().split(/\s+/)).toEqual(['0.3.0', '0.3.0']);
     const consumer = join(temporaryRoot, 'prepared-sdk-consumer');
     expectSuccess(
       run('cc', [
