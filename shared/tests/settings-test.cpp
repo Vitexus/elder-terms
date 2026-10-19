@@ -770,6 +770,52 @@ static void test_general_indicator_color_round_trip_and_layering() {
   remove_config(global_path);
 }
 
+static void test_terminal_cursor_settings() {
+  const auto global = temporary_config_path("cursor-global");
+  const auto path = temporary_config_path("cursor-connection");
+  const auto shape = elder_terms::make_setting_key("terminal", "cursor_shape");
+  const auto blink = elder_terms::make_setting_key("terminal", "cursor_blink");
+  const SettingsLoadOptions options{.config_path = path,
+      .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, "[terminal]\ncursor_shape=bar\ncursor_blink=false\n");
+  write_config(path, "");
+  auto loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == "bar" &&
+                  !elder_terms::setting_boolean_value_or_default(loaded.store, blink, true) &&
+                  setting_value_source(loaded.store, shape) == SettingValueSource::global,
+              "cursor shape and blinking should inherit the global preferences");
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "inherited cursor preferences should not be flattened into a connection");
+  for (const auto *value : {"block", "bar", "underline"}) {
+    for (const bool enabled : {false, true}) {
+      expect_true(set_explicit_setting_value(&loaded.store, shape, elder_terms::SettingValue{std::string(value)}) &&
+                      set_explicit_setting_value(&loaded.store, blink, elder_terms::SettingValue{enabled}) &&
+                      save_settings(loaded.store, path).saved,
+                  "each cursor shape and independent blink preference should save");
+      loaded = load_settings(options, 1.0);
+      expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == value &&
+                      elder_terms::setting_boolean_value_or_default(loaded.store, blink, !enabled) == enabled,
+                  "cursor preferences should survive restart");
+    }
+  }
+  for (const auto *invalid : {"", "terminal", "beam", "BLOCK"})
+    expect_true(!set_explicit_setting_value(&loaded.store, shape, elder_terms::SettingValue{std::string(invalid)}),
+                "unknown cursor shapes should be rejected without replacing the valid value");
+  expect_true(!set_explicit_setting_value(&loaded.store, blink, elder_terms::SettingValue{std::string("true")}),
+              "cursor blinking must be boolean");
+  clear_explicit_setting_value(&loaded.store, shape);
+  clear_explicit_setting_value(&loaded.store, blink);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "resetting cursor settings should restore inheritance");
+  write_config(global, "");
+  loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == "block" &&
+                  elder_terms::setting_boolean_value_or_default(loaded.store, blink, false),
+              "the built-in cursor should be a blinking full box");
+  remove_config(path);
+  remove_config(global);
+}
+
 static void test_terminal_font_list_round_trip_and_validation() {
   const auto global = temporary_config_path("font-list-global");
   const auto path = temporary_config_path("font-list-connection");
@@ -4433,6 +4479,7 @@ int main() {
     elder_terms_settings_test::test_webdav_settings_round_trip();
     elder_terms_settings_test::test_webdav_invalid_numeric_settings_remain_invalid_after_save();
     elder_terms_settings_test::test_independent_inactive_indicator_color();
+    elder_terms_settings_test::test_terminal_cursor_settings();
     elder_terms_settings_test::test_terminal_font_list_round_trip_and_validation();
     elder_terms_settings_test::test_default_settings();
     elder_terms_settings_test::test_general_indicator_color_round_trip_and_layering();

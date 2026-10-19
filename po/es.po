@@ -2417,3 +2417,23 @@ msgstr "Se solicitó OpenGL; se utiliza Cairo"
 #: elder-terms-terminal/src/terminal-renderer-status.cpp
 msgid "Other display"
 msgstr "Otro sistema de ventanas"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor shape"
+msgstr "Forma del cursor"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor blinking"
+msgstr "Parpadeo del cursor"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Full box"
+msgstr "Bloque completo"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Vertical box"
+msgstr "Bloque vertical"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Underline box"
+msgstr "Bloque de subrayado"

@@ -2395,3 +2395,23 @@ msgstr "OpenGL을 요청했지만 Cairo를 사용합니다"
 #: elder-terms-terminal/src/terminal-renderer-status.cpp
 msgid "Other display"
 msgstr "기타 디스플레이"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor shape"
+msgstr "커서 모양"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor blinking"
+msgstr "커서 깜박임"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Full box"
+msgstr "전체 상자"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Vertical box"
+msgstr "세로 상자"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Underline box"
+msgstr "밑줄 상자"

@@ -2413,3 +2413,23 @@ msgstr "طُلب OpenGL؛ يُستخدم Cairo"
 #: elder-terms-terminal/src/terminal-renderer-status.cpp
 msgid "Other display"
 msgstr "نظام عرض آخر"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor shape"
+msgstr "شكل المؤشر"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor blinking"
+msgstr "وميض المؤشر"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Full box"
+msgstr "مربع كامل"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Vertical box"
+msgstr "مربع رأسي"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Underline box"
+msgstr "مربع التسطير"

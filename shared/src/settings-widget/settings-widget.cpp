@@ -154,6 +154,8 @@ struct SettingsWidgetState {
   GtkWidget *terminal_encoding_entry = nullptr;
   GtkWidget *terminal_backspace_code_combo = nullptr;
   GtkWidget *terminal_cursor_key_mode_combo = nullptr;
+  GtkWidget *terminal_cursor_shape_combo = nullptr;
+  GtkWidget *terminal_cursor_blink_combo = nullptr;
   GtkWidget *terminal_return_code_combo = nullptr;
   bool terminal_width_valid = true;
   bool terminal_height_valid = true;
@@ -3338,6 +3340,18 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
                            terminal_accessibility_enabled_setting_key(),
                            terminal_accessibility_enabled(state->draft_store));
   }
+  if (state->terminal_cursor_shape_combo) {
+    const auto key = terminal_cursor_shape_setting_key();
+    const auto fallback = std::get<std::string>(setting_fallback_value(state->draft_store, key, std::string("block")));
+    std::vector<ComboOption> options;
+    for (const auto *shape : {"block", "bar", "underline"})
+      options.push_back({shape, setting_choice_label(key, shape)});
+    populate_inheritable_combo(state->terminal_cursor_shape_combo, state->draft_store, key,
+        setting_choice_label(key, fallback), options,
+        setting_string_value_or_default(state->draft_store, key, "block"));
+    populate_boolean_combo(state->terminal_cursor_blink_combo, state->draft_store,
+        terminal_cursor_blink_setting_key(), terminal_cursor_settings(state->draft_store).blink);
+  }
   if (state->terminal_border_width_entry != nullptr) {
     sync_inheritable_entry(
         state->terminal_border_width_entry, state->draft_store,
@@ -3812,6 +3826,18 @@ static void on_terminal_accessibility_enabled_changed(GtkComboBox *, gpointer da
   auto *state = static_cast<SettingsWidgetState *>(data);
   if (state->synchronizing) return;
   update_terminal_accessibility_enabled_from_widget(state);
+  notify_changed(state);
+}
+
+static void on_terminal_cursor_changed(GtkComboBox *combo, gpointer data) {
+  auto *state = static_cast<SettingsWidgetState *>(data);
+  if (state->synchronizing) return;
+  const bool shape = GTK_WIDGET(combo) == state->terminal_cursor_shape_combo;
+  const auto key = shape ? terminal_cursor_shape_setting_key() : terminal_cursor_blink_setting_key();
+  const auto choice = active_combo_id(GTK_WIDGET(combo), inherit_choice);
+  if (choice == inherit_choice) clear_explicit_setting_value(&state->draft_store, key);
+  else set_explicit_setting_value(&state->draft_store, key,
+      shape ? SettingValue{choice} : SettingValue{choice == boolean_enabled});
   notify_changed(state);
 }
 
@@ -5213,6 +5239,13 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
                    G_CALLBACK(on_terminal_accessibility_enabled_changed), state);
   attach_row(page, 15, terminal_accessibility_enabled_setting_key(),
              state->terminal_accessibility_enabled_combo);
+
+  state->terminal_cursor_shape_combo = create_combo_box(widget_id(state, "terminal_cursor_shape_combo").c_str());
+  state->terminal_cursor_blink_combo = create_combo_box(widget_id(state, "terminal_cursor_blink_combo").c_str());
+  for (auto *combo : {state->terminal_cursor_shape_combo, state->terminal_cursor_blink_combo})
+    g_signal_connect(combo, "changed", G_CALLBACK(on_terminal_cursor_changed), state);
+  attach_row(page, 16, terminal_cursor_shape_setting_key(), state->terminal_cursor_shape_combo);
+  attach_row(page, 17, terminal_cursor_blink_setting_key(), state->terminal_cursor_blink_combo);
 
   return scroller;
 }

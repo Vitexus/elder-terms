@@ -21,7 +21,26 @@ struct TerminalPresentation {
   std::deque<boxrig_font_zoom_direction> zoom_requests;
   guint zoom_source = 0;
   std::optional<TerminalDisplaySettings> pending_grid;
+  TerminalCursorSettings cursor{TerminalCursorShape::block, true};
 };
+
+static bool apply_cursor(TerminalPresentation *presentation, const TerminalCursorSettings &settings) {
+  auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(presentation->window->runtime));
+  auto style = boxrig_ui_cursor_style_default();
+  style.shape = settings.shape == TerminalCursorShape::bar ? BOXRIG_UI_CURSOR_SHAPE_BAR :
+      settings.shape == TerminalCursorShape::underline ? BOXRIG_UI_CURSOR_SHAPE_UNDERLINE : BOXRIG_UI_CURSOR_SHAPE_BLOCK;
+  style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+  style.box_width_dip = 4;
+  style.line_width_dip = 1;
+  style.blink = settings.blink ? BOXRIG_UI_CURSOR_BLINK_ENABLED : BOXRIG_UI_CURSOR_BLINK_STEADY;
+  const auto status = boxrig_ui_view_set_cursor_style(view, &style);
+  if (status != BOXRIG_UI_OK) {
+    g_printerr("Terminal cursor: %d\n", status);
+    return false;
+  }
+  presentation->cursor = settings;
+  return true;
+}
 
 static gboolean dispatch_zoom(gpointer context) {
   auto *presentation = static_cast<TerminalPresentation *>(context);
@@ -129,6 +148,7 @@ void attach_terminal_presentation(TerminalPresentation *presentation) {
   const auto status = boxrig_gtk3_terminal_widget_set_key_router(
       terminal_runtime_widget(presentation->window->runtime), route_key, presentation);
   if (status != BOXRIG_UI_OK) g_printerr("Terminal shortcuts: %d\n", status);
+  apply_cursor(presentation, presentation->cursor);
 }
 
 boxrig_input_mouse_route route_terminal_presentation_mouse(
@@ -148,6 +168,7 @@ bool apply_terminal_presentation(TerminalPresentation *presentation, const Setti
   auto *window = presentation->window;
   auto *widget = terminal_runtime_widget(window->runtime);
   const auto display = terminal_display_settings(settings);
+  if (!apply_cursor(presentation, terminal_cursor_settings(settings))) return false;
   const auto accessibility_status = boxrig_gtk3_terminal_widget_set_accessibility_enabled(
       widget, terminal_accessibility_enabled(settings));
   if (accessibility_status != BOXRIG_UI_OK) {

@@ -2461,3 +2461,23 @@ msgstr "OpenGLを要求しましたが、Cairoで描画しています"
 #: elder-terms-terminal/src/terminal-renderer-status.cpp
 msgid "Other display"
 msgstr "その他の表示接続"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor shape"
+msgstr "カーソルの形状"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor blinking"
+msgstr "カーソルの点滅"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Full box"
+msgstr "フルボックス"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Vertical box"
+msgstr "縦ボックス"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Underline box"
+msgstr "下線ボックス"

@@ -20,7 +20,7 @@ TerminalPresentation *create_terminal_presentation(MainWindow *window, TestOptio
     std::function<void(TerminalDisplaySettings)> changed, std::function<void()> send_break);
 
 /**
- * Attaches shortcuts to the current widget, including after reattachment.
+ * Attaches shortcuts and restores cursor preferences after widget reattachment.
  * @param presentation Live integration.
  */
 void attach_terminal_presentation(TerminalPresentation *presentation);
@@ -35,10 +35,10 @@ boxrig_input_mouse_route route_terminal_presentation_mouse(
     TerminalPresentation *presentation, const boxrig_mouse_event &event);
 
 /**
- * Applies direct font size, families, history, grid, chrome and shortcuts.
+ * Applies cursor presentation, direct font size, families, history, grid, chrome and shortcuts.
  * @param presentation Live integration.
  * @param settings Effective application settings.
- * @return Whether the native font, history and grid preferences were accepted.
+ * @return Whether the native cursor, font, history and grid preferences were accepted.
  */
 bool apply_terminal_presentation(TerminalPresentation *presentation, const SettingsStore &settings);
 

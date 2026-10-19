@@ -199,6 +199,15 @@ static bool validate_terminal_cursor_key_mode(const SettingValue &value,
   return true;
 }
 
+static bool validate_terminal_cursor_shape(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (!text || (*text != "block" && *text != "bar" && *text != "underline")) {
+    *reason = "must be block, bar, or underline";
+    return false;
+  }
+  return true;
+}
+
 static bool validate_terminal_return_code(const SettingValue &value,
                                           std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
@@ -252,6 +261,16 @@ SettingKey terminal_font_size_dip_setting_key() {
 
 SettingKey terminal_font_families_setting_key() {
   return terminal_key(terminal_font_families_key);
+}
+
+SettingKey terminal_cursor_shape_setting_key() { return terminal_key("cursor_shape"); }
+SettingKey terminal_cursor_blink_setting_key() { return terminal_key("cursor_blink"); }
+
+TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store) {
+  const auto shape = setting_string_value_or_default(store, terminal_cursor_shape_setting_key(), "block");
+  return {shape == "bar" ? TerminalCursorShape::bar :
+          shape == "underline" ? TerminalCursorShape::underline : TerminalCursorShape::block,
+      setting_boolean_value_or_default(store, terminal_cursor_blink_setting_key(), true)};
 }
 
 SettingKey terminal_show_border_setting_key() {
@@ -369,6 +388,9 @@ bool terminal_bell_sound_is_valid(const std::string &value,
 std::vector<SettingDefinition>
 terminal_setting_definitions(TerminalDisplaySettings terminal_defaults) {
   return {
+      {.key = terminal_cursor_shape_setting_key(), .default_value = SettingValue{std::string("block")},
+       .validate = validate_terminal_cursor_shape},
+      {.key = terminal_cursor_blink_setting_key(), .default_value = SettingValue{true}, .validate = nullptr},
       {
           .key = terminal_width_setting_key(),
           .default_value =

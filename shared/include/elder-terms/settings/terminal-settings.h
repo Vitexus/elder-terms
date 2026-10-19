@@ -11,6 +11,26 @@
 
 namespace elder_terms {
 
+/** User-selected cursor geometry, independent of the terminal's DECSCUSR state. */
+enum class TerminalCursorShape {
+  block,     /**< Full-cell box. */
+  bar,       /**< Vertical insertion box. */
+  underline, /**< Horizontal box along the cell's lower edge. */
+};
+
+/** Cursor presentation preferences; focused cursors are filled, unfocused ones outlined. */
+struct TerminalCursorSettings {
+  TerminalCursorShape shape; /**< Geometry used for both focus states. */
+  bool blink;                /**< Blink while focused; unfocused outlines remain visible. */
+};
+
+/** @returns Key for the terminal cursor geometry (block, bar or underline). */
+ELDER_TERMS_API SettingKey terminal_cursor_shape_setting_key();
+/** @returns Key for the independent cursor blink preference. */
+ELDER_TERMS_API SettingKey terminal_cursor_blink_setting_key();
+/** @param store Layered settings. @returns Effective cursor preferences. */
+ELDER_TERMS_API TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store);
+
 /**
  * Terminal grid, history and character size preferences.
  */
