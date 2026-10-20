@@ -2591,13 +2591,34 @@ msgid "Transparent background: frosted glass is unavailable"
 msgstr "透過表示: すりガラスを利用できません"
 
 msgid "Color filter"
-msgstr "色補正"
+msgstr "明暗差の補正"
 
 msgid "No correction"
 msgstr "補正しない"
 
 msgid "Improve visibility (Oklch)"
-msgstr "視認性を改善 (Oklch)"
+msgstr "明暗差を改善 (Oklch)"
 
 msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
 msgstr "灰色を含むすべての文字色のコントラスト不足を補正します。色相を保ち、背景は変更しません。"
+
+msgid "Color discrimination"
+msgstr "色の区別を補助"
+
+msgid "Correction strength (0–100)"
+msgstr "補正の強さ (0〜100)"
+
+msgid "Protan (P)"
+msgstr "P型向け (Protan)"
+
+msgid "Deutan (D)"
+msgstr "D型向け (Deutan)"
+
+msgid "Tritan (T)"
+msgstr "T型向け (Tritan)"
+
+msgid "Recolor text, explicit cell backgrounds and markers to help distinguish colors. Choose the setting that works for you."
+msgstr "文字、アプリが指定した背景、マーカーの色を変えて、色の区別を補助します。見分けやすい設定を選んでください。"
+
+msgid "0 disables recoloring; 100 is the strongest adjustment. This value does not measure your color vision."
+msgstr "0で再配色を無効にし、100で最も強く補正します。色覚特性の程度を測る値ではありません。"

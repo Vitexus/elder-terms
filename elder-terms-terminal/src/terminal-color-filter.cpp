@@ -199,6 +199,24 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
     result.underline = replace_default(result.underline, input->underline_source.role);
     result.marker = replace_default(result.marker, input->marker_source.role);
   }
+  if (context.color_vision != TerminalColorVision::none && context.color_vision_strength > 0) {
+    const auto recolor = [&](boxrig_rgb value, boxrig_ui_color_source_role role) {
+      // Origins are already swapped for inverse cells. Preserve the connection
+      // background even when it is being used as the displayed foreground.
+      if (role == BOXRIG_UI_COLOR_DEFAULT_BACKGROUND || role == BOXRIG_UI_COLOR_UNUSED ||
+          role == BOXRIG_UI_COLOR_FOLLOWS_FOREGROUND) return value;
+      const auto color = correct_color_vision({value.red, value.green, value.blue},
+          context.color_vision, context.color_vision_strength);
+      return boxrig_rgb{color.red, color.green, color.blue};
+    };
+    if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
+        input->target == BOXRIG_UI_COLOR_SURFACE) {
+      result.foreground = recolor(result.foreground, input->foreground_source.role);
+      result.background = recolor(result.background, input->background_source.role);
+      if (!result.underline_follows_foreground)
+        result.underline = recolor(result.underline, input->underline_source.role);
+    } else result.marker = recolor(result.marker, input->marker_source.role);
+  }
   if (!context.visibility_correction) return result;
   const auto correct = [](boxrig_rgb foreground, boxrig_rgb background) {
     const auto color = improve_color_visibility({foreground.red, foreground.green, foreground.blue},

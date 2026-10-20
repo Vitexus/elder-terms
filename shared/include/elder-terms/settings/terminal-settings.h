@@ -28,6 +28,17 @@ enum class TerminalColorVision {
 ELDER_TERMS_API SettingKey terminal_color_filter_setting_key();
 /** @param store Layered settings. @returns Selected display correction. */
 ELDER_TERMS_API TerminalColorFilter terminal_color_filter(const SettingsStore &store);
+/** Independent preferences for color discrimination assistance. */
+struct TerminalColorVisionSettings {
+  TerminalColorVision profile; /**< Recoloring profile; none disables assistance. */
+  int strength; /**< Adjustment from zero through one hundred, not clinical severity. */
+};
+/** @returns Key for the color-vision profile. */
+ELDER_TERMS_API SettingKey terminal_color_vision_setting_key();
+/** @returns Key for the independent recoloring strength. */
+ELDER_TERMS_API SettingKey terminal_color_vision_strength_setting_key();
+/** @param store Layered settings. @returns Effective recoloring preferences. */
+ELDER_TERMS_API TerminalColorVisionSettings terminal_color_vision_settings(const SettingsStore &store);
 
 /** Desired desktop background mode; actual support is determined by the window owner. */
 enum class TerminalBackgroundMode {

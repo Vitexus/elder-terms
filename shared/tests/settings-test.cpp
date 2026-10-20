@@ -878,6 +878,51 @@ static void test_terminal_color_filter_settings() {
   remove_config(path); remove_config(global);
 }
 
+static void test_terminal_color_vision_settings() {
+  const auto global = temporary_config_path("vision-global");
+  const auto path = temporary_config_path("vision-connection");
+  const auto key = elder_terms::make_setting_key("terminal", "color_vision");
+  const auto amount = elder_terms::make_setting_key("terminal", "color_vision_strength");
+  const auto contrast = elder_terms::terminal_color_filter_setting_key();
+  const SettingsLoadOptions options{.config_path = path, .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, ""); write_config(path, "");
+  auto loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "none" &&
+      elder_terms::setting_integer_value_or_default(loaded.store, amount, -1) == 100,
+      "recoloring should default to disabled, with full adjustable strength");
+  write_config(global, "[terminal]\ncolor_vision=deutan\ncolor_vision_strength=60\ncolor_filter=oklch\n");
+  loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "deutan" &&
+      elder_terms::setting_integer_value_or_default(loaded.store, amount, -1) == 60 &&
+      setting_value_source(loaded.store, key) == SettingValueSource::global, "recoloring should inherit");
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "inherited recoloring should stay inherited");
+  for (const auto *value : {"none", "protan", "deutan", "tritan"}) {
+    for (const gint64 strength : {0, 25, 100}) {
+      for (const auto *filter : {"none", "oklch"}) {
+        expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}) &&
+            set_explicit_setting_value(&loaded.store, amount, elder_terms::SettingValue{strength}) &&
+            set_explicit_setting_value(&loaded.store, contrast, elder_terms::SettingValue{std::string(filter)}) &&
+            save_settings(loaded.store, path).saved, "independent filters should save");
+        loaded = load_settings(options, 1.0);
+        expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == value &&
+            elder_terms::setting_integer_value_or_default(loaded.store, amount, -1) == strength &&
+            elder_terms::setting_string_value_or_default(loaded.store, contrast, "missing") == filter,
+            "both filters and strength should survive restart");
+      }
+    }
+  }
+  for (const auto *value : {"", "unknown", "PROTAN"})
+    expect_true(!set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}), "invalid profile should fail");
+  for (const auto &value : {elder_terms::SettingValue{gint64{-1}}, elder_terms::SettingValue{gint64{101}},
+      elder_terms::SettingValue{0.5}, elder_terms::SettingValue{std::string("50")}})
+    expect_true(!set_explicit_setting_value(&loaded.store, amount, value), "strength must be an integer in range");
+  clear_explicit_setting_value(&loaded.store, key);
+  clear_explicit_setting_value(&loaded.store, amount);
+  clear_explicit_setting_value(&loaded.store, contrast);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "reset should restore inheritance");
+  remove_config(path); remove_config(global);
+}
+
 static void test_terminal_cursor_settings() {
   const auto global = temporary_config_path("cursor-global");
   const auto path = temporary_config_path("cursor-connection");
@@ -4590,6 +4635,7 @@ int main() {
     elder_terms_settings_test::test_terminal_cursor_settings();
     elder_terms_settings_test::test_terminal_background_settings();
     elder_terms_settings_test::test_terminal_color_filter_settings();
+    elder_terms_settings_test::test_terminal_color_vision_settings();
     elder_terms_settings_test::test_terminal_background_image_settings();
     elder_terms_settings_test::test_terminal_font_list_round_trip_and_validation();
     elder_terms_settings_test::test_default_settings();

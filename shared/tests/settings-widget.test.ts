@@ -1924,6 +1924,75 @@ describe.concurrent('shared settings widget', () => {
     }
   });
 
+  it('edits independent color vision settings and validates their strength', async (context) => {
+    const directory = await mkdtemp(join(tmpdir(), 'elder-terms-vision-'));
+    const path = join(directory, 'connection.ini');
+    try {
+      await runSharedGtkTest(
+        context,
+        ['--page=terminal', `--save-file=${path}`],
+        async ({ app }) => {
+          const id = 'settings_terminal_color_vision_combo';
+          await scrollTerminalFieldIntoView(app, id);
+          expect(await comboOptionNames(app, id)).toEqual([
+            'No correction (built-in default)',
+            'No correction',
+            'Protan (P)',
+            'Deutan (D)',
+            'Tritan (T)',
+          ]);
+          const mode = expectElementKind(await app.getById(id), 'comboBox');
+          const amount = expectElementKind(
+            await app.getById('settings_terminal_color_vision_strength_entry'),
+            'entry'
+          );
+          const filter = expectElementKind(
+            await app.getById('settings_terminal_color_filter_combo'),
+            'comboBox'
+          );
+          const save = expectElementKind(
+            await app.getById('settings_save_button'),
+            'button'
+          );
+          await mode.selectChildAt(3);
+          await amount.setText('60');
+          await filter.selectChildAt(2);
+          await save.click();
+          await waitForResult(async () => {
+            const saved = await readFile(path, 'utf8');
+            expect(saved).toContain('color_vision=deutan');
+            expect(saved).toContain('color_vision_strength=60');
+            expect(saved).toContain('color_filter=oklch');
+          });
+          for (const invalid of ['-1', '101', '0.5', 'bad']) {
+            await amount.setText(invalid);
+            expect((await save.info()).states).not.toContain('enabled');
+          }
+          await amount.setText('0');
+          await expectSensitive(save);
+          await save.click();
+          await waitForResult(async () =>
+            expect(await readFile(path, 'utf8')).toContain(
+              'color_vision_strength=0'
+            )
+          );
+          await mode.selectChildAt(0);
+          await filter.selectChildAt(0);
+          await amount.setText('');
+          await save.click();
+          await waitForResult(async () => {
+            const saved = await readFile(path, 'utf8');
+            expect(saved).not.toContain('color_vision=');
+            expect(saved).not.toContain('color_vision_strength=');
+            expect(saved).not.toContain('color_filter=');
+          });
+        }
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   for (const mode of ['launcher', 'runtime']) {
     it(`aligns all terminal appearance controls in ${mode} settings`, async (context) => {
       await runSharedGtkTest(
@@ -1947,6 +2016,8 @@ describe.concurrent('shared settings widget', () => {
             'background_image_opacity_entry',
             'background_image_fit_combo',
             'color_filter_combo',
+            'color_vision_combo',
+            'color_vision_strength_entry',
           ]) {
             const id = `settings_terminal_${suffix}`;
             await scrollTerminalFieldIntoView(app, id);

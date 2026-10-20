@@ -36,6 +36,8 @@ RgbColor simulate_color_vision(RgbColor color, TerminalColorVision profile);
 struct TerminalColorFilterContext {
   std::optional<RgbColor> background; /**< Connection override for the default background. */
   bool visibility_correction = false; /**< Enable Oklch correction after default-color resolution. */
+  TerminalColorVision color_vision = TerminalColorVision::none; /**< Independent recoloring profile. */
+  double color_vision_strength = 1; /**< Recoloring amount from zero through one. */
 };
 /** Pure boxrig display-color callback; never changes the terminal or its underlay.
  * @param input Original resolved colors and already-filtered underlay.

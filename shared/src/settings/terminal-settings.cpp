@@ -215,6 +215,13 @@ static bool validate_color_filter(const SettingValue &value, std::string *reason
   return false;
 }
 
+static bool validate_color_vision(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && (*text == "none" || *text == "protan" || *text == "deutan" || *text == "tritan")) return true;
+  *reason = "must be none, protan, deutan, or tritan";
+  return false;
+}
+
 static bool validate_background_mode(const SettingValue &value, std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
   if (text && (*text == "opaque" || *text == "transparent" || *text == "blur")) return true;
@@ -313,6 +320,15 @@ SettingKey terminal_color_filter_setting_key() { return terminal_key("color_filt
 TerminalColorFilter terminal_color_filter(const SettingsStore &store) {
   return setting_string_value_or_default(store, terminal_color_filter_setting_key(), "none") == "oklch"
       ? TerminalColorFilter::oklch : TerminalColorFilter::none;
+}
+
+SettingKey terminal_color_vision_setting_key() { return terminal_key("color_vision"); }
+SettingKey terminal_color_vision_strength_setting_key() { return terminal_key("color_vision_strength"); }
+TerminalColorVisionSettings terminal_color_vision_settings(const SettingsStore &store) {
+  const auto profile = setting_string_value_or_default(store, terminal_color_vision_setting_key(), "none");
+  return {profile == "protan" ? TerminalColorVision::protan : profile == "deutan" ? TerminalColorVision::deutan :
+      profile == "tritan" ? TerminalColorVision::tritan : TerminalColorVision::none,
+      static_cast<int>(setting_integer_value_or_default(store, terminal_color_vision_strength_setting_key(), 100))};
 }
 
 TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store) {
@@ -467,6 +483,8 @@ terminal_setting_definitions(TerminalDisplaySettings terminal_defaults) {
        .validate = validate_terminal_cursor_shape},
       {.key = terminal_cursor_blink_setting_key(), .default_value = SettingValue{true}, .validate = nullptr},
       {.key = terminal_color_filter_setting_key(), .default_value = SettingValue{std::string("none")}, .validate = validate_color_filter},
+      {.key = terminal_color_vision_setting_key(), .default_value = SettingValue{std::string("none")}, .validate = validate_color_vision},
+      {.key = terminal_color_vision_strength_setting_key(), .default_value = SettingValue{gint64{100}}, .validate = validate_background_percent},
       {.key = terminal_background_mode_setting_key(), .default_value = SettingValue{std::string("opaque")}, .validate = validate_background_mode},
       {.key = terminal_background_opacity_setting_key(), .default_value = SettingValue{gint64{80}}, .validate = validate_background_percent},
       {.key = terminal_background_tint_color_setting_key(), .default_value = SettingValue{std::string("#000000")}, .validate = validate_background_tint},
