@@ -149,6 +149,15 @@ color_filter_test = executable('terminal-color-filter-test',
   dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
 test('terminal-color-filter-test', color_filter_test)
 
+color_vision_test = executable('terminal-color-vision-test',
+  ['tests/cpp/terminal-color-vision-test.cpp', 'src/terminal-color-filter.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
+test('terminal-color-vision-test', color_vision_test)
+
+executable('terminal-color-vision-demo',
+  ['tests/cpp/terminal-color-vision-demo.cpp', 'src/terminal-color-filter.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
+
 terminal_renderer_status_test = executable('terminal-renderer-status-test',
   ['tests/cpp/terminal-renderer-status-test.cpp', 'src/terminal-renderer-status.cpp'],
   dependencies: [elder_terms_dep, boxrig_deps['boxrig-gtk3']])

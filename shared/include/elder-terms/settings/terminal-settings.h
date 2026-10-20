@@ -17,6 +17,13 @@ enum class TerminalColorFilter {
   none,  /**< Preserve the terminal colors after connection defaults. */
   oklch, /**< Improve low-contrast text and markers of any hue, including neutrals, in Oklch. */
 };
+/** Color-vision profile used for display recoloring, not a diagnosis. */
+enum class TerminalColorVision {
+  none,   /**< Disable color-vision recoloring. */
+  protan, /**< Assist red-green discrimination using the protan profile. */
+  deutan, /**< Assist red-green discrimination using the deutan profile. */
+  tritan, /**< Assist blue-yellow discrimination using the tritan profile. */
+};
 /** @returns Key for the selected display-color correction. */
 ELDER_TERMS_API SettingKey terminal_color_filter_setting_key();
 /** @param store Layered settings. @returns Selected display correction. */

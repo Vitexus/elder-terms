@@ -19,6 +19,19 @@ RgbColor oklch_to_srgb(Oklch color);
  * @param foreground Original sRGB foreground. @param background Reference background.
  * @returns Hue-preserving contrast correction for all hues and neutrals, or the unchanged foreground. */
 RgbColor improve_color_visibility(RgbColor foreground, RgbColor background);
+/** Recolors a display color using a type-specific redistribution of lost color information.
+ * @param color Original unassociated eight-bit sRGB.
+ * @param profile Color-vision profile, or none for identity.
+ * @param strength Correction amount clamped to zero through one; nonfinite means zero.
+ * @returns Recolored sRGB. Exact neutrals and zero-strength colors are unchanged.
+ * @remarks Apply contrast correction after this function; strength is not clinical severity. */
+RgbColor correct_color_vision(RgbColor color, TerminalColorVision profile, double strength);
+/** Approximates dichromatic appearance for evaluation, not for display correction.
+ * @param color Original unassociated eight-bit sRGB.
+ * @param profile Brettel 1997 profile adapted to sRGB, or none for identity.
+ * @returns Simulated sRGB with gamut clipping; exact neutrals are preserved.
+ * @remarks A simulation is an evaluation aid and does not establish individual usability. */
+RgbColor simulate_color_vision(RgbColor color, TerminalColorVision profile);
 /** Stable application-owned color hook context. */
 struct TerminalColorFilterContext {
   std::optional<RgbColor> background; /**< Connection override for the default background. */
