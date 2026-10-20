@@ -119,6 +119,7 @@ struct TransferIntegrationCase {
   TransferProtocolOptionCase option_case =
       TransferProtocolOptionCase::standard;
   bool check_progress_cadence = false;
+  std::size_t payload_size = 2048;
 };
 
 static void expect_equal(const std::string &actual,
@@ -564,7 +565,7 @@ lrzsz_command(const TransferIntegrationCase &test_case,
       if (test_case.option_case == TransferProtocolOptionCase::zmodem_resume) {
         return {"/usr/bin/rz", "--resume"};
       }
-      return {"/usr/bin/rz"};
+      return {"/usr/bin/rz", "-q"};
     }
     if (protocol == TerminalTransferProtocol::ymodem) {
       return {"/usr/bin/rb"};
@@ -576,7 +577,7 @@ lrzsz_command(const TransferIntegrationCase &test_case,
     if (test_case.option_case == TransferProtocolOptionCase::zmodem_resume) {
       return {"/usr/bin/sz", "--resume", file_name};
     }
-    return {"/usr/bin/sz", file_name};
+    return {"/usr/bin/sz", "-q", file_name};
   }
   if (protocol == TerminalTransferProtocol::ymodem) {
     if (test_case.option_case == TransferProtocolOptionCase::ymodem_g) {
@@ -643,7 +644,8 @@ static void run_transfer_integration_case(TransferIntegrationCase test_case) {
   const std::filesystem::path remote_directory = root / "remote";
   const std::filesystem::path receive_directory = root / "receive";
   const std::vector<std::uint8_t> payload =
-      make_transfer_payload(test_case.check_progress_cadence ? 256 * 1024 : 2048);
+      make_transfer_payload(test_case.check_progress_cadence
+          ? 256 * 1024 : test_case.payload_size);
   std::vector<std::string> status_updates;
   std::vector<TerminalTransferProgress> progress_updates;
   std::size_t wire_bytes = 0;
@@ -1312,6 +1314,16 @@ static void run_from_arguments(int argc, char **argv) {
     auto test_case = parse_transfer_case_arguments(argc, argv);
     test_case.check_progress_cadence = true;
     run_transfer_integration_case(test_case);
+    return;
+  }
+  if (command == "--throughput-case") {
+    auto test_case = parse_transfer_case_arguments(argc, argv);
+    test_case.payload_size = 30 * 1024 * 1024;
+    const auto start = std::chrono::steady_clock::now();
+    run_transfer_integration_case(test_case);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    std::cout << "30 MiB transfer and byte comparison: "
+              << std::chrono::duration<double>(elapsed).count() << " seconds\n";
     return;
   }
 

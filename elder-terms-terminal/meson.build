@@ -820,6 +820,21 @@ terminal_transfer_option_cases = [
   ['ymodem', 'receive', 'ymodem-g'],
 ]
 
+foreach throughput_case : [
+  ['zmodem', 'send', 'standard'],
+  ['zmodem', 'receive', 'standard'],
+  ['ymodem', 'receive', 'ymodem-g'],
+]
+  test(
+    'terminal-transfer-runner-throughput-' + throughput_case[0] + '-' +
+      throughput_case[1],
+    terminal_transfer_runner_test,
+    args: ['--throughput-case', throughput_case[0], throughput_case[1],
+           '0', throughput_case[2]],
+    timeout: 45,
+  )
+endforeach
+
 foreach protocol : terminal_transfer_test_protocols
   foreach direction : terminal_transfer_test_directions
     test(
