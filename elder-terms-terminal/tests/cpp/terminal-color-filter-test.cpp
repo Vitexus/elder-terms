@@ -1,4 +1,4 @@
-#include "../../src/terminal-color-filter.h"
+#include <elder-terms/terminal-color-filter.h>
 #include <boxrig/ui.h>
 #include <algorithm>
 #include <cassert>

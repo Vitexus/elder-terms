@@ -1,7 +1,7 @@
 #include "terminal-presentation.h"
 #include "terminal-runtime.h"
 #include "terminal-background.h"
-#include "terminal-color-filter.h"
+#include <elder-terms/terminal-color-filter.h>
 
 #include <cmath>
 #include <cstdio>

@@ -1,4 +1,4 @@
-#include "../../src/terminal-color-filter.h"
+#include <elder-terms/terminal-color-filter.h>
 #include <array>
 #include <charconv>
 #include <cmath>

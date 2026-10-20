@@ -1,4 +1,4 @@
-#include "terminal-color-filter.h"
+#include <elder-terms/terminal-color-filter.h>
 #include <algorithm>
 #include <cmath>
 #include <numbers>

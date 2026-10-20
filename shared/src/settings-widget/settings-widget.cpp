@@ -30,6 +30,7 @@
 #include "webdav-settings-editor.h"
 #include "ssh-proxy-settings-editor.h"
 #include "terminal-background-editor.h"
+#include "terminal-color-preview.h"
 #include "settings-presentation.h"
 
 #define GETTEXT_PACKAGE "elder-terms"
@@ -166,6 +167,7 @@ struct SettingsWidgetState {
   bool terminal_color_vision_strength_valid = true;
   GtkWidget *terminal_cursor_blink_combo = nullptr;
   TerminalBackgroundEditor *terminal_background_editor = nullptr;
+  TerminalColorPreview *terminal_color_preview = nullptr;
   GtkWidget *terminal_return_code_combo = nullptr;
   bool terminal_width_valid = true;
   bool terminal_height_valid = true;
@@ -1556,6 +1558,7 @@ static void update_action_sensitivity(SettingsWidgetState *state) {
 
 static void notify_changed(SettingsWidgetState *state) {
   if (state->synchronizing) return;
+  sync_terminal_color_preview(state->terminal_color_preview);
   ++state->action_generation;
   state->action_pending = false;
   if (state->action_message) gtk_widget_hide(state->action_message);
@@ -3282,6 +3285,7 @@ static void create_ftp_tls_controls(SettingsWidgetState *state, GtkWidget *page)
 
 static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_webdav_draft) {
   sync_terminal_background_editor(state->terminal_background_editor, preserve_webdav_draft);
+  sync_terminal_color_preview(state->terminal_color_preview);
   sync_ftp_tls_controls(state);
   sync_webdav_settings_editor(state->webdav_editor, preserve_webdav_draft);
   sync_ssh_proxy_settings_editor(state->ssh_proxy_editor, preserve_webdav_draft);
@@ -5370,6 +5374,8 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
     notify_changed(state);
   }), state);
   attach_row(page, 21, terminal_color_vision_strength_setting_key(), state->terminal_color_vision_strength_entry);
+  state->terminal_color_preview = create_terminal_color_preview(&state->draft_store, state->id_prefix);
+  gtk_grid_attach(GTK_GRID(page), terminal_color_preview_root(state->terminal_color_preview), 0, 22, 2, 1);
   for (int row = 0; row <= 21; row++) {
     auto *label = gtk_grid_get_child_at(GTK_GRID(page), 0, row);
     if (GTK_IS_LABEL(label)) gtk_size_group_add_widget(labels, label);
@@ -6819,6 +6825,7 @@ void destroy_settings_widget(SettingsWidgetState *state) {
   }
   *state->action_owner = nullptr;
   destroy_terminal_background_editor(state->terminal_background_editor);
+  destroy_terminal_color_preview(state->terminal_color_preview);
 
   state->serial_device_event_monitor.reset();
   if (state->ip_scan_dialog != nullptr) {
