@@ -194,9 +194,7 @@ const transferSizeCasesByProtocol: Record<
     {
       byteLength: 480 * 1024,
       label: '480KB',
-      // Full-suite runs still make progress after two minutes. Allow them to
-      // finish while retaining the same byte-for-byte validation.
-      timeoutMs: 300_000,
+      timeoutMs: 120_000,
     },
   ],
   ymodem: [
@@ -230,8 +228,7 @@ const transferSizeCasesByProtocol: Record<
     {
       byteLength: 30 * 1024 * 1024,
       label: '30MB',
-      // At the observed ~66 kB/s, this payload takes about eight minutes.
-      timeoutMs: 600_000,
+      timeoutMs: 360_000,
     },
   ],
 };
@@ -251,7 +248,7 @@ const transferProgressNoticeXmodemSizeCase: TransferSizeCase = {
 const ymodemGThroughputSizeCase: TransferSizeCase = {
   byteLength: 30 * 1024 * 1024,
   label: '30MB',
-  timeoutMs: 600_000,
+  timeoutMs: 120_000,
 };
 
 const requiredCommands = [
