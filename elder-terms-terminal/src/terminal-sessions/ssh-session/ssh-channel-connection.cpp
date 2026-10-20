@@ -2061,13 +2061,17 @@ cardio::promise<void> SshChannelConnection::write_all_async(
   const std::shared_ptr<AuthenticatedSshTransport> transport =
       impl->transport;
   const ssh_channel channel = impl->channel;
+  if (bytes.empty()) {
+    co_await flush_transport_async(transport, std::move(cancellation));
+    co_return;
+  }
   std::size_t offset = 0;
   while (offset < bytes.size()) {
     cancellation.throw_if_cancellation_requested();
     const std::uint32_t chunk_size = static_cast<std::uint32_t>(
         std::min<std::size_t>(
             bytes.size() - offset,
-            std::numeric_limits<std::uint32_t>::max()));
+            std::numeric_limits<int>::max()));
     drain_ssh_event_fd(impl->events->writer.wakeup_fd);
     auto writing = dispatch_ssh_write_and_flush(
         [transport, cancellation](auto operation) {
@@ -2091,11 +2095,12 @@ cardio::promise<void> SshChannelConnection::write_all_async(
     if (outcome.written > 0) {
       offset += static_cast<std::size_t>(outcome.written);
       if (outcome.flushed) {
-        if (result.value == SSH_OK) co_return;
-        if (!ssh_worker_result_is_again(result))
-          throw ssh_worker_failure(result, "Failed to flush SSH output");
-        co_await flush_transport_async(transport, std::move(cancellation));
-        co_return;
+        if (result.value != SSH_OK) {
+          if (!ssh_worker_result_is_again(result))
+            throw ssh_worker_failure(result, "Failed to flush SSH output");
+          co_await flush_transport_async(transport, cancellation);
+        }
+        if (offset == bytes.size()) co_return;
       }
       continue;
     }
