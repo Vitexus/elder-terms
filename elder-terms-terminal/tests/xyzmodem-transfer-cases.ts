@@ -1898,7 +1898,10 @@ const captureTransferProgress = async (
   let pending = Buffer.alloc(0);
   let frameNumber = 0;
   let progressFrame: number | undefined;
-  let peerStarted = false;
+  // Receive peers and the XMODEM sender start before recording. Their first
+  // visible frames must remain eligible even if GTK delays the frame check.
+  let peerStarted =
+    transferCase.direction === 'receive' || transferCase.protocol === 'xmodem';
   const frameSize = area.width * area.height * 4;
   recorder.stdout.on('data', (bytes: Buffer) => {
     pending = Buffer.concat([pending, bytes]);
