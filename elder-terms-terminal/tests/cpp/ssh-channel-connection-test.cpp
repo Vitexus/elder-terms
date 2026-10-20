@@ -131,6 +131,8 @@ struct ClientCase {
   std::string prompted_username = "test-user";
   std::filesystem::path identity_file = {};
   std::filesystem::path known_hosts_file = {};
+  std::string known_hosts_scope = {};
+  std::filesystem::path seed_known_hosts_file = {};
   std::filesystem::path config_file = {};
   std::filesystem::path conflicting_host_public_key = {};
   std::filesystem::path conflicting_known_hosts_file = {};
@@ -1297,6 +1299,16 @@ static int run_client_case(const ServerOptions &server_options,
   effective_options.abrupt_disconnect = client_case.remote_disconnect;
   ChildServer server = start_server(effective_options);
   std::cout << "SSH case " << auth_mode_name(client_case.auth_mode) << " port=" << server.port << std::endl;
+  if (!client_case.seed_known_hosts_file.empty()) {
+    install_conflicting_host_key(client_case.seed_known_hosts_file,
+                                 server_options.host_public_key_path,
+                                 "127.0.0.1", server.port);
+  }
+  const std::filesystem::path case_known_hosts_file =
+      client_case.known_hosts_scope.empty()
+          ? client_case.known_hosts_file
+          : std::filesystem::path(client_case.known_hosts_file.string() + "." +
+                                  client_case.known_hosts_scope);
   if (!client_case.conflicting_host_public_key.empty()) {
     const std::filesystem::path target_file =
         client_case.conflicting_known_hosts_file.empty()
@@ -1410,7 +1422,7 @@ static int run_client_case(const ServerOptions &server_options,
               callbacks,
               elder_terms::SshChannelConnectionOptions{
                   .known_hosts_file =
-                      client_case.known_hosts_file.string(),
+                      case_known_hosts_file.string(),
                   .config_file = client_case.config_file.string(),
               },
               cancellation_source.get_cancellation());
@@ -1976,12 +1988,30 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
   test_proxy_forwarding(options, root / ".ssh" / "proxy_known_hosts", false);
   test_proxy_forwarding(options, root / ".ssh" / "proxy_known_hosts", true);
   test_proxy_rejections(options, root / ".ssh" / "proxy_known_hosts");
+  const std::filesystem::path collision_known_hosts_file =
+      root / ".ssh" / "collision_known_hosts";
+  run_client_case(
+      options,
+      ClientCase{
+          .auth_mode = ServerAuthMode::none,
+          .identity_file = {},
+          .known_hosts_file = collision_known_hosts_file,
+          .known_hosts_scope = "collision",
+          .seed_known_hosts_file = collision_known_hosts_file,
+          .config_file = {},
+          .authentication_answer = {},
+          .expected_prompts = {
+              elder_terms::SshUserPromptKind::username,
+              elder_terms::SshUserPromptKind::host_key,
+          },
+      });
   run_client_case(
       options,
       ClientCase{
           .auth_mode = ServerAuthMode::none,
           .identity_file = {},
           .known_hosts_file = known_hosts_file,
+          .known_hosts_scope = "none-disconnect",
           .config_file = {},
           .authentication_answer = {},
           .remote_disconnect = true,
@@ -2011,6 +2041,7 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
           .auth_mode = ServerAuthMode::password,
           .identity_file = {},
           .known_hosts_file = known_hosts_file,
+          .known_hosts_scope = "password",
           .config_file = {},
           .authentication_answer = options.password,
           .expected_prompts = {
@@ -2030,6 +2061,7 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
           .auth_mode = ServerAuthMode::public_key,
           .identity_file = plain_private_key,
           .known_hosts_file = known_hosts_file,
+          .known_hosts_scope = "public-key-plain",
           .config_file = {},
           .authentication_answer = {},
           .expected_prompts = {
@@ -2060,6 +2092,7 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
           .auth_mode = ServerAuthMode::public_key,
           .identity_file = encrypted_private_key,
           .known_hosts_file = known_hosts_file,
+          .known_hosts_scope = "public-key-encrypted",
           .config_file = {},
           .authentication_answer = "key-passphrase",
           .expected_prompts = {
@@ -2077,6 +2110,7 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
           .auth_mode = ServerAuthMode::keyboard_interactive,
           .identity_file = {},
           .known_hosts_file = known_hosts_file,
+          .known_hosts_scope = "keyboard-interactive",
           .config_file = {},
           .authentication_answer = options.password,
           .expected_prompts = {
@@ -2102,6 +2136,7 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
           .prompted_username = options.username,
           .identity_file = {},
           .known_hosts_file = known_hosts_file,
+          .known_hosts_scope = "configured-user",
           .config_file = root / ".ssh" / "config",
           .authentication_answer = {},
           .expected_prompts = {
@@ -2124,6 +2159,7 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
           .prompted_username = current_username,
           .identity_file = {},
           .known_hosts_file = known_hosts_file,
+          .known_hosts_scope = "current-user",
           .config_file = {},
           .authentication_answer = {},
           .expected_prompts = {
@@ -2217,8 +2253,16 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
                   global_known_hosts_file.string() + ".old"),
               "global SSH known_hosts was modified automatically");
 
-  expect_true(line_count(known_hosts_file) == 10,
-              "accepted SSH host keys were not saved in the isolated home");
+  expect_true(line_count(known_hosts_file) == 3,
+              "changed SSH host key and protected markers were not saved");
+  for (const char *scope : {"none-disconnect", "password", "public-key-plain",
+                            "public-key-encrypted", "keyboard-interactive",
+                            "configured-user", "current-user"}) {
+    expect_true(line_count(known_hosts_file.string() + "." + scope) == 1,
+                std::string("SSH host key was not saved for ") + scope);
+  }
+  expect_true(line_count(collision_known_hosts_file.string() + ".collision") == 1,
+              "a reused port must still save the isolated host key");
 }
 
 } // namespace elder_terms_ssh_channel_connection_test
