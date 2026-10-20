@@ -247,22 +247,6 @@ export interface TerminalGridSize {
 }
 
 /**
- * Current transfer progress bar value normalized from AT-SPI metadata.
- */
-export interface TransferProgressBarValue {
-  /** Raw current value returned by value(). */
-  readonly rawValue: number;
-  /** Raw current value returned by valueInfo(). */
-  readonly infoValue: number;
-  /** Minimum value reported by AT-SPI. */
-  readonly minimum: number;
-  /** Maximum value reported by AT-SPI. */
-  readonly maximum: number;
-  /** Current value normalized to 0.0 through 1.0. */
-  readonly normalized: number;
-}
-
-/**
  * Launch options forwarded by runGtkTest.
  */
 export interface RunGtkTestOptions {
@@ -575,66 +559,6 @@ export const expectTransferCancelVisible = async (
 export const activateTransferCancel = async (app: GtkApp): Promise<void> => {
   const cancelButton = await expectTransferCancelVisible(app);
   await cancelButton.click();
-};
-
-/**
- * Reads the transfer progress bar value normalized to 0.0 through 1.0.
- *
- * @param app Running GTK app.
- * @returns Progress bar value details.
- */
-export const readTransferProgressBarValue = async (
-  app: GtkApp
-): Promise<TransferProgressBarValue> => {
-  const progress = expectElementKind(
-    await app.getById('transfer_progress_bar'),
-    'progressBar'
-  );
-  const rawValue = await progress.value();
-  const info = await progress.valueInfo();
-  const range = info.maximum - info.minimum;
-  const normalized =
-    range <= 0
-      ? 0
-      : Math.min(1, Math.max(0, (info.value - info.minimum) / range));
-
-  return {
-    rawValue,
-    infoValue: info.value,
-    minimum: info.minimum,
-    maximum: info.maximum,
-    normalized,
-  };
-};
-
-/**
- * Asserts the transfer progress notice visual matches its fixture image.
- *
- * @param app Running GTK app.
- * @param evidence Test evidence writer.
- * @param name Evidence and comparison name.
- * @param masterImagePath Expected PNG path.
- * @param options Pixel comparison options.
- */
-export const assertTransferProgressNoticeMatches = async (
-  app: GtkApp,
-  evidence: TestEvidence,
-  name: string,
-  masterImagePath: string,
-  options?: Parameters<TestEvidence['expectCaptureToLookSimilar']>[3]
-): Promise<void> => {
-  await expectTransferProgressNoticeVisibleAtTerminalTopRight(app);
-
-  const notice = await app.getById('transfer_progress_notice');
-  const capture = await evidence.captureEvidence(name, async () =>
-    notice.capture()
-  );
-  await evidence.expectCaptureToLookSimilar(
-    capture,
-    name,
-    masterImagePath,
-    options
-  );
 };
 
 /**
