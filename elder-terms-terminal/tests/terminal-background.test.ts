@@ -175,6 +175,41 @@ process.stdout.write('\\x1b[?25l\\x1b[48;2;0;0;0m\\x1b[38;2;255;255;255m\\x1b[2J
                 await app.getById('settings_terminal_background_mode_combo'),
                 'comboBox'
               );
+              const scrollbar = expectElementKind(
+                await app.getById('settings_terminal_page_scrollbar'),
+                'scrollbar'
+              );
+              const page = (
+                await (await app.getById('settings_terminal_page')).capture()
+              ).bounds;
+              const range = await scrollbar.valueInfo();
+              const step = Math.max(1, Math.floor(page.height / 3));
+              // More settings can follow background mode. Locate its row
+              // instead of assuming that scrolling to the bottom reveals it.
+              for (
+                let value = range.minimum;
+                value < range.maximum + step;
+                value += step
+              ) {
+                await scrollbar.setValue(Math.min(value, range.maximum));
+                if (!(await combo.info()).states.includes('showing')) continue;
+                const position = (await combo.capture()).bounds;
+                const current = (await scrollbar.valueInfo()).value;
+                await scrollbar.setValue(
+                  Math.max(
+                    range.minimum,
+                    Math.min(range.maximum, current + position.y - page.y - 40)
+                  )
+                );
+                break;
+              }
+              await waitForResult(async () => {
+                const position = (await combo.capture()).bounds;
+                expect(position.y).toBeGreaterThanOrEqual(page.y);
+                expect(position.y + position.height).toBeLessThanOrEqual(
+                  page.y + page.height
+                );
+              });
               const bounds = (await combo.capture()).bounds;
               await app.input.moveMouseTo(
                 Math.round(bounds.x + bounds.width / 2),
