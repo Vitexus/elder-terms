@@ -29,7 +29,6 @@ for (const [profile, reference] of [
           'expander'
         );
         await expander.expand();
-        await scroll.setValue((await scroll.valueInfo()).maximum);
         const before = expectElementKind(
           await app.getById('settings_terminal_color_preview_before'),
           'label'
@@ -38,6 +37,20 @@ for (const [profile, reference] of [
           await app.getById('settings_terminal_color_preview_after'),
           'label'
         );
+        // Expansion changes the scroll range on GTK's next allocation.
+        // Follow that range until both samples are fully inside the viewport.
+        const page = await app.getById('settings_terminal_page');
+        await waitForResult(async () => {
+          await scroll.setValue((await scroll.valueInfo()).maximum);
+          const viewport = (await page.capture()).bounds;
+          for (const sample of [before, after]) {
+            const bounds = (await sample.capture()).bounds;
+            expect(bounds.y).toBeGreaterThanOrEqual(viewport.y);
+            expect(bounds.y + bounds.height).toBeLessThanOrEqual(
+              viewport.y + viewport.height
+            );
+          }
+        });
         expect(await before.text()).toContain('- removed');
         expect(await before.text()).toContain('256');
         expect(await before.text()).toContain('RGB');

@@ -42,12 +42,16 @@ int main() {
     }
   }
 
-  // These are ordinary ANSI red/green and green/cyan pairs, fixed before the
-  // implementation. Compare the final displayed colors, including Oklch.
+  // Ordinary ANSI red/green and green/cyan pairs, indexed 124/34/37,
+  // and TrueColor log colors. Compare final displayed colors, including Oklch.
   const std::array red_green{std::array{RgbColor{128, 0, 0}, RgbColor{0, 128, 0}},
-      std::array{RgbColor{255, 0, 0}, RgbColor{0, 255, 0}}};
+      std::array{RgbColor{255, 0, 0}, RgbColor{0, 255, 0}},
+      std::array{RgbColor{175, 0, 0}, RgbColor{0, 175, 0}},
+      std::array{RgbColor{200, 80, 80}, RgbColor{80, 128, 80}}};
   const std::array green_cyan{std::array{RgbColor{0, 128, 0}, RgbColor{0, 128, 128}},
-      std::array{RgbColor{0, 255, 0}, RgbColor{0, 255, 255}}};
+      std::array{RgbColor{0, 255, 0}, RgbColor{0, 255, 255}},
+      std::array{RgbColor{0, 175, 0}, RgbColor{0, 175, 175}},
+      std::array{RgbColor{80, 128, 80}, RgbColor{80, 128, 128}}};
   for (const auto profile : profiles) {
     for (const auto &pair : profile == TerminalColorVision::tritan ? green_cyan : red_green) {
       for (const RgbColor background : {RgbColor{0, 0, 0}, RgbColor{32, 32, 32}, RgbColor{255, 255, 255}}) {

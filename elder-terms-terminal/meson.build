@@ -153,6 +153,15 @@ color_vision_test = executable('terminal-color-vision-test',
   dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
 test('terminal-color-vision-test', color_vision_test)
 
+color_rendering_test = executable('terminal-color-rendering-test',
+  'tests/cpp/terminal-color-rendering-test.cpp', dependencies: [boxrig_runtime_dep, elder_terms_dep])
+foreach backend : ['cairo', 'opengl']
+  test('terminal-color-rendering-' + backend + '-test', find_program('xvfb-run'),
+    args: ['-a', color_rendering_test, backend], timeout: 60,
+    env: ['LIBGL_ALWAYS_SOFTWARE=1', 'GTK_IM_MODULE=gtk-im-context-simple', 'NO_AT_BRIDGE=1', 'GDK_SCALE=1'] +
+      (backend == 'cairo' ? ['GDK_GL=disable'] : []))
+endforeach
+
 executable('terminal-color-vision-demo',
   ['tests/cpp/terminal-color-vision-demo.cpp'],
   dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
