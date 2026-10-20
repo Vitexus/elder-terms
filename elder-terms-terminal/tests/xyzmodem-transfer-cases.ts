@@ -248,6 +248,12 @@ const transferProgressNoticeXmodemSizeCase: TransferSizeCase = {
   timeoutMs: 300_000,
 };
 
+const ymodemGThroughputSizeCase: TransferSizeCase = {
+  byteLength: 30 * 1024 * 1024,
+  label: '30MB',
+  timeoutMs: 600_000,
+};
+
 const requiredCommands = [
   '/usr/bin/socat',
   '/usr/sbin/telnetd',
@@ -443,6 +449,21 @@ const transferProgressNoticeCases: readonly TransferProgressNoticeCase[] = [
       menuItemId: 'transfer_xmodem_crc_receive_item',
       protocol: 'xmodem',
     },
+  },
+];
+
+const ymodemGThroughputCases: readonly TransferMenuCase[] = [
+  {
+    direction: 'send',
+    label: 'ymodem-g send',
+    menuItemId: 'transfer_ymodem_send_item',
+    protocol: 'ymodem',
+  },
+  {
+    direction: 'receive',
+    label: 'ymodem-g receive',
+    menuItemId: 'transfer_ymodem_g_receive_item',
+    protocol: 'ymodem',
   },
 ];
 
@@ -1172,10 +1193,11 @@ const createTransferFixture = async (
   };
 };
 
-const createTransferProgressPeerFixture = async (
+const createTransferPeerFixture = async (
   directory: string,
   transferCase: TransferMenuCase,
-  sizeCase: TransferSizeCase
+  sizeCase: TransferSizeCase,
+  peerArgs: readonly string[]
 ): Promise<TransferProgressPeerFixture> => {
   const localDirectory = join(directory, 'local');
   const remoteDirectory = join(directory, 'remote');
@@ -1218,9 +1240,7 @@ const createTransferProgressPeerFixture = async (
       pausedPath,
       '--resume-file',
       resumePath,
-      '--max-link-chunk',
-      '1024',
-      ...transferProgressPeerLinkPaceArgs(transferCase),
+      ...peerArgs,
     ] as const;
     await writeFile(sourcePath, payload);
     await writeTransferProgressPeerLoginScript(
@@ -1262,9 +1282,7 @@ const createTransferProgressPeerFixture = async (
     pausedPath,
     '--resume-file',
     resumePath,
-    '--max-link-chunk',
-    '1024',
-    ...transferProgressPeerLinkPaceArgs(transferCase),
+    ...peerArgs,
   ] as const;
   await writeFile(remotePayloadPath, payload);
   await writeTransferProgressPeerLoginScript(
@@ -2796,10 +2814,15 @@ const registerProgressTests = () =>
         async (context) => {
           await expectTransferProgressPeerAvailable();
           await withTemporaryDirectory(async (directory) => {
-            const fixture = await createTransferProgressPeerFixture(
+            const fixture = await createTransferPeerFixture(
               directory,
               transferCase,
-              sizeCase
+              sizeCase,
+              [
+                '--max-link-chunk',
+                '1024',
+                ...transferProgressPeerLinkPaceArgs(transferCase),
+              ]
             );
             const connection = await startConnection(
               connectionCases[0],
@@ -2915,14 +2938,19 @@ const registerCancellationTests = () =>
         it(`cancels ${transferCase.label} from the progress overlay`, async (context) => {
           await expectTransferProgressPeerAvailable();
           await withTemporaryDirectory(async (directory) => {
-            const fixture = await createTransferProgressPeerFixture(
+            const fixture = await createTransferPeerFixture(
               directory,
               transferCase,
               {
                 byteLength: 1024,
                 label: '1KB',
                 timeoutMs: 30_000,
-              }
+              },
+              [
+                '--max-link-chunk',
+                '1024',
+                ...transferProgressPeerLinkPaceArgs(transferCase),
+              ]
             );
             const connection = await startConnection(
               connectionCases[0],
@@ -3034,4 +3062,111 @@ export const registerTransferTests = (): void => {
 /** Registers progress notice end-to-end tests in a separate test file. */
 export const registerTransferProgressNoticeTests = (): void => {
   registerProgressTests();
+};
+
+/** Registers unpaced YMODEM-g GUI transfer measurements in a separate test file. */
+export const registerYmodemGThroughputTests = (): void => {
+  describe('elder-terms-terminal YMODEM-g throughput e2e', () => {
+    for (const connectionCase of connectionCases) {
+      for (const transferCase of ymodemGThroughputCases) {
+        it(
+          `${connectionCase.name} ${transferCase.label} ${ymodemGThroughputSizeCase.label}`,
+          { timeout: ymodemGThroughputSizeCase.timeoutMs + 30_000 },
+          async (context) => {
+            await expectRequiredCommands();
+            if (transferCase.direction === 'send')
+              await expectTransferProgressPeerAvailable();
+            await withTemporaryDirectory(async (directory) => {
+              const fixture =
+                transferCase.direction === 'send'
+                  ? await createTransferPeerFixture(
+                      directory,
+                      transferCase,
+                      ymodemGThroughputSizeCase,
+                      ['--ymodem-g']
+                    )
+                  : await createTransferFixture(
+                      directory,
+                      transferCase,
+                      ymodemGThroughputSizeCase
+                    );
+              const peerStatusPath = fixture.peerStatusPath;
+              if (peerStatusPath === undefined)
+                throw new Error('YMODEM-g peer status path is unavailable');
+              const connection = await startConnection(connectionCase, fixture);
+              try {
+                await connection.writeConfig(
+                  fixture.configPath,
+                  fixture.transferBasePath,
+                  undefined
+                );
+                await runGtkTest(
+                  context,
+                  [
+                    ...connection.launchArguments,
+                    '-c',
+                    fixture.configPath,
+                    ...transferSourceUriArgs(
+                      fixture.sourceUri === undefined ? [] : [fixture.sourceUri]
+                    ),
+                  ],
+                  async (app, evidence) => {
+                    await waitForTransferConnection(
+                      app,
+                      evidence,
+                      connection,
+                      fixture.peerReadyPath
+                    );
+                    const startDelayMs = 250;
+                    const startedAtMs = performance.now();
+                    await writeFile(fixture.markerPath, 'start', 'utf8');
+                    await delay(startDelayMs);
+                    await activateTransfer(app, transferCase);
+                    try {
+                      await waitForFileBytes(
+                        fixture.expectedPath,
+                        fixture.payload,
+                        transferCase.protocol,
+                        ymodemGThroughputSizeCase.timeoutMs
+                      );
+                    } catch (error) {
+                      await saveTransferPeerFailureEvidence(
+                        evidence,
+                        fixture,
+                        error
+                      );
+                      throw error;
+                    }
+                    const elapsedMs = Math.max(
+                      0,
+                      performance.now() - startedAtMs - startDelayMs
+                    );
+                    await evidence.log('YMODEM-g throughput result', {
+                      bytes: fixture.payload.length,
+                      connection: connectionCase.name,
+                      direction: transferCase.direction,
+                      elapsedMs,
+                      bytesPerSecond:
+                        (fixture.payload.length * 1000) / elapsedMs,
+                    });
+                    await waitForResult(async () => {
+                      expect(
+                        (await readFile(peerStatusPath, 'utf8')).trim()
+                      ).toBe('0');
+                    });
+                    await expectTransferProgressNoticeHidden(app);
+                    await expectDisconnectedNoticeHidden(app);
+                    await releaseTransferPeer(fixture);
+                  },
+                  connection.gtkTestOptions
+                );
+              } finally {
+                await connection.close();
+              }
+            });
+          }
+        );
+      }
+    }
+  });
 };
