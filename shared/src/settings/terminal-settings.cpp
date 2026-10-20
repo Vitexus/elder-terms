@@ -199,6 +199,59 @@ static bool validate_terminal_cursor_key_mode(const SettingValue &value,
   return true;
 }
 
+static bool validate_terminal_cursor_shape(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (!text || (*text != "block" && *text != "bar" && *text != "underline")) {
+    *reason = "must be block, bar, or underline";
+    return false;
+  }
+  return true;
+}
+
+static bool validate_color_filter(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && (*text == "none" || *text == "oklch")) return true;
+  *reason = "must be none or oklch";
+  return false;
+}
+
+static bool validate_background_mode(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && (*text == "opaque" || *text == "transparent" || *text == "blur")) return true;
+  *reason = "must be opaque, transparent, or blur";
+  return false;
+}
+
+static bool validate_background_percent(const SettingValue &value, std::string *reason) {
+  const auto *number = std::get_if<gint64>(&value);
+  if (number && *number >= 0 && *number <= 100) return true;
+  *reason = "must be an integer from 0 to 100";
+  return false;
+}
+
+static bool validate_background_tint(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && parse_rgb_color(*text)) return true;
+  *reason = "must be #RRGGBB";
+  return false;
+}
+
+static bool validate_background_image_path(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && (text->empty() || (g_path_is_absolute(text->c_str()) &&
+      g_utf8_validate(text->c_str(), text->size(), nullptr) &&
+      std::none_of(text->begin(), text->end(), [](unsigned char c) { return c < 32 || c == 127; })))) return true;
+  *reason = "must be empty or an absolute local image path without control characters";
+  return false;
+}
+
+static bool validate_background_image_fit(const SettingValue &value, std::string *reason) {
+  const auto *text = std::get_if<std::string>(&value);
+  if (text && (*text == "cover" || *text == "contain" || *text == "stretch")) return true;
+  *reason = "must be cover, contain, or stretch";
+  return false;
+}
+
 static bool validate_terminal_return_code(const SettingValue &value,
                                           std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
@@ -252,6 +305,47 @@ SettingKey terminal_font_size_dip_setting_key() {
 
 SettingKey terminal_font_families_setting_key() {
   return terminal_key(terminal_font_families_key);
+}
+
+SettingKey terminal_cursor_shape_setting_key() { return terminal_key("cursor_shape"); }
+SettingKey terminal_cursor_blink_setting_key() { return terminal_key("cursor_blink"); }
+SettingKey terminal_color_filter_setting_key() { return terminal_key("color_filter"); }
+TerminalColorFilter terminal_color_filter(const SettingsStore &store) {
+  return setting_string_value_or_default(store, terminal_color_filter_setting_key(), "none") == "oklch"
+      ? TerminalColorFilter::oklch : TerminalColorFilter::none;
+}
+
+TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store) {
+  const auto shape = setting_string_value_or_default(store, terminal_cursor_shape_setting_key(), "block");
+  return {shape == "bar" ? TerminalCursorShape::bar :
+          shape == "underline" ? TerminalCursorShape::underline : TerminalCursorShape::block,
+      setting_boolean_value_or_default(store, terminal_cursor_blink_setting_key(), true)};
+}
+
+SettingKey terminal_background_mode_setting_key() { return terminal_key("background_mode"); }
+SettingKey terminal_background_opacity_setting_key() { return terminal_key("background_opacity"); }
+SettingKey terminal_background_tint_color_setting_key() { return terminal_key("background_tint_color"); }
+SettingKey terminal_background_tint_opacity_setting_key() { return terminal_key("background_tint_opacity"); }
+SettingKey terminal_background_image_setting_key() { return terminal_key("background_image"); }
+SettingKey terminal_background_image_opacity_setting_key() { return terminal_key("background_image_opacity"); }
+SettingKey terminal_background_image_fit_setting_key() { return terminal_key("background_image_fit"); }
+
+TerminalBackgroundImageSettings terminal_background_image_settings(const SettingsStore &store) {
+  const auto fit = setting_string_value_or_default(store, terminal_background_image_fit_setting_key(), "cover");
+  return {setting_string_value_or_default(store, terminal_background_image_setting_key(), ""),
+      static_cast<int>(setting_integer_value_or_default(store, terminal_background_image_opacity_setting_key(), 100)),
+      fit == "contain" ? TerminalBackgroundImageFit::contain : fit == "stretch" ? TerminalBackgroundImageFit::stretch :
+      TerminalBackgroundImageFit::cover};
+}
+
+TerminalBackgroundSettings terminal_background_settings(const SettingsStore &store) {
+  const auto mode = setting_string_value_or_default(store, terminal_background_mode_setting_key(), "opaque");
+  return {mode == "blur" ? TerminalBackgroundMode::blur : mode == "transparent"
+          ? TerminalBackgroundMode::transparent : TerminalBackgroundMode::opaque,
+      static_cast<int>(setting_integer_value_or_default(store, terminal_background_opacity_setting_key(), 80)),
+      parse_rgb_color(setting_string_value_or_default(store, terminal_background_tint_color_setting_key(), "#000000"))
+          .value_or(RgbColor{0, 0, 0}),
+      static_cast<int>(setting_integer_value_or_default(store, terminal_background_tint_opacity_setting_key(), 0))};
 }
 
 SettingKey terminal_show_border_setting_key() {
@@ -369,6 +463,17 @@ bool terminal_bell_sound_is_valid(const std::string &value,
 std::vector<SettingDefinition>
 terminal_setting_definitions(TerminalDisplaySettings terminal_defaults) {
   return {
+      {.key = terminal_cursor_shape_setting_key(), .default_value = SettingValue{std::string("block")},
+       .validate = validate_terminal_cursor_shape},
+      {.key = terminal_cursor_blink_setting_key(), .default_value = SettingValue{true}, .validate = nullptr},
+      {.key = terminal_color_filter_setting_key(), .default_value = SettingValue{std::string("none")}, .validate = validate_color_filter},
+      {.key = terminal_background_mode_setting_key(), .default_value = SettingValue{std::string("opaque")}, .validate = validate_background_mode},
+      {.key = terminal_background_opacity_setting_key(), .default_value = SettingValue{gint64{80}}, .validate = validate_background_percent},
+      {.key = terminal_background_tint_color_setting_key(), .default_value = SettingValue{std::string("#000000")}, .validate = validate_background_tint},
+      {.key = terminal_background_tint_opacity_setting_key(), .default_value = SettingValue{gint64{0}}, .validate = validate_background_percent},
+      {.key = terminal_background_image_setting_key(), .default_value = SettingValue{std::string()}, .validate = validate_background_image_path},
+      {.key = terminal_background_image_opacity_setting_key(), .default_value = SettingValue{gint64{100}}, .validate = validate_background_percent},
+      {.key = terminal_background_image_fit_setting_key(), .default_value = SettingValue{std::string("cover")}, .validate = validate_background_image_fit},
       {
           .key = terminal_width_setting_key(),
           .default_value =

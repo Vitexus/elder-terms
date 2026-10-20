@@ -644,6 +644,67 @@ Zooming preserves the row and column counts reported to the connection. Resizing
 font_size_dip=14.5
 ```
 
+## Configuring the Cursor and Background
+
+Cursor, background, and color correction options are near the bottom of the "Terminal" tab.
+They can inherit connection defaults or be overridden for each connection.
+"Apply" changes the current terminal; "Save" also keeps the settings for its next start.
+"Cancel" discards edits made since the last Apply. Previously applied changes remain active.
+If image loading or saving fails, the error is shown and the previously applied appearance is retained.
+
+The left side of the settings footer shows the active renderer and display connection, such as
+`OpenGL / X11` or `Cairo / Wayland`. It also reflects a fallback from OpenGL to Cairo.
+Action buttons remain on the right.
+Scrollbars use colors that remain distinguishable from their background.
+
+Choose "Full box", "Vertical box", or "Underline box" for the cursor.
+The cursor is filled while the terminal has input focus and outlined in the same shape when focus leaves.
+The vertical width and underline height are based on 4 DIP, with a 1 DIP outline, scaled with the display.
+Blinking is a separate option. An unfocused outline stays steady.
+Remote cursor hiding and composition handling remain effective.
+
+Background modes are "Opaque", "Transparent", and "Frosted glass".
+Lower "Background opacity (%)" to reveal more of the background image or desktop.
+"Background tint" and "Tint opacity (%)" add a color over the image and desktop.
+Opacity ranges from 0 to 100%; a 0% tint adds no visible color. Text itself stays opaque.
+
+Choose a local PNG or JPEG file, or enter its absolute path.
+Image placement can preserve the aspect ratio while covering the viewport, contain the whole image, or stretch both axes.
+The image stays fixed within the terminal viewport while text scrolls.
+Image opacity and transparent PNG pixels let the image combine with desktop transparency.
+Images also work in opaque mode; lower the background opacity if the image is difficult to see.
+"Clear image" explicitly selects no image for this connection. "Inherit" follows connection defaults.
+The file is neither moved nor embedded, so keep it available at the same path for future starts.
+Both the file and decoded RGBA pixels are limited to 64 MiB, with a maximum of 16384 pixels per edge.
+
+Desktop transparency requires a compositor that combines the windows on your desktop.
+Frosted glass requests a compositor effect that blurs the desktop behind the terminal; text and background images remain sharp.
+The settings panel reports the actual state. Unavailable blur falls back to transparency, and unavailable transparency falls back to an opaque background.
+"Frosted glass requested" means the request was accepted; compositor effect settings still determine whether the blur appears.
+See [boxrig's background effects](https://github.com/kekyo/boxrig/blob/0.4.0/docs/en/background.md) for platform requirements.
+
+## Improving Text Color Visibility
+
+Select "Improve visibility (Oklch)" under "Color filter" on the "Terminal" tab to improve contrast for text and markers that are difficult to distinguish from their background. All hues, including red, green, and blue, and neutral gray, black, and white are included.
+Oklch represents color using separate lightness, chroma, and hue components. This correction preserves hue and primarily adjusts lightness.
+Colors with a contrast ratio of at least 4.5:1 against the background are retained; only colors below that threshold are adjusted. Chroma is reduced when necessary to fit the displayable color range, and neutral colors remain neutral. The default is "No correction".
+Background colors, background images, communication, copied text, and logs remain unchanged.
+Correction uses the cell's background color as its reference; it does not adapt to individual pixels in a background image or transparent desktop.
+
+```ini
+[terminal]
+cursor_shape=bar
+cursor_blink=false
+background_mode=blur
+background_opacity=40
+background_tint_color=#203040
+background_tint_opacity=20
+background_image=/home/user/Pictures/terminal.png
+background_image_opacity=70
+background_image_fit=cover
+color_filter=oklch
+```
+
 ## Configuring Font Families
 
 Scroll down on the "Terminal" tab to edit an ordered list of font families.
@@ -980,7 +1041,7 @@ Each rule selects one recognition source:
 - "Visible terminal text" finds a matching substring under the pointer. The
   expression must not match an empty string.
 
-Link rules and received-text macros use [boxrig pattern syntax](https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/en/regex.md).
+Link rules and received-text macros use [boxrig pattern syntax](https://github.com/kekyo/boxrig/blob/0.4.0/docs/en/regex.md).
 Character classes, groups, alternatives, repetition, and numbered or named captures are supported. Backreferences, lookahead, lookbehind, and expressions matching an empty string are not supported.
 `\d`, `\s`, and `\w` cover ASCII. Use Unicode general categories such as `\p{L}` for letters and `\p{Nd}` for decimal digits.
 `.` also matches newlines, and `^` and `$` anchor the complete input. Matching is case-sensitive and chooses the longest match at the same starting position.
@@ -1065,12 +1126,12 @@ version as libcurl; the application checks this before connecting.
 To build on Ubuntu or Debian, install a C++20-capable compiler, Meson, Ninja,
 gettext, and the development packages for the libraries used by elder-terms:
 
-Rendering requires GTK3 3.24 or later, Pango 1.50 or later, Cairo 1.18 or later, IBus 1.5.29 or later, and Wayland client 1.22 or later. See the [boxrig build requirements](https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/en/building.md).
+Rendering requires GTK3 3.24 or later, Pango 1.50 or later, Cairo 1.18 or later, IBus 1.5.29 or later, and Wayland client 1.22 or later. See the [boxrig build requirements](https://github.com/kekyo/boxrig/blob/0.4.0/docs/en/building.md).
 
 ```bash
 sudo apt update
 sudo apt install build-essential git meson ninja-build pkg-config gettext \
-  libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev \
+  libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev libxfixes-dev \
   libxkbcommon-dev liburing-dev libudev-dev libssh-dev libcurl4-openssl-dev \
   libcairo2-dev libpango1.0-dev libfontconfig1-dev libepoxy-dev libibus-1.0-dev \
   libwayland-dev libgl-dev libegl-dev libssl-dev libxml2-dev ca-certificates xdg-utils

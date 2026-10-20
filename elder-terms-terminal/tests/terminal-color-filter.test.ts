@@ -1,0 +1,254 @@
+import { readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { PNG } from 'pngjs';
+import { expect, it } from 'vitest';
+import { waitForResult } from 'gestament/testing';
+import { runGtkTest, withTemporaryDirectory } from './gtk-test-helpers';
+import { expectElementKind } from './test-helpers';
+
+const samples = [
+  ['000080', 'NAVY'],
+  ['0000ff', 'BLUE'],
+  ['5080ff', 'LIGHT BLUE'],
+  ['8000ff', 'VIOLET'],
+  ['00ffff', 'CYAN'],
+  ['808080', 'GRAY'],
+  ['ff0000', 'RED'],
+  ['800000', 'DARK RED'],
+  ['008000', 'GREEN'],
+  ['808000', 'OLIVE'],
+  ['800080', 'MAGENTA'],
+  ['505050', 'DARK GRAY'],
+  ['000000', 'BLACK'],
+  ['ffffff', 'WHITE'],
+] as const;
+const corrected: Record<string, string[]> = {
+  '000000': [
+    '3d6fe5',
+    '2e69ff',
+    '5080ff',
+    '8c4cff',
+    '00ffff',
+    '808080',
+    'ff0000',
+    'c64f41',
+    '168913',
+    '808000',
+    'b748b5',
+    '767676',
+    '767676',
+    'ffffff',
+  ],
+  '202020': [
+    '4e82fb',
+    '4c82ff',
+    '5080ff',
+    '996cff',
+    '00ffff',
+    '888888',
+    'ff3c2d',
+    'db6354',
+    '329c2d',
+    '8c8d1c',
+    'cc5cc9',
+    '888888',
+    '888888',
+    'ffffff',
+  ],
+  ffffff: [
+    '000080',
+    '0000ff',
+    '3f6dea',
+    '8000ff',
+    '008383',
+    '757575',
+    'ec0000',
+    '800000',
+    '008000',
+    '797900',
+    '800080',
+    '505050',
+    '000000',
+    '757575',
+  ],
+};
+
+for (const backend of ['cairo', 'opengl'])
+  for (const background of Object.keys(corrected)) {
+    it(`corrects all native colors through Settings and preserves connection defaults (${backend}, ${background})`, async (context) => {
+      await withTemporaryDirectory(async (directory) => {
+        const config = join(directory, 'filter.ini');
+        const peer = join(directory, 'colors.mjs');
+        let output = '\x1b[?25l\x1b[2J\x1b[H';
+        for (const [hex, label] of samples) {
+          const rgb = hex
+            .match(/../g)!
+            .map((value) => Number.parseInt(value, 16));
+          output += `\x1b[38;2;${rgb.join(';')}m${label.padEnd(12)} ████████\r\n`;
+        }
+        output += '\x1b[0mDEFAULT TEXT\r\n';
+        // The PTY retains ONLCR, adding CR before each LF in the received bytes.
+        const receivedOutput = output.replace(/\n/g, '\r\n');
+        await writeFile(
+          peer,
+          `process.stdin.setRawMode(true); process.stdin.resume(); process.stdout.write(${JSON.stringify(output)});`
+        );
+        const logPath = join(directory, 'raw.log');
+        const original = `[general]\nbackground=#${background}\n[log]\nenabled=true\nbase_directory=${directory}\nfile_name_format=raw.log\nmode=raw\n[local]\ncommand_line=${process.execPath} ${peer}\n`;
+        await writeFile(config, original);
+        const env =
+          backend === 'cairo'
+            ? { GDK_GL: 'disable' }
+            : { LIBGL_ALWAYS_SOFTWARE: '1' };
+        const expectColors = async (
+          image: Buffer,
+          enabled: boolean
+        ): Promise<void> => {
+          const frame = PNG.sync.read(image);
+          const counts = new Map<string, number>();
+          for (let i = 0; i < frame.data.length; i += 4) {
+            const hex = frame.data.subarray(i, i + 3).toString('hex');
+            counts.set(hex, (counts.get(hex) ?? 0) + 1);
+          }
+          for (const color of enabled
+            ? corrected[background]
+            : samples.map(([hex]) => hex))
+            expect(counts.get(color) ?? 0, color).toBeGreaterThan(60);
+          expect(counts.get(background) ?? 0).toBeGreaterThan(20000);
+          expect(
+            counts.get(background === 'ffffff' ? '000000' : 'ffffff') ?? 0
+          ).toBeGreaterThan(20);
+        };
+        await runGtkTest(
+          context,
+          ['-c', config],
+          async (app, evidence) => {
+            const terminal = await app.getById('terminal_view');
+            await waitForResult(async () =>
+              expectColors((await terminal.capture()).image, false)
+            );
+            await evidence.captureEvidence('filter-off', async () =>
+              app.capture()
+            );
+            const openSettings = async (): Promise<void> => {
+              await expectElementKind(
+                await app.getById('application_menu_button'),
+                'toggleButton'
+              ).click();
+              await expectElementKind(
+                await app.getById('settings_menu_item'),
+                'menuItem'
+              ).click();
+              const tabs = expectElementKind(
+                await app.getById('settings_notebook'),
+                'tabList'
+              );
+              for (let index = 0; index < (await tabs.getChildCount()); index++)
+                if (
+                  (await (await tabs.childAt(index))?.info())?.name ===
+                  'Terminal'
+                ) {
+                  await tabs.selectChildAt(index);
+                  break;
+                }
+              const scroll = expectElementKind(
+                await app.getById('settings_terminal_page_scrollbar'),
+                'scrollbar'
+              );
+              await scroll.setValue((await scroll.valueInfo()).maximum);
+            };
+            const select = async (index: number): Promise<void> => {
+              const combo = expectElementKind(
+                await app.getById('settings_terminal_color_filter_combo'),
+                'comboBox'
+              );
+              const bounds = (await combo.capture()).bounds;
+              await app.input.moveMouseTo(
+                Math.round(bounds.x + bounds.width / 2),
+                Math.round(bounds.y + bounds.height / 2)
+              );
+              await app.input.setMouseButton('left', true);
+              await app.input.setMouseButton('left', false);
+              const item = (await combo.childAt(index))!;
+              if (index === 2)
+                expect((await item.info()).name).toBe(
+                  'Improve visibility (Oklch)'
+                );
+              await waitForResult(async () =>
+                expect((await item.info()).states).toContain('showing')
+              );
+              const target = (await item.capture()).bounds;
+              await app.input.moveMouseTo(
+                Math.round(target.x + target.width / 2),
+                Math.round(target.y + target.height / 2)
+              );
+              await app.input.setMouseButton('left', true);
+              await app.input.setMouseButton('left', false);
+              await waitForResult(async () =>
+                expect(await combo.isChildSelected(index)).toBe(true)
+              );
+            };
+            await openSettings();
+            await select(2);
+            await expectElementKind(
+              await app.getById('settings_apply_button'),
+              'button'
+            ).click();
+            await waitForResult(async () =>
+              expectColors((await terminal.capture()).image, true)
+            );
+            expect(await readFile(config, 'utf8')).toBe(original);
+            await evidence.captureEvidence('filter-on', async () =>
+              app.capture()
+            );
+            await openSettings();
+            await select(1);
+            await expectElementKind(
+              await app.getById('settings_cancel_button'),
+              'button'
+            ).click();
+            await waitForResult(async () =>
+              expectColors((await terminal.capture()).image, true)
+            );
+            await openSettings();
+            await select(1);
+            await expectElementKind(
+              await app.getById('settings_apply_button'),
+              'button'
+            ).click();
+            await waitForResult(async () =>
+              expectColors((await terminal.capture()).image, false)
+            );
+            await openSettings();
+            await select(2);
+            await expectElementKind(
+              await app.getById('settings_save_button'),
+              'button'
+            ).click();
+            await waitForResult(async () =>
+              expectColors((await terminal.capture()).image, true)
+            );
+          },
+          { env }
+        );
+        expect(await readFile(config, 'utf8')).toContain('color_filter=oklch');
+        expect(await readFile(logPath, 'utf8')).toBe(receivedOutput);
+        await runGtkTest(
+          context,
+          ['-c', config],
+          async (app) => {
+            const terminal = await app.getById('terminal_view');
+            await waitForResult(async () =>
+              expectColors((await terminal.capture()).image, true)
+            );
+            await waitForResult(async () =>
+              expect(await readFile(logPath, 'utf8')).toBe(
+                receivedOutput + receivedOutput
+              )
+            );
+          },
+          { env }
+        );
+      });
+    });
+  }

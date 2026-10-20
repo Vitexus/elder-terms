@@ -42,6 +42,9 @@ struct RgbColor {
   guint8 blue;
 };
 
+/** @param text Six-digit #RRGGBB color. @returns Parsed opaque color, or no value for invalid input. */
+ELDER_TERMS_API std::optional<RgbColor> parse_rgb_color(const std::string &text);
+
 /**
  * Optional colors applied to a connection window.
  */

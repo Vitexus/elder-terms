@@ -2401,3 +2401,159 @@ msgstr "Использовать для «New Window»"
 #: elder-terms/src/main.cpp
 msgid "Failed to save New Window connection"
 msgstr "Не удалось сохранить подключение для нового окна"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Initializing"
+msgstr "Инициализация"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "switching"
+msgstr "переключение"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Requested OpenGL; using Cairo"
+msgstr "Запрошен OpenGL; используется Cairo"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Other display"
+msgstr "Другая оконная система"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor shape"
+msgstr "Форма курсора"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor blinking"
+msgstr "Мигание курсора"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Full box"
+msgstr "Полный блок"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Vertical box"
+msgstr "Вертикальный блок"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Underline box"
+msgstr "Блок подчёркивания"
+
+msgid "Background mode"
+msgstr "Режим фона"
+
+msgid "Background opacity (%)"
+msgstr "Непрозрачность фона (%)"
+
+msgid "Background tint"
+msgstr "Оттенок фона"
+
+msgid "Tint opacity (%)"
+msgstr "Непрозрачность оттенка (%)"
+
+msgid "Opaque"
+msgstr "Непрозрачный"
+
+msgid "Transparent"
+msgstr "Прозрачный"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "Введите целое число от 0 до 100"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "Введите цвет в формате #RRGGBB"
+
+msgid "Applying settings…"
+msgstr "Применение настроек…"
+
+msgid "Failed to apply terminal settings"
+msgstr "Не удалось применить настройки терминала"
+
+msgid "Opaque background"
+msgstr "Непрозрачный фон"
+
+msgid "Transparent background"
+msgstr "Прозрачный фон"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "Непрозрачный фон: прозрачность рабочего стола недоступна"
+
+msgid "Background image"
+msgstr "Фоновое изображение"
+
+msgid "Image opacity (%)"
+msgstr "Непрозрачность изображения (%)"
+
+msgid "Image placement"
+msgstr "Размещение изображения"
+
+msgid "Cover"
+msgstr "Заполнить"
+
+msgid "Contain"
+msgstr "Вписать"
+
+msgid "Stretch"
+msgstr "Растянуть"
+
+msgid "No image"
+msgstr "Без изображения"
+
+msgid "Clear image"
+msgstr "Убрать изображение"
+
+msgid "Inherit"
+msgstr "Наследовать"
+
+msgid "Select a background image"
+msgstr "Выберите фоновое изображение"
+
+msgid "PNG and JPEG images"
+msgstr "Изображения PNG и JPEG"
+
+msgid "Enter an absolute local image path"
+msgstr "Введите абсолютный путь к локальному изображению"
+
+msgid "Cannot decode the background image"
+msgstr "Не удалось декодировать фоновое изображение"
+
+msgid "Not enough memory for the background image"
+msgstr "Недостаточно памяти для фонового изображения"
+
+msgid "Background image exceeds the 64 MiB limit"
+msgstr "Фоновое изображение превышает предел 64 МиБ"
+
+msgid "Background image exceeds 16384 pixels or 64 MiB"
+msgstr "Фоновое изображение превышает 16384 пикселя или 64 МиБ"
+
+msgid "Select a PNG or JPEG background image"
+msgstr "Выберите фоновое изображение PNG или JPEG"
+
+msgid "Select a regular local image file"
+msgstr "Выберите обычный локальный файл изображения"
+
+msgid "Frosted glass"
+msgstr "Матовое стекло"
+
+msgid "Frosted glass requested"
+msgstr "Запрошен эффект матового стекла"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "Прозрачный фон: проверка поддержки матового стекла"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "Прозрачный фон: не удалось запросить матовое стекло"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "Прозрачный фон: матовое стекло недоступно"
+
+msgid "Color filter"
+msgstr "Цветовой фильтр"
+
+msgid "No correction"
+msgstr "Без коррекции"
+
+msgid "Improve visibility (Oklch)"
+msgstr "Улучшение видимости (Oklch)"
+
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "Улучшает текст с низким контрастом всех цветов, включая серый. Сохраняет оттенок и не изменяет фон."

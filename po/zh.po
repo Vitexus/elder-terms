@@ -2371,3 +2371,159 @@ msgstr "用于“New Window”"
 #: elder-terms/src/main.cpp
 msgid "Failed to save New Window connection"
 msgstr "无法保存新窗口连接"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Initializing"
+msgstr "正在初始化"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "switching"
+msgstr "正在切换"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Requested OpenGL; using Cairo"
+msgstr "已请求 OpenGL；正在使用 Cairo"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Other display"
+msgstr "其他显示系统"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor shape"
+msgstr "光标形状"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor blinking"
+msgstr "光标闪烁"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Full box"
+msgstr "全方框"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Vertical box"
+msgstr "竖方框"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Underline box"
+msgstr "下划线方框"
+
+msgid "Background mode"
+msgstr "背景模式"
+
+msgid "Background opacity (%)"
+msgstr "背景不透明度 (%)"
+
+msgid "Background tint"
+msgstr "背景混合色"
+
+msgid "Tint opacity (%)"
+msgstr "混合色不透明度 (%)"
+
+msgid "Opaque"
+msgstr "不透明"
+
+msgid "Transparent"
+msgstr "透明"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "请输入 0 到 100 之间的整数"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "请以 #RRGGBB 格式输入颜色"
+
+msgid "Applying settings…"
+msgstr "正在应用设置…"
+
+msgid "Failed to apply terminal settings"
+msgstr "无法应用终端设置"
+
+msgid "Opaque background"
+msgstr "不透明背景"
+
+msgid "Transparent background"
+msgstr "透明背景"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "不透明背景：桌面透明效果不可用"
+
+msgid "Background image"
+msgstr "背景图像"
+
+msgid "Image opacity (%)"
+msgstr "图像不透明度 (%)"
+
+msgid "Image placement"
+msgstr "图像布局"
+
+msgid "Cover"
+msgstr "覆盖"
+
+msgid "Contain"
+msgstr "完整显示"
+
+msgid "Stretch"
+msgstr "拉伸"
+
+msgid "No image"
+msgstr "无图像"
+
+msgid "Clear image"
+msgstr "清除图像"
+
+msgid "Inherit"
+msgstr "继承"
+
+msgid "Select a background image"
+msgstr "选择背景图像"
+
+msgid "PNG and JPEG images"
+msgstr "PNG 和 JPEG 图像"
+
+msgid "Enter an absolute local image path"
+msgstr "请输入本地图像的绝对路径"
+
+msgid "Cannot decode the background image"
+msgstr "无法解码背景图像"
+
+msgid "Not enough memory for the background image"
+msgstr "没有足够的内存来加载背景图像"
+
+msgid "Background image exceeds the 64 MiB limit"
+msgstr "背景图像超过 64 MiB 限制"
+
+msgid "Background image exceeds 16384 pixels or 64 MiB"
+msgstr "背景图像超过 16384 像素或 64 MiB"
+
+msgid "Select a PNG or JPEG background image"
+msgstr "请选择 PNG 或 JPEG 背景图像"
+
+msgid "Select a regular local image file"
+msgstr "请选择普通的本地图像文件"
+
+msgid "Frosted glass"
+msgstr "磨砂玻璃"
+
+msgid "Frosted glass requested"
+msgstr "已请求磨砂玻璃效果"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "透明背景：正在检查磨砂玻璃支持"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "透明背景：磨砂玻璃请求失败"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "透明背景：磨砂玻璃不可用"
+
+msgid "Color filter"
+msgstr "颜色校正"
+
+msgid "No correction"
+msgstr "不校正"
+
+msgid "Improve visibility (Oklch)"
+msgstr "提高可见性 (Oklch)"
+
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "改善包括灰色在内的所有颜色文字的低对比度。保持色相，不改变背景。"

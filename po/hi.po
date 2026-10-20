@@ -2378,3 +2378,159 @@ msgstr "\"New Window\" के लिए उपयोग करें"
 #: elder-terms/src/main.cpp
 msgid "Failed to save New Window connection"
 msgstr "नई विंडो का कनेक्शन सहेजने में विफल"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Initializing"
+msgstr "प्रारंभ हो रहा है"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "switching"
+msgstr "बदल रहा है"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Requested OpenGL; using Cairo"
+msgstr "OpenGL का अनुरोध किया गया; Cairo उपयोग में है"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Other display"
+msgstr "अन्य डिस्प्ले"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor shape"
+msgstr "कर्सर का आकार"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor blinking"
+msgstr "कर्सर का झपकना"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Full box"
+msgstr "पूरा बॉक्स"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Vertical box"
+msgstr "लंबवत बॉक्स"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Underline box"
+msgstr "रेखांकन बॉक्स"
+
+msgid "Background mode"
+msgstr "पृष्ठभूमि मोड"
+
+msgid "Background opacity (%)"
+msgstr "पृष्ठभूमि की अपारदर्शिता (%)"
+
+msgid "Background tint"
+msgstr "पृष्ठभूमि का मिश्रित रंग"
+
+msgid "Tint opacity (%)"
+msgstr "मिश्रित रंग की अपारदर्शिता (%)"
+
+msgid "Opaque"
+msgstr "अपारदर्शी"
+
+msgid "Transparent"
+msgstr "पारदर्शी"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "0 से 100 तक कोई पूर्णांक दर्ज करें"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "#RRGGBB के रूप में रंग दर्ज करें"
+
+msgid "Applying settings…"
+msgstr "सेटिंग लागू की जा रही हैं…"
+
+msgid "Failed to apply terminal settings"
+msgstr "टर्मिनल सेटिंग लागू नहीं हो सकीं"
+
+msgid "Opaque background"
+msgstr "अपारदर्शी पृष्ठभूमि"
+
+msgid "Transparent background"
+msgstr "पारदर्शी पृष्ठभूमि"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "अपारदर्शी पृष्ठभूमि: डेस्कटॉप पारदर्शिता उपलब्ध नहीं है"
+
+msgid "Background image"
+msgstr "पृष्ठभूमि चित्र"
+
+msgid "Image opacity (%)"
+msgstr "चित्र की अपारदर्शिता (%)"
+
+msgid "Image placement"
+msgstr "चित्र का स्थान"
+
+msgid "Cover"
+msgstr "पूरा क्षेत्र भरें"
+
+msgid "Contain"
+msgstr "पूरा चित्र दिखाएँ"
+
+msgid "Stretch"
+msgstr "खींचें"
+
+msgid "No image"
+msgstr "कोई चित्र नहीं"
+
+msgid "Clear image"
+msgstr "चित्र हटाएँ"
+
+msgid "Inherit"
+msgstr "विरासत में लें"
+
+msgid "Select a background image"
+msgstr "पृष्ठभूमि चित्र चुनें"
+
+msgid "PNG and JPEG images"
+msgstr "PNG और JPEG चित्र"
+
+msgid "Enter an absolute local image path"
+msgstr "स्थानीय चित्र का पूर्ण पथ दर्ज करें"
+
+msgid "Cannot decode the background image"
+msgstr "पृष्ठभूमि चित्र को डिकोड नहीं किया जा सकता"
+
+msgid "Not enough memory for the background image"
+msgstr "पृष्ठभूमि चित्र के लिए पर्याप्त मेमोरी नहीं है"
+
+msgid "Background image exceeds the 64 MiB limit"
+msgstr "पृष्ठभूमि चित्र 64 MiB की सीमा से बड़ा है"
+
+msgid "Background image exceeds 16384 pixels or 64 MiB"
+msgstr "पृष्ठभूमि चित्र 16384 पिक्सेल या 64 MiB से बड़ा है"
+
+msgid "Select a PNG or JPEG background image"
+msgstr "PNG या JPEG पृष्ठभूमि चित्र चुनें"
+
+msgid "Select a regular local image file"
+msgstr "एक सामान्य स्थानीय चित्र फ़ाइल चुनें"
+
+msgid "Frosted glass"
+msgstr "धुंधला काँच"
+
+msgid "Frosted glass requested"
+msgstr "धुंधले काँच का अनुरोध किया गया"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "पारदर्शी पृष्ठभूमि: धुंधले काँच के समर्थन की जाँच हो रही है"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "पारदर्शी पृष्ठभूमि: धुंधले काँच का अनुरोध विफल हुआ"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "पारदर्शी पृष्ठभूमि: धुंधला काँच उपलब्ध नहीं है"
+
+msgid "Color filter"
+msgstr "रंग फ़िल्टर"
+
+msgid "No correction"
+msgstr "कोई सुधार नहीं"
+
+msgid "Improve visibility (Oklch)"
+msgstr "दृश्यता सुधारें (Oklch)"
+
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "धूसर सहित सभी रंगों के कम कंट्रास्ट वाले पाठ को सुधारता है। रंगत बनाए रखता है और पृष्ठभूमि नहीं बदलता।"

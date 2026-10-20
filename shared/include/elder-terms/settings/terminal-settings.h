@@ -8,8 +8,84 @@
 #include <elder-terms/export.h>
 #include <elder-terms/key-binding.h>
 #include <elder-terms/settings/settings-store.h>
+#include <elder-terms/settings/general-settings.h>
 
 namespace elder_terms {
+
+/** Display-only correction; terminal bytes and logical colors are preserved. */
+enum class TerminalColorFilter {
+  none,  /**< Preserve the terminal colors after connection defaults. */
+  oklch, /**< Improve low-contrast text and markers of any hue, including neutrals, in Oklch. */
+};
+/** @returns Key for the selected display-color correction. */
+ELDER_TERMS_API SettingKey terminal_color_filter_setting_key();
+/** @param store Layered settings. @returns Selected display correction. */
+ELDER_TERMS_API TerminalColorFilter terminal_color_filter(const SettingsStore &store);
+
+/** Desired desktop background mode; actual support is determined by the window owner. */
+enum class TerminalBackgroundMode {
+  opaque,      /**< Opaque application backing. */
+  transparent, /**< Prefer desktop alpha composition when supported. */
+  blur,        /**< Prefer compositor blur behind the transparent terminal region. */
+};
+/** Independent cell-background and tint-layer preferences. */
+struct TerminalBackgroundSettings {
+  TerminalBackgroundMode mode; /**< Requested desktop transparency. */
+  int opacity;                /**< Cell background opacity, zero through one hundred. */
+  RgbColor tint;              /**< Unassociated sRGB tint color. */
+  int tint_opacity;           /**< Tint-layer opacity, zero through one hundred. */
+};
+/** @returns Key for the requested background mode. */
+ELDER_TERMS_API SettingKey terminal_background_mode_setting_key();
+/** @returns Key for terminal cell background opacity. */
+ELDER_TERMS_API SettingKey terminal_background_opacity_setting_key();
+/** @returns Key for the independent RGB tint. */
+ELDER_TERMS_API SettingKey terminal_background_tint_color_setting_key();
+/** @returns Key for tint-layer opacity. */
+ELDER_TERMS_API SettingKey terminal_background_tint_opacity_setting_key();
+/** @param store Layered settings. @returns Requested background preferences. */
+ELDER_TERMS_API TerminalBackgroundSettings terminal_background_settings(const SettingsStore &store);
+
+/** Centered background-image placement. */
+enum class TerminalBackgroundImageFit {
+  cover,   /**< Fill the viewport, cropping while preserving aspect ratio. */
+  contain, /**< Fit the whole image, preserving aspect ratio and leaving margins. */
+  stretch, /**< Scale both axes independently to fill the viewport. */
+};
+/** Background image preferences, independent of desktop transparency. */
+struct TerminalBackgroundImageSettings {
+  std::string path;                 /**< Absolute UTF-8 filename; empty explicitly disables the image. */
+  int opacity;                      /**< Image opacity from zero through one hundred. */
+  TerminalBackgroundImageFit fit;   /**< Centered placement in the terminal viewport. */
+};
+/** @returns Key for the absolute image path or explicit empty override. */
+ELDER_TERMS_API SettingKey terminal_background_image_setting_key();
+/** @returns Key for image opacity. */
+ELDER_TERMS_API SettingKey terminal_background_image_opacity_setting_key();
+/** @returns Key for image placement. */
+ELDER_TERMS_API SettingKey terminal_background_image_fit_setting_key();
+/** @param store Layered settings. @returns Effective image preferences. */
+ELDER_TERMS_API TerminalBackgroundImageSettings terminal_background_image_settings(const SettingsStore &store);
+
+/** User-selected cursor geometry, independent of the terminal's DECSCUSR state. */
+enum class TerminalCursorShape {
+  block,     /**< Full-cell box. */
+  bar,       /**< Vertical insertion box. */
+  underline, /**< Horizontal box along the cell's lower edge. */
+};
+
+/** Cursor presentation preferences; focused cursors are filled, unfocused ones outlined. */
+struct TerminalCursorSettings {
+  TerminalCursorShape shape; /**< Geometry used for both focus states. */
+  bool blink;                /**< Blink while focused; unfocused outlines remain visible. */
+};
+
+/** @returns Key for the terminal cursor geometry (block, bar or underline). */
+ELDER_TERMS_API SettingKey terminal_cursor_shape_setting_key();
+/** @returns Key for the independent cursor blink preference. */
+ELDER_TERMS_API SettingKey terminal_cursor_blink_setting_key();
+/** @param store Layered settings. @returns Effective cursor preferences. */
+ELDER_TERMS_API TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store);
 
 /**
  * Terminal grid, history and character size preferences.

@@ -4,7 +4,7 @@ Source: https://github.com/kekyo/elder-terms
 Comment: The bundled boxrig runtime includes third-party code and data under
  their own licenses. Its component list and complete notices are installed in
  /usr/share/doc/elder-terms/licenses/boxrig/.
- See https://github.com/kekyo/boxrig/tree/4b664b87cf405dc97477a1403d8a987881a3134f/packaging/licenses
+ See https://github.com/kekyo/boxrig/tree/e327a39/packaging/licenses
 
 Files: *
 Copyright: Kouji Matsui

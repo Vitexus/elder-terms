@@ -2401,3 +2401,159 @@ msgstr "Usar para \"New Window\""
 #: elder-terms/src/main.cpp
 msgid "Failed to save New Window connection"
 msgstr "No se pudo guardar la conexión para una ventana nueva"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Initializing"
+msgstr "Inicializando"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "switching"
+msgstr "cambiando"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Requested OpenGL; using Cairo"
+msgstr "Se solicitó OpenGL; se utiliza Cairo"
+
+#: elder-terms-terminal/src/terminal-renderer-status.cpp
+msgid "Other display"
+msgstr "Otro sistema de ventanas"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor shape"
+msgstr "Forma del cursor"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Cursor blinking"
+msgstr "Parpadeo del cursor"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Full box"
+msgstr "Bloque completo"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Vertical box"
+msgstr "Bloque vertical"
+
+#: shared/src/settings-widget/settings-presentation.cpp
+msgid "Underline box"
+msgstr "Bloque de subrayado"
+
+msgid "Background mode"
+msgstr "Modo de fondo"
+
+msgid "Background opacity (%)"
+msgstr "Opacidad del fondo (%)"
+
+msgid "Background tint"
+msgstr "Tinte del fondo"
+
+msgid "Tint opacity (%)"
+msgstr "Opacidad del tinte (%)"
+
+msgid "Opaque"
+msgstr "Opaco"
+
+msgid "Transparent"
+msgstr "Transparente"
+
+msgid "Enter an integer from 0 to 100"
+msgstr "Introduzca un entero de 0 a 100"
+
+msgid "Enter a color as #RRGGBB"
+msgstr "Introduzca un color como #RRGGBB"
+
+msgid "Applying settings…"
+msgstr "Aplicando ajustes…"
+
+msgid "Failed to apply terminal settings"
+msgstr "No se pudieron aplicar los ajustes del terminal"
+
+msgid "Opaque background"
+msgstr "Fondo opaco"
+
+msgid "Transparent background"
+msgstr "Fondo transparente"
+
+msgid "Opaque background: desktop transparency is unavailable"
+msgstr "Fondo opaco: la transparencia del escritorio no está disponible"
+
+msgid "Background image"
+msgstr "Imagen de fondo"
+
+msgid "Image opacity (%)"
+msgstr "Opacidad de la imagen (%)"
+
+msgid "Image placement"
+msgstr "Colocación de la imagen"
+
+msgid "Cover"
+msgstr "Cubrir"
+
+msgid "Contain"
+msgstr "Contener"
+
+msgid "Stretch"
+msgstr "Estirar"
+
+msgid "No image"
+msgstr "Sin imagen"
+
+msgid "Clear image"
+msgstr "Quitar imagen"
+
+msgid "Inherit"
+msgstr "Heredar"
+
+msgid "Select a background image"
+msgstr "Seleccionar imagen de fondo"
+
+msgid "PNG and JPEG images"
+msgstr "Imágenes PNG y JPEG"
+
+msgid "Enter an absolute local image path"
+msgstr "Introduzca una ruta local absoluta de imagen"
+
+msgid "Cannot decode the background image"
+msgstr "No se puede decodificar la imagen de fondo"
+
+msgid "Not enough memory for the background image"
+msgstr "No hay suficiente memoria para la imagen de fondo"
+
+msgid "Background image exceeds the 64 MiB limit"
+msgstr "La imagen de fondo supera el límite de 64 MiB"
+
+msgid "Background image exceeds 16384 pixels or 64 MiB"
+msgstr "La imagen de fondo supera 16384 píxeles o 64 MiB"
+
+msgid "Select a PNG or JPEG background image"
+msgstr "Seleccione una imagen de fondo PNG o JPEG"
+
+msgid "Select a regular local image file"
+msgstr "Seleccione un archivo de imagen local normal"
+
+msgid "Frosted glass"
+msgstr "Vidrio esmerilado"
+
+msgid "Frosted glass requested"
+msgstr "Vidrio esmerilado solicitado"
+
+msgid "Transparent background: checking frosted glass support"
+msgstr "Fondo transparente: comprobando compatibilidad con vidrio esmerilado"
+
+msgid "Transparent background: frosted glass request failed"
+msgstr "Fondo transparente: falló la solicitud de vidrio esmerilado"
+
+msgid "Transparent background: frosted glass is unavailable"
+msgstr "Fondo transparente: vidrio esmerilado no disponible"
+
+msgid "Color filter"
+msgstr "Filtro de color"
+
+msgid "No correction"
+msgstr "Sin corrección"
+
+msgid "Improve visibility (Oklch)"
+msgstr "Mejorar la visibilidad (Oklch)"
+
+msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
+msgstr "Mejora el texto de bajo contraste de todos los colores, incluido el gris. Conserva el tono y no modifica los fondos."

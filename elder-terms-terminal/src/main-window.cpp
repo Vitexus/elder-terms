@@ -13,6 +13,7 @@
 #include <gdk-pixbuf/gdk-pixbuf.h>
 #include <gestament/gtk.h>
 #include "terminal-runtime.h"
+#include "terminal-background.h"
 
 #define GETTEXT_PACKAGE "elder-terms"
 #include <glib/gi18n-lib.h>
@@ -961,34 +962,16 @@ static void set_main_window_settings_background(
   add_main_window_settings_background(main_window);
 }
 
-static boxrig_ui_color_filter_result terminal_colors(const boxrig_ui_color_filter_input *input, void *context) {
-  const auto &color = *static_cast<const RgbColor *>(context);
-  const auto text = contrasting_foreground(color);
-  auto result = boxrig_ui_color_filter_result_default(input);
-  const auto override_color = [&](boxrig_rgb value, boxrig_ui_color_source_role role) {
-    if (role == BOXRIG_UI_COLOR_DEFAULT_BACKGROUND) return boxrig_rgb{color.red, color.green, color.blue};
-    if (role == BOXRIG_UI_COLOR_DEFAULT_FOREGROUND || role == BOXRIG_UI_COLOR_DEFAULT_CURSOR)
-      return boxrig_rgb{text.red, text.green, text.blue};
-    return value;
-  };
-  result.foreground = override_color(result.foreground, input->foreground_source.role);
-  result.background = override_color(result.background, input->background_source.role);
-  result.underline = override_color(result.underline, input->underline_source.role);
-  result.marker = override_color(result.marker, input->marker_source.role);
-  return result;
-}
-
 static void set_main_window_terminal_background(MainWindow *main_window, const std::optional<RgbColor> &color) {
   set_main_window_settings_background(main_window, color);
   set_main_window_overlay_background(main_window, color);
   set_main_window_component_background(main_window, color);
   main_window->terminal_color = color;
   if (!main_window->runtime) return;
-  auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(main_window->runtime));
-  boxrig_ui_view_set_color_filter(view, color ? terminal_colors : nullptr,
-      color ? &*main_window->terminal_color : nullptr);
-  boxrig_ui_view_invalidate_colors(view);
-  terminal_runtime_refresh(main_window->runtime);
+  auto *scroll = gtk_widget_get_ancestor(GTK_WIDGET(terminal_runtime_widget(main_window->runtime)),
+      GTK_TYPE_SCROLLED_WINDOW);
+  if (scroll) set_terminal_scrollbar_background(
+      gtk_scrolled_window_get_vscrollbar(GTK_SCROLLED_WINDOW(scroll)), color);
 }
 
 static void align_terminal_notices(GtkWidget *terminal, GtkAllocation *, gpointer context) {
@@ -1201,6 +1184,7 @@ std::optional<MainWindow> load_main_window() {
   gestament_gtk_assign_accessible_ids_from_builder(main_window.builder);
 
   main_window.window = required_widget(main_window.builder, "main_window");
+  if (main_window.window) prepare_terminal_background_window(main_window.window);
   main_window.header_bar = required_widget(main_window.builder, "header_bar");
   main_window.transfer_button =
       required_widget(main_window.builder, "transfer_button");

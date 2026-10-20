@@ -181,6 +181,7 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     'zlib-LICENSE',
     'Unicode-LICENSE.txt',
     'WHATWG-Encoding-LICENSE',
+    'Wayland-protocols-NOTICES.md',
   ]) {
     textFiles.set(
       `usr/share/doc/elder-terms/licenses/boxrig/${name}`,
@@ -308,11 +309,11 @@ container_image_for_target debian trixie riscv64
     );
     expectSuccess(versions, 'build SDK version lookup failed');
     expect(versions.stdout.trim().split(/\s+/)).toEqual([
-      '0.3.0',
-      '0.3.0',
-      '0.3.0',
-      '0.3.0',
-      '0.3.0',
+      '0.4.0',
+      '0.4.0',
+      '0.4.0',
+      '0.4.0',
+      '0.4.0',
     ]);
   });
 
@@ -364,7 +365,7 @@ container_image_for_target debian trixie riscv64
       { ...process.env, PKG_CONFIG_PATH: join(sdk, 'lib/pkgconfig') }
     );
     expectSuccess(versions, 'prepared SDK version lookup failed');
-    expect(versions.stdout.trim().split(/\s+/)).toEqual(['0.3.0', '0.3.0']);
+    expect(versions.stdout.trim().split(/\s+/)).toEqual(['0.4.0', '0.4.0']);
     const consumer = join(temporaryRoot, 'prepared-sdk-consumer');
     expectSuccess(
       run('cc', [
@@ -928,6 +929,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         'zlib-LICENSE',
         'Unicode-LICENSE.txt',
         'WHATWG-Encoding-LICENSE',
+        'Wayland-protocols-NOTICES.md',
       ].map((name) => `usr/share/doc/elder-terms/licenses/boxrig/${name}`),
     ]) {
       const name = missingPath.replace(/\//g, '-');

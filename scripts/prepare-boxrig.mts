@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   access,
   copyFile,
@@ -11,20 +11,20 @@ import {
   rm,
   symlink,
   writeFile,
-} from 'node:fs/promises';
-import { availableParallelism } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+} from "node:fs/promises";
+import { availableParallelism } from "node:os";
+import { dirname, join, resolve } from "node:path";
 const [rootArgument, buildArgument, toolsArgument] = process.argv.slice(2);
 if (rootArgument === undefined || buildArgument === undefined)
   throw new Error(
-    'Usage: prepare-boxrig <source-directory> <build-directory> [prepared-tools]'
+    "Usage: prepare-boxrig <source-directory> <build-directory> [prepared-tools]",
   );
 const root = resolve(rootArgument);
-const upstream = join(root, 'deps/boxrig');
-const build = resolve(buildArgument, 'boxrig');
-const prepared = toolsArgument ? resolve(toolsArgument, 'boxrig') : undefined;
-const sdk = join(build, 'sdk');
-const stamp = join(dirname(build), 'boxrig-sdk.stamp');
+const upstream = join(root, "deps/boxrig");
+const build = resolve(buildArgument, "boxrig");
+const prepared = toolsArgument ? resolve(toolsArgument, "boxrig") : undefined;
+const sdk = join(build, "sdk");
+const stamp = join(dirname(build), "boxrig-sdk.stamp");
 
 const exists = async (path: string): Promise<boolean> => {
   try {
@@ -36,10 +36,10 @@ const exists = async (path: string): Promise<boolean> => {
 };
 
 const run = async (command: string, args: string[]): Promise<void> => {
-  const child = spawn(command, args, { cwd: upstream, stdio: 'inherit' });
+  const child = spawn(command, args, { cwd: upstream, stdio: "inherit" });
   const code = await new Promise<number | null>((resolveExit, reject) => {
-    child.once('error', reject);
-    child.once('exit', resolveExit);
+    child.once("error", reject);
+    child.once("exit", resolveExit);
   });
   if (code !== 0) throw new Error(`${command} exited with ${code}`);
 };
@@ -56,7 +56,7 @@ const files = async (directory: string): Promise<string[]> => {
 
 const copyChanged = async (
   source: string,
-  destination: string
+  destination: string,
 ): Promise<void> => {
   const information = await lstat(source);
   if (information.isDirectory()) {
@@ -83,38 +83,38 @@ const copyChanged = async (
 };
 
 for (const required of [
-  'Makefile',
-  'deps/utf8proc/utf8proc.c',
-  'deps/libpng/png.c',
-  'deps/zlib/zlib.h',
+  "Makefile",
+  "deps/utf8proc/utf8proc.c",
+  "deps/libpng/png.c",
+  "deps/zlib/zlib.h",
 ]) {
   if (!(await exists(join(upstream, required)))) {
     throw new Error(
-      'Initialize boxrig with git submodule update --init --recursive'
+      "Initialize boxrig with git submodule update --init --recursive",
     );
   }
 }
 await mkdir(build, { recursive: true });
 if (prepared === undefined) {
   const lock = await readFile(
-    join(upstream, 'tools/codegen/package-lock.json')
+    join(upstream, "tools/codegen/package-lock.json"),
   );
-  const lockStamp = join(build, 'codegen-lock.json');
+  const lockStamp = join(build, "codegen-lock.json");
   if (
     !(await exists(
-      join(upstream, 'tools/codegen/node_modules/.package-lock.json')
+      join(upstream, "tools/codegen/node_modules/.package-lock.json"),
     )) ||
     !(await exists(lockStamp)) ||
     !lock.equals(await readFile(lockStamp))
   ) {
-    await run('npm', ['ci', '--prefix', 'tools/codegen']);
+    await run("npm", ["ci", "--prefix", "tools/codegen"]);
     await writeFile(lockStamp, lock);
   }
 } else {
-  await mkdir(join(build, 'generated/licenses'), { recursive: true });
+  await mkdir(join(build, "generated/licenses"), { recursive: true });
   await copyChanged(
-    join(prepared, 'generated/licenses/Wayland-protocols-NOTICES.md'),
-    join(build, 'generated/licenses/Wayland-protocols-NOTICES.md')
+    join(prepared, "generated/licenses/Wayland-protocols-NOTICES.md"),
+    join(build, "generated/licenses/Wayland-protocols-NOTICES.md"),
   );
 }
 
@@ -122,61 +122,73 @@ if (prepared === undefined) {
 const makeArgs = [
   `-j${Math.min(availableParallelism(), 8)}`,
   `BUILD_DIR=${build}`,
-  'GTK_OPENGL=1',
-  'BOXRIG_VERSION=0.3.0',
+  "GTK_OPENGL=1",
+  "BOXRIG_VERSION=0.4.0",
   `PREFIX=${sdk}`,
   ...(prepared === undefined
     ? []
     : [
-        `CODEGEN_DIR=${join(prepared, 'tools/codegen')}`,
-        `BOXRIG_PREGENERATED_PKGCONFIG=${join(prepared, 'generated/pkgconfig')}`,
+        `CODEGEN_DIR=${join(prepared, "tools/codegen")}`,
+        `BOXRIG_PREGENERATED_PKGCONFIG=${join(prepared, "generated/pkgconfig")}`,
       ]),
 ];
-await run('make', [...makeArgs, 'shared-gtk3']);
+await run("make", [
+  ...makeArgs,
+  "shared-gtk3",
+  join(build, "libboxrig-background-gtk3.a"),
+  join(build, "libboxrig-background-wayland.a"),
+  join(build, "generated/licenses/Wayland-protocols-NOTICES.md"),
+]);
 const inputs = [
-  ...(await files(join(upstream, 'include'))),
-  ...(await files(join(upstream, 'packaging/licenses'))),
+  join(build, "libboxrig-background-gtk3.a"),
+  join(build, "libboxrig-background-wayland.a"),
+  join(build, "generated/licenses/Wayland-protocols-NOTICES.md"),
+  join(upstream, "pkgconfig/boxrig-background-gtk3.pc"),
+  join(upstream, "pkgconfig/boxrig-background-wayland.pc"),
+  ...(await files(join(upstream, "include"))),
+  ...(await files(join(upstream, "packaging/licenses"))),
   ...(await files(
     prepared === undefined
-      ? join(build, 'shared/pkgconfig')
-      : join(prepared, 'generated/pkgconfig')
+      ? join(build, "shared/pkgconfig")
+      : join(prepared, "generated/pkgconfig"),
   )),
   ...[
-    'boxrig',
-    'boxrig-ui',
-    'boxrig-session',
-    'boxrig-posix',
-    'boxrig-gtk3',
+    "boxrig",
+    "boxrig-ui",
+    "boxrig-session",
+    "boxrig-posix",
+    "boxrig-gtk3",
   ].flatMap((name) =>
-    ['a', 'so.0'].map((extension) =>
-      join(build, `shared/lib${name}.${extension}`)
-    )
+    ["a", "so.0"].map((extension) =>
+      join(build, `shared/lib${name}.${extension}`),
+    ),
   ),
   ...[
-    'LICENSE',
-    'deps/utf8proc/LICENSE.md',
-    'deps/libpng/LICENSE',
-    'deps/zlib/LICENSE',
-    'resources/unicode/17.0.0/LICENSE.txt',
-    'data/encoding/whatwg/LICENSE',
-    'examples/gtk3/external_scrollbar.h',
-    'packaging/linux/rules.mk',
+    "LICENSE",
+    "deps/utf8proc/LICENSE.md",
+    "deps/libpng/LICENSE",
+    "deps/zlib/LICENSE",
+    "resources/unicode/17.0.0/LICENSE.txt",
+    "data/encoding/whatwg/LICENSE",
+    "examples/gtk3/external_scrollbar.h",
+    "packaging/linux/rules.mk",
   ].map((path) => join(upstream, path)),
 ];
-const digest = createHash('sha256');
+const digest = createHash("sha256");
 for (const input of inputs) digest.update(input).update(await readFile(input));
-const signature = digest.digest('hex');
+const signature = digest.digest("hex");
 if (
   !(await exists(stamp)) ||
-  (await readFile(stamp, 'utf8')) !== signature ||
-  !(await exists(join(sdk, 'lib/libboxrig-gtk3.so')))
+  (await readFile(stamp, "utf8")) !== signature ||
+  !(await exists(join(sdk, "lib/libboxrig-gtk3.so")))
 ) {
-  const temporary = join(build, 'install-root');
+  const temporary = join(build, "install-root");
   await rm(temporary, { recursive: true, force: true });
-  await run('make', [
+  await run("make", [
     ...makeArgs,
     `DESTDIR=${temporary}`,
-    'install-shared-gtk3',
+    "install-shared-gtk3",
+    "install-background-gtk3",
   ]);
   await copyChanged(join(temporary, sdk), sdk);
   await rm(temporary, { recursive: true, force: true });

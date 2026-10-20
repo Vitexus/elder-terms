@@ -570,6 +570,65 @@ indicator_off_color=#808080
 font_size_dip=14.5
 ```
 
+## カーソルと背景の設定
+
+カーソル、背景、色補正の指定場所は、「端末」タブの下部です。
+継承の選択肢は接続の既定値に追従します。「Apply」は現在の端末へ適用し、「Save」は次回起動時にも使う値を保存します。
+「Cancel」はまだ適用していない編集を破棄します。既にApplyした変更は残ります。
+画像の読み込みや保存に失敗した場合は理由が表示され、直前に適用した表示が保たれます。
+
+設定下部の左側には、実際の描画方式と表示接続を`OpenGL / X11`や`Cairo / Wayland`のように表示します。操作ボタンは右側に並びます。
+OpenGLを利用できずCairoへ切り替わった場合も、現在使っている方式を確認できます。
+スクロールバーは背景との明暗差を確保した色で表示します。
+
+カーソルは「フルボックス」「縦ボックス」「下線ボックス」から選択します。
+端末に入力フォーカスがある間は塗りつぶし、外れている間は同じ形の輪郭を表示します。
+縦ボックスの幅と下線ボックスの高さは4 DIP、輪郭は1 DIPを基準とし、表示倍率に合わせて拡大します。
+点滅の有無は形状と別に指定できます。フォーカスが外れた輪郭は点滅しません。
+接続先によるカーソルの非表示や、文字変換中の表示制御は引き続き有効です。
+
+背景モードには「不透明」「単純透過」「すりガラス」があります。
+「背景色の不透明度」を下げると、背景画像や背後のデスクトップが見える割合が増えます。
+画像とデスクトップの上に色を重ねるには、「混色」と「混色の不透明度」を指定してください。
+不透明度は0〜100%で、混色を0%にすると追加の色は見えません。文字自体の不透明度は変わりません。
+
+背景画像はローカルのPNG・JPEGファイルを選択するか、絶対パスで指定してください。
+「画像の配置」では、縦横比を保って領域を覆う方法、画像全体を収める方法、縦横に引き伸ばす方法を選べます。
+画像はスクロールに追従せず、端末の表示領域に固定されます。
+透過背景と組み合わせるには、画像の不透明度とPNGの透過部分を使ってください。
+不透明モードでも画像を使えます。画像が見えにくい場合は「背景色の不透明度」を下げてください。
+「画像を解除」はこの接続を画像なしにし、「継承する」は接続の既定値へ戻します。
+画像ファイルは移動・埋め込みされないため、次回起動時も同じパスで参照できる場所に置いてください。
+ファイルと展開後のRGBA画像はそれぞれ64 MiB以内、各辺は16384画素以内に制限しています。
+
+デスクトップの透過には、背後のウィンドウを合成するコンポジターの対応が必要です。
+すりガラスは対応するコンポジターへ要求し、背後のデスクトップをぼかします。端末の文字や背景画像はぼかしません。
+設定画面には実際の利用状態を表示します。すりガラスが使えない場合は単純透過へ、透過自体を使えない場合は不透明へ切り替わります。
+「すりガラスを要求しています」は要求が受け付けられた状態です。ぼかしの表示には、コンポジター側の効果設定も影響します。
+対応条件は[boxrigの背景効果](https://github.com/kekyo/boxrig/blob/0.4.0/docs/ja/background.md#osのすりガラス効果を要求する)を参照してください。
+
+## 文字色の視認性を改善する
+
+「端末」タブの「色補正」で「視認性を改善 (Oklch)」を選ぶと、背景と区別しにくい文字やマーカーの明暗差を補正します。赤、緑、青などの全色相と、灰色、黒、白の無彩色が対象です。
+Oklchは明るさ、鮮やかさ、色相を分けて表す色の方式です。この補正では色相を保ち、主に明るさを調整します。
+背景とのコントラストが4.5:1以上の色は変更しません。それ以外の色は明るさを調整し、表現できる色の範囲を超える場合だけ鮮やかさを下げます。無彩色は無彩色のままです。既定値は「補正しない」です。
+背景色、背景画像、送受信内容、コピー、ログに補正は加わりません。
+補正の基準は文字の背景色です。透過したデスクトップや背景画像の各画素に合わせて補正する機能ではありません。
+
+```ini
+[terminal]
+cursor_shape=bar
+cursor_blink=false
+background_mode=blur
+background_opacity=40
+background_tint_color=#203040
+background_tint_opacity=20
+background_image=/home/user/Pictures/terminal.png
+background_image_opacity=70
+background_image_fit=cover
+color_filter=oklch
+```
+
 ## フォントファミリーの設定
 
 「端末」タブを下へスクロールすると、優先順位付きのフォントファミリー一覧を編集出来ます。
@@ -858,7 +917,7 @@ arguments=-t;elder-terms;${1};
 - 「OSC 8ターゲット」は、生のターゲット全体に正規表現を適用します。
 - 「表示中の端末テキスト」は、ポインター位置にある一致部分を検索します。空文字列に一致する正規表現は指定出来ません。
 
-リンクと受信マクロの正規表現には、[boxrigのパターン構文](https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/regex.md)を使用します。
+リンクと受信マクロの正規表現には、[boxrigのパターン構文](https://github.com/kekyo/boxrig/blob/0.4.0/docs/ja/regex.md)を使用します。
 文字クラス、グループ、選択、反復、番号付き・名前付きキャプチャを使えます。後方参照、先読み・後読み、空文字列に一致する式には対応していません。
 `\d`、`\s`、`\w`はASCIIの範囲です。Unicodeの文字には`\p{L}`、十進数字には`\p{Nd}`などの一般カテゴリを指定します。
 `.`は改行にも一致し、`^`と`$`は照合する入力全体の先頭・末尾を指します。同じ開始位置では最長の一致を選び、大文字・小文字を区別します。
@@ -922,12 +981,12 @@ WebDAVにはHTTP/HTTPSと非同期DNSを有効にしたlibcurl 7.88.1以降、�
 FTPクライアントには、FTPと非同期DNSを有効にした[libcurl](https://curl.se/libcurl/) 7.88.1以降が必要です。FTPSには[TLSを有効にしたlibcurl](https://curl.se/libcurl/c/libcurl-tutorial.html)が必要です。Debian／Ubuntuの配布パッケージはOpenSSL版libcurlを使用し、既定の信頼ストアのために `ca-certificates` に依存します。ソースからビルドする場合はOpenSSLのヘッダーとライブラリも必要です。証明書確認ではlibcurlと同じバージョンのOpenSSLが必要で、接続前にアプリケーションが確認します。
 
 UbuntuまたはDebianでビルドする場合は、C++20対応コンパイラ、Meson、Ninja、gettextと、使用するライブラリの開発パッケージをインストールします。
-描画にはGTK3 3.24以降、Pango 1.50以降、Cairo 1.18以降、IBus 1.5.29以降、Wayland client 1.22以降が必要です。[boxrigのビルド要件](https://github.com/kekyo/boxrig/blob/4b664b87cf405dc97477a1403d8a987881a3134f/docs/ja/building.md)も参照してください。
+描画にはGTK3 3.24以降、Pango 1.50以降、Cairo 1.18以降、IBus 1.5.29以降、Wayland client 1.22以降が必要です。[boxrigのビルド要件](https://github.com/kekyo/boxrig/blob/0.4.0/docs/ja/building.md)も参照してください。
 
 ```bash
 sudo apt update
 sudo apt install build-essential git meson ninja-build pkg-config gettext \
-  libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev \
+  libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev libxfixes-dev \
   libxkbcommon-dev liburing-dev libudev-dev libssh-dev libcurl4-openssl-dev \
   libcairo2-dev libpango1.0-dev libfontconfig1-dev libepoxy-dev libibus-1.0-dev \
   libwayland-dev libgl-dev libegl-dev libssl-dev libxml2-dev ca-certificates xdg-utils

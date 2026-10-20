@@ -64,6 +64,26 @@ foreach component : ['boxrig', 'boxrig-ui', 'boxrig-session', 'boxrig-posix', 'b
   boxrig_runtime_files += runtime_name
   boxrig_runtime_sources += boxrig_sdk_dir / 'lib' / runtime_name
 endforeach
+# The optional compositor adapter is static; its private X11/Wayland dependencies
+# must be linked too. The terminal engine above remains shared.
+boxrig_background_args = []
+boxrig_background_libraries = []
+foreach flag : run_command(boxrig_pkg_config, '--static', '--libs', 'boxrig-background-gtk3',
+    env: boxrig_pkg_env, check: true).stdout().strip().split()
+  if flag.startswith('-lboxrig-background-')
+    boxrig_background_libraries += boxrig_compiler.find_library(flag.substring(2),
+      dirs: boxrig_sdk_dir / 'lib', static: true)
+  else
+    boxrig_background_args += flag
+  endif
+endforeach
+boxrig_background_dep = declare_dependency(
+  compile_args: run_command(boxrig_pkg_config, '--cflags', 'boxrig-background-gtk3',
+    env: boxrig_pkg_env, check: true).stdout().strip().split(),
+  link_args: boxrig_background_args,
+  dependencies: boxrig_background_libraries,
+  sources: boxrig_sdk_target,
+)
 custom_target('boxrig-private-runtime',
   output: boxrig_runtime_files,
   command: [find_program('cp')] + boxrig_runtime_sources + ['@OUTDIR@'],
@@ -83,9 +103,10 @@ install_data(
   'deps/boxrig/deps/zlib/LICENSE',
   'deps/boxrig/resources/unicode/17.0.0/LICENSE.txt',
   'deps/boxrig/data/encoding/whatwg/LICENSE',
+  meson.project_build_root() / 'boxrig/generated/licenses/Wayland-protocols-NOTICES.md',
   rename: ['LICENSE', 'README.md', 'README_ja.md', 'sources.json',
     'utf8proc-LICENSE.md', 'libpng-LICENSE', 'zlib-LICENSE',
-    'Unicode-LICENSE.txt', 'WHATWG-Encoding-LICENSE'],
+    'Unicode-LICENSE.txt', 'WHATWG-Encoding-LICENSE', 'Wayland-protocols-NOTICES.md'],
   install_dir: get_option('datadir') / 'doc/elder-terms/licenses/boxrig',
 )
 

@@ -29,6 +29,7 @@
 #include "hyperlink-settings-editor.h"
 #include "webdav-settings-editor.h"
 #include "ssh-proxy-settings-editor.h"
+#include "terminal-background-editor.h"
 #include "settings-presentation.h"
 
 #define GETTEXT_PACKAGE "elder-terms"
@@ -109,6 +110,10 @@ struct SettingsWidgetState {
   bool is_runtime = false;
   bool show_actions = true;
   bool synchronizing = false;
+  bool action_pending = false;
+  std::size_t action_generation = 0;
+  std::shared_ptr<SettingsWidgetState *> action_owner;
+  GtkWidget *action_message = nullptr;
   SettingsWidgetCallbacks callbacks;
   SettingsWidgetIpScannerDependenciesFactory
       ip_scanner_dependencies_factory;
@@ -154,6 +159,10 @@ struct SettingsWidgetState {
   GtkWidget *terminal_encoding_entry = nullptr;
   GtkWidget *terminal_backspace_code_combo = nullptr;
   GtkWidget *terminal_cursor_key_mode_combo = nullptr;
+  GtkWidget *terminal_cursor_shape_combo = nullptr;
+  GtkWidget *terminal_color_filter_combo = nullptr;
+  GtkWidget *terminal_cursor_blink_combo = nullptr;
+  TerminalBackgroundEditor *terminal_background_editor = nullptr;
   GtkWidget *terminal_return_code_combo = nullptr;
   bool terminal_width_valid = true;
   bool terminal_height_valid = true;
@@ -249,6 +258,9 @@ struct SettingsWidgetState {
   GtkWidget *apply_button = nullptr;
   GtkWidget *save_button = nullptr;
   GtkWidget *cancel_button = nullptr;
+  GtkWidget *runtime_status = nullptr;
+  std::string runtime_status_text;
+  std::string runtime_status_tooltip;
   std::vector<ConnectionSettingsPage> connection_pages;
 };
 
@@ -1486,7 +1498,8 @@ static bool macro_rules_are_valid(const SettingsWidgetState *state) {
 }
 
 static bool settings_inputs_valid(const SettingsWidgetState *state) {
-  return ssh_proxy_settings_editor_is_valid(state->ssh_proxy_editor) &&
+  return terminal_background_editor_is_valid(state->terminal_background_editor) &&
+         ssh_proxy_settings_editor_is_valid(state->ssh_proxy_editor) &&
          state->local_command_line_valid && state->terminal_width_valid &&
          state->terminal_height_valid &&
          state->terminal_scrollback_lines_valid &&
@@ -1507,20 +1520,23 @@ static bool settings_inputs_valid(const SettingsWidgetState *state) {
           hyperlink_settings_editor_is_valid(state->hyperlink_editor));
 }
 
-static void notify_changed(SettingsWidgetState *state) {
-  if (!state->synchronizing && state->callbacks.changed) {
-    state->callbacks.changed();
-  }
-}
-
 static void update_action_sensitivity(SettingsWidgetState *state) {
-  const gboolean sensitive = settings_inputs_valid(state) ? TRUE : FALSE;
+  const gboolean sensitive = !state->action_pending && settings_inputs_valid(state);
   if (state->apply_button != nullptr) {
     gtk_widget_set_sensitive(state->apply_button, sensitive);
   }
   if (state->save_button != nullptr) {
     gtk_widget_set_sensitive(state->save_button, sensitive);
   }
+}
+
+static void notify_changed(SettingsWidgetState *state) {
+  if (state->synchronizing) return;
+  ++state->action_generation;
+  state->action_pending = false;
+  if (state->action_message) gtk_widget_hide(state->action_message);
+  update_action_sensitivity(state);
+  if (state->callbacks.changed) state->callbacks.changed();
 }
 
 static void update_terminal_key_binding_validation(
@@ -3241,6 +3257,7 @@ static void create_ftp_tls_controls(SettingsWidgetState *state, GtkWidget *page)
 }
 
 static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_webdav_draft) {
+  sync_terminal_background_editor(state->terminal_background_editor, preserve_webdav_draft);
   sync_ftp_tls_controls(state);
   sync_webdav_settings_editor(state->webdav_editor, preserve_webdav_draft);
   sync_ssh_proxy_settings_editor(state->ssh_proxy_editor, preserve_webdav_draft);
@@ -3334,6 +3351,26 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
                            state->draft_store,
                            terminal_accessibility_enabled_setting_key(),
                            terminal_accessibility_enabled(state->draft_store));
+  }
+  if (state->terminal_color_filter_combo) {
+    const auto key = terminal_color_filter_setting_key();
+    const auto fallback = std::get<std::string>(setting_fallback_value(state->draft_store, key, std::string("none")));
+    std::vector<ComboOption> options;
+    for (const auto *filter : {"none", "oklch"}) options.push_back({filter, setting_choice_label(key, filter)});
+    populate_inheritable_combo(state->terminal_color_filter_combo, state->draft_store, key,
+        setting_choice_label(key, fallback), options, setting_string_value_or_default(state->draft_store, key, "none"));
+  }
+  if (state->terminal_cursor_shape_combo) {
+    const auto key = terminal_cursor_shape_setting_key();
+    const auto fallback = std::get<std::string>(setting_fallback_value(state->draft_store, key, std::string("block")));
+    std::vector<ComboOption> options;
+    for (const auto *shape : {"block", "bar", "underline"})
+      options.push_back({shape, setting_choice_label(key, shape)});
+    populate_inheritable_combo(state->terminal_cursor_shape_combo, state->draft_store, key,
+        setting_choice_label(key, fallback), options,
+        setting_string_value_or_default(state->draft_store, key, "block"));
+    populate_boolean_combo(state->terminal_cursor_blink_combo, state->draft_store,
+        terminal_cursor_blink_setting_key(), terminal_cursor_settings(state->draft_store).blink);
   }
   if (state->terminal_border_width_entry != nullptr) {
     sync_inheritable_entry(
@@ -3809,6 +3846,18 @@ static void on_terminal_accessibility_enabled_changed(GtkComboBox *, gpointer da
   auto *state = static_cast<SettingsWidgetState *>(data);
   if (state->synchronizing) return;
   update_terminal_accessibility_enabled_from_widget(state);
+  notify_changed(state);
+}
+
+static void on_terminal_cursor_changed(GtkComboBox *combo, gpointer data) {
+  auto *state = static_cast<SettingsWidgetState *>(data);
+  if (state->synchronizing) return;
+  const bool shape = GTK_WIDGET(combo) == state->terminal_cursor_shape_combo;
+  const auto key = shape ? terminal_cursor_shape_setting_key() : terminal_cursor_blink_setting_key();
+  const auto choice = active_combo_id(GTK_WIDGET(combo), inherit_choice);
+  if (choice == inherit_choice) clear_explicit_setting_value(&state->draft_store, key);
+  else set_explicit_setting_value(&state->draft_store, key,
+      shape ? SettingValue{choice} : SettingValue{choice == boolean_enabled});
   notify_changed(state);
 }
 
@@ -4786,24 +4835,52 @@ static void on_log_mode_changed(GtkComboBox *, gpointer data) {
   notify_changed(state);
 }
 
+static void request_settings_action(SettingsWidgetState *state, SettingsWidgetApplyCallback callback) {
+  if (state->action_pending || !settings_inputs_valid(state)) return;
+  const auto draft = state->draft_store;
+  const auto generation = ++state->action_generation;
+  const auto owner = state->action_owner;
+  state->action_pending = true;
+  gtk_label_set_text(GTK_LABEL(state->action_message), _("Applying settings…"));
+  gtk_widget_show(state->action_message);
+  update_action_sensitivity(state);
+  SettingsWidgetAction action;
+  action.current = [owner, generation] {
+    return *owner && (*owner)->action_pending && (*owner)->action_generation == generation;
+  };
+  action.complete = [owner, current = action.current, draft](bool accepted, std::string message) {
+    if (!current()) return;
+    auto *state = *owner;
+    state->action_pending = false;
+    if (accepted) state->applied_store = draft;
+    gtk_label_set_text(GTK_LABEL(state->action_message), message.c_str());
+    gtk_widget_set_visible(state->action_message, !message.empty());
+    update_action_sensitivity(state);
+  };
+  if (callback) callback(draft, action);
+  else action.complete(true, {});
+}
+
 static void on_apply_clicked(GtkButton *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
-  state->applied_store = state->draft_store;
-  if (state->callbacks.apply) {
-    state->callbacks.apply(state->applied_store);
-  }
+  request_settings_action(state, state->callbacks.apply);
 }
 
 static void on_save_clicked(GtkButton *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
-  if (state->callbacks.save && state->callbacks.save(state->draft_store)) {
-    state->applied_store = state->draft_store;
-  }
+  request_settings_action(state, state->callbacks.save);
 }
 
 static void on_cancel_clicked(GtkButton *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
+  ++state->action_generation;
+  state->action_pending = false;
   state->draft_store = state->applied_store;
+  state->synchronizing = true;
+  sync_widgets_from_draft(state, false);
+  state->synchronizing = false;
+  if (state->action_message) gtk_widget_hide(state->action_message);
+  update_action_sensitivity(state);
   if (state->callbacks.cancel) {
     state->callbacks.cancel();
   }
@@ -5210,6 +5287,35 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
                    G_CALLBACK(on_terminal_accessibility_enabled_changed), state);
   attach_row(page, 15, terminal_accessibility_enabled_setting_key(),
              state->terminal_accessibility_enabled_combo);
+
+  state->terminal_cursor_shape_combo = create_combo_box(widget_id(state, "terminal_cursor_shape_combo").c_str());
+  state->terminal_cursor_blink_combo = create_combo_box(widget_id(state, "terminal_cursor_blink_combo").c_str());
+  for (auto *combo : {state->terminal_cursor_shape_combo, state->terminal_cursor_blink_combo})
+    g_signal_connect(combo, "changed", G_CALLBACK(on_terminal_cursor_changed), state);
+  attach_row(page, 16, terminal_cursor_shape_setting_key(), state->terminal_cursor_shape_combo);
+  attach_row(page, 17, terminal_cursor_blink_setting_key(), state->terminal_cursor_blink_combo);
+  auto *labels = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
+  state->terminal_background_editor = create_terminal_background_editor(&state->draft_store, state->id_prefix,
+      labels, [state] { notify_changed(state); });
+  gtk_grid_attach(GTK_GRID(page), terminal_background_editor_root(state->terminal_background_editor), 0, 18, 2, 1);
+  state->terminal_color_filter_combo = create_combo_box(widget_id(state, "terminal_color_filter_combo").c_str());
+  gtk_widget_set_tooltip_text(state->terminal_color_filter_combo,
+      _("Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."));
+  g_signal_connect(state->terminal_color_filter_combo, "changed", G_CALLBACK(+[](GtkComboBox *, gpointer data) {
+    auto *state = static_cast<SettingsWidgetState *>(data);
+    if (state->synchronizing) return;
+    const auto key = terminal_color_filter_setting_key();
+    const auto choice = active_combo_id(state->terminal_color_filter_combo, inherit_choice);
+    if (choice == inherit_choice) clear_explicit_setting_value(&state->draft_store, key);
+    else set_explicit_setting_value(&state->draft_store, key, SettingValue{choice});
+    notify_changed(state);
+  }), state);
+  attach_row(page, 19, terminal_color_filter_setting_key(), state->terminal_color_filter_combo);
+  for (int row = 0; row <= 19; row++) {
+    auto *label = gtk_grid_get_child_at(GTK_GRID(page), 0, row);
+    if (GTK_IS_LABEL(label)) gtk_size_group_add_widget(labels, label);
+  }
+  g_object_unref(labels);
 
   return scroller;
 }
@@ -6050,10 +6156,10 @@ static GtkWidget *create_logging_page(SettingsWidgetState *state) {
 
 static GtkWidget *create_button_box(SettingsWidgetState *state) {
   GtkWidget *panel =
-      gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+      gtk_box_new(state->is_runtime ? GTK_ORIENTATION_HORIZONTAL : GTK_ORIENTATION_VERTICAL, 0);
   GtkWidget *button_box = gtk_button_box_new(GTK_ORIENTATION_HORIZONTAL);
   const std::string action_row_id = widget_id(state, "action_row");
-  assign_accessible_id(button_box, action_row_id.c_str());
+  assign_accessible_id(panel, action_row_id.c_str());
   gtk_button_box_set_layout(GTK_BUTTON_BOX(button_box), GTK_BUTTONBOX_END);
   gtk_box_set_spacing(GTK_BOX(button_box), 8);
   gtk_widget_set_margin_top(button_box, 12);
@@ -6091,9 +6197,31 @@ static GtkWidget *create_button_box(SettingsWidgetState *state) {
                    G_CALLBACK(on_cancel_clicked), state);
   gtk_container_add(GTK_CONTAINER(button_box), state->cancel_button);
 
-  gtk_box_pack_start(
-      GTK_BOX(panel), button_box, TRUE, TRUE, 0);
+  gtk_box_pack_end(
+      GTK_BOX(panel), button_box, !state->is_runtime, !state->is_runtime, 0);
+  if (state->is_runtime) {
+    state->runtime_status = gtk_label_new("");
+    assign_accessible_id(state->runtime_status, widget_id(state, "runtime_status").c_str());
+    gtk_label_set_xalign(GTK_LABEL(state->runtime_status), 0);
+    gtk_label_set_ellipsize(GTK_LABEL(state->runtime_status), PANGO_ELLIPSIZE_END);
+    gtk_label_set_max_width_chars(GTK_LABEL(state->runtime_status), 28);
+    gtk_widget_set_margin_start(state->runtime_status, 12);
+    gtk_widget_set_no_show_all(state->runtime_status, TRUE);
+    gtk_box_pack_start(GTK_BOX(panel), state->runtime_status, TRUE, TRUE, 0);
+  }
   return panel;
+}
+
+void settings_widget_set_runtime_status(SettingsWidgetState *state,
+    const std::string &text, const std::string &tooltip) {
+  if (!state || !state->runtime_status) return;
+  if (state->runtime_status_text == text && state->runtime_status_tooltip == tooltip) return;
+  state->runtime_status_text = text;
+  state->runtime_status_tooltip = tooltip;
+  gtk_label_set_text(GTK_LABEL(state->runtime_status), text.c_str());
+  gtk_widget_set_tooltip_text(state->runtime_status, tooltip.c_str());
+  atk_object_set_description(gtk_widget_get_accessible(state->runtime_status), tooltip.c_str());
+  gtk_widget_set_visible(state->runtime_status, !text.empty());
 }
 
 SettingsWidgetState *create_settings_widget(SettingsWidgetOptions options) {
@@ -6107,6 +6235,7 @@ SettingsWidgetState *create_settings_widget(SettingsWidgetOptions options) {
   state->is_runtime = options.is_runtime;
   state->show_actions = options.show_actions;
   state->callbacks = std::move(options.callbacks);
+  state->action_owner = std::make_shared<SettingsWidgetState *>(state);
   state->ip_scanner_dependencies_factory =
       std::move(options.ip_scanner_dependencies_factory);
   state->synchronizing = true;
@@ -6373,6 +6502,14 @@ SettingsWidgetState *create_settings_widget(SettingsWidgetOptions options) {
   }
 
   if (state->show_actions) {
+    state->action_message = gtk_label_new(nullptr);
+    assign_accessible_id(state->action_message, widget_id(state, "action_message").c_str());
+    gtk_widget_set_no_show_all(state->action_message, TRUE);
+    gtk_label_set_line_wrap(GTK_LABEL(state->action_message), TRUE);
+    gtk_label_set_xalign(GTK_LABEL(state->action_message), 0);
+    gtk_widget_set_margin_start(state->action_message, 12);
+    gtk_widget_set_margin_end(state->action_message, 12);
+    gtk_box_pack_start(GTK_BOX(state->root), state->action_message, FALSE, FALSE, 0);
     gtk_box_pack_start(GTK_BOX(state->root), create_button_box(state), FALSE,
                        FALSE, 0);
   }
@@ -6609,10 +6746,16 @@ GtkWidget *settings_widget_root(SettingsWidgetState *state) {
   return state == nullptr ? nullptr : state->root;
 }
 
+void settings_widget_set_background_status(SettingsWidgetState *state, const std::string &text) {
+  if (state) terminal_background_editor_set_status(state->terminal_background_editor, text);
+}
+
 void destroy_settings_widget(SettingsWidgetState *state) {
   if (state == nullptr) {
     return;
   }
+  *state->action_owner = nullptr;
+  destroy_terminal_background_editor(state->terminal_background_editor);
 
   state->serial_device_event_monitor.reset();
   if (state->ip_scan_dialog != nullptr) {

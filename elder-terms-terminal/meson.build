@@ -95,6 +95,9 @@ elder_terms_sources = [
   'src/launch-options.cpp',
   'src/main.cpp',
   'src/main-window.cpp',
+  'src/terminal-background.cpp',
+  'src/terminal-background-image.cpp',
+  'src/terminal-color-filter.cpp',
   'src/sftp/sftp-client.cpp',
   'src/sftp/sftp-fixture-client.cpp',
   'src/file-transfer/file-hash.cpp',
@@ -110,6 +113,7 @@ elder_terms_sources = [
   'src/terminal-log.cpp',
   'src/widget-background.cpp',
   'src/terminal-presentation.cpp',
+  'src/terminal-renderer-status.cpp',
 ]
 
 elder_terms_terminal = executable(
@@ -129,6 +133,7 @@ elder_terms_terminal = executable(
     ssh_transport_dep,
     libudev_dep,
     boxrig_runtime_dep,
+    boxrig_background_dep,
   ],
   link_with: [
     libxyzm_async_static_library,
@@ -139,16 +144,59 @@ elder_terms_terminal = executable(
 )
 
 if get_option('build_tests')
+color_filter_test = executable('terminal-color-filter-test',
+  ['tests/cpp/terminal-color-filter-test.cpp', 'src/terminal-color-filter.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
+test('terminal-color-filter-test', color_filter_test)
+
+terminal_renderer_status_test = executable('terminal-renderer-status-test',
+  ['tests/cpp/terminal-renderer-status-test.cpp', 'src/terminal-renderer-status.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-gtk3']])
+test('terminal-renderer-status-test', find_program('xvfb-run'),
+  args: ['-a', terminal_renderer_status_test], timeout: 120,
+  env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
+
+executable('appearance-backdrop', 'tests/cpp/appearance-backdrop.cpp', dependencies: [gtk_dep])
+
+background_image_test = executable('terminal-background-image-test',
+  ['tests/cpp/terminal-background-image-test.cpp', 'src/terminal-background-image.cpp'], dependencies: [gtk_dep])
+test('terminal-background-image-test', background_image_test, env: ['G_DEBUG=fatal-criticals'])
+
+background_state_test = executable('terminal-background-state-test',
+  ['tests/cpp/terminal-background-state-test.cpp', 'src/terminal-background.cpp', 'src/terminal-background-image.cpp'],
+  dependencies: [boxrig_runtime_dep, boxrig_background_dep])
+test('terminal-background-state-test', find_program('xvfb-run'), args: ['-a', background_state_test],
+  env: ['GDK_GL=disable', 'NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
+
 terminal_dispatch_test = executable('terminal-dispatch-test',
   'tests/cpp/terminal-dispatch-test.cpp',
   objects: elder_terms_terminal.extract_all_objects(recursive: false),
   dependencies: [cardio_dep, elder_terms_dep, canberra_dep, gio_dep, gtk_dep,
-    liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep],
+    liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep, boxrig_background_dep],
   link_with: libxyzm_async_static_library,
   link_args: ['-Wl,--wrap=main'])
 test('terminal-dispatch-test', find_program('xvfb-run'),
   args: ['-a', terminal_dispatch_test, '--test-fixture'], timeout: 30,
   env: ['GDK_GL=disable', 'GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1'])
+
+appearance_state_test = executable('terminal-appearance-state-test',
+  'tests/cpp/terminal-appearance-state-test.cpp',
+  objects: elder_terms_terminal.extract_all_objects(recursive: false),
+  dependencies: [cardio_dep, elder_terms_dep, canberra_dep, gio_dep, gtk_dep,
+    liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep, boxrig_background_dep],
+  link_with: libxyzm_async_static_library,
+  link_args: ['-Wl,--wrap=main', '-Wl,--wrap=boxrig_gtk3_terminal_widget_frame'])
+foreach backend : ['cairo', 'opengl']
+  foreach scale : ['1', '2']
+    appearance_env = ['GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals',
+      'GDK_SCALE=' + scale, 'LIBGL_ALWAYS_SOFTWARE=1']
+    if backend == 'cairo'
+      appearance_env += ['GDK_GL=disable']
+    endif
+    test('terminal-appearance-state-' + backend + '-' + scale, find_program('xvfb-run'),
+      args: ['-a', '-s', '-screen 0 2560x2048x24', appearance_state_test], timeout: 60, env: appearance_env)
+  endforeach
+endforeach
 endif
 
 executable(

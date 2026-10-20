@@ -185,6 +185,38 @@ const captureKeyBinding = async (
   modifiers: readonly GtkKeyboardModifier[],
   key: GtkKeyInput
 ): Promise<void> => {
+  const scrollbar = expectElementKind(
+    await app.getById('settings_terminal_page_scrollbar'),
+    'scrollbar'
+  );
+  const page = (await (await app.getById('settings_terminal_page')).capture())
+    .bounds;
+  const range = await scrollbar.valueInfo();
+  const step = Math.max(1, Math.floor(page.height / 3));
+  let visible = false;
+  // Key bindings can precede other settings; find the row before clicking it.
+  for (let value = range.minimum; value < range.maximum + step; value += step) {
+    await scrollbar.setValue(Math.min(value, range.maximum));
+    if (!(await entry.info()).states.includes('showing')) continue;
+    const bounds = (await entry.capture()).bounds;
+    const current = (await scrollbar.valueInfo()).value;
+    await scrollbar.setValue(
+      Math.max(
+        range.minimum,
+        Math.min(range.maximum, current + bounds.y - page.y - 40)
+      )
+    );
+    await toPass(async () => {
+      const bounds = (await entry.capture()).bounds;
+      expect(bounds.y).toBeGreaterThanOrEqual(page.y);
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(
+        page.y + page.height
+      );
+    });
+    visible = true;
+    break;
+  }
+  expect(visible).toBe(true);
   await focusEntry(app, entry);
   for (const modifier of modifiers) {
     await app.input.setModifier(modifier, true);
@@ -436,15 +468,24 @@ const waitForShellExit = async (markerPath: string): Promise<void> => {
   );
 };
 
-const expectSettingsActionCount = async (
+const expectSettingsActions = async (
   app: GtkApp,
-  expected: number
+  saveVisible: boolean
 ): Promise<void> => {
-  const actionRow = expectElementKind(
-    await app.getById('settings_action_row'),
-    'container'
-  );
-  expect(await actionRow.getChildCount()).toBe(expected);
+  for (const name of ['apply', 'cancel']) {
+    const button = expectElementKind(
+      await app.getById(`settings_${name}_button`),
+      'button'
+    );
+    expect((await button.info()).states).toContain('showing');
+  }
+  const save = await app.findById('settings_save_button');
+  if (saveVisible) {
+    const button = expectElementKind(save, 'button');
+    expect((await button.info()).states).toContain('showing');
+  } else {
+    expect(save).toBeUndefined();
+  }
 };
 
 const expectInsensitive = async (element: GtkWidgetElement): Promise<void> => {
@@ -1248,7 +1289,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
           expectWindowCellSize(layout, defaultColumns + 2, defaultRows + 2);
 
           await openSettingsDialog(app);
-          await expectSettingsActionCount(app, 3);
+          await expectSettingsActions(app, true);
           await expectElementKind(
             await app.getById('settings_save_button'),
             'button'
@@ -1874,34 +1915,36 @@ describe.concurrent('elder-terms-terminal settings', () => {
             expect(
               capturePixel(await backgroundColorButton.capture(), 0.5, 0.5)
             ).toEqual(background);
-            const actionRowCapture = await (
-              await app.getById('settings_action_row')
-            ).capture();
+            const actionRowCapture = await evidence.captureEvidence(
+              'connection-colors-settings-footer',
+              async () => (await app.getById('settings_action_row')).capture()
+            );
             expect(capturePixel(actionRowCapture, 0.01, 0.5)).toEqual(exterior);
             const actionRowCenterX =
               actionRowCapture.bounds.x + actionRowCapture.bounds.width / 2;
             const actionRowCenterY =
               actionRowCapture.bounds.y + actionRowCapture.bounds.height / 2;
+            // The action row identifies the entire panel, including its padding.
             const actionPanelBorderSamples = [
               capturePixelAtScreenPosition(
-                settingsRootCapture,
-                actionRowCapture.bounds.x - 6,
+                actionRowCapture,
+                actionRowCapture.bounds.x + 6,
                 actionRowCenterY
               ),
               capturePixelAtScreenPosition(
-                settingsRootCapture,
-                actionRowCapture.bounds.x + actionRowCapture.bounds.width + 6,
+                actionRowCapture,
+                actionRowCapture.bounds.x + actionRowCapture.bounds.width - 6,
                 actionRowCenterY
               ),
               capturePixelAtScreenPosition(
-                settingsRootCapture,
+                actionRowCapture,
                 actionRowCenterX,
-                actionRowCapture.bounds.y - 6
+                actionRowCapture.bounds.y + 6
               ),
               capturePixelAtScreenPosition(
-                settingsRootCapture,
+                actionRowCapture,
                 actionRowCenterX,
-                actionRowCapture.bounds.y + actionRowCapture.bounds.height + 6
+                actionRowCapture.bounds.y + actionRowCapture.bounds.height - 6
               ),
             ];
             expect(actionPanelBorderSamples).toEqual([
@@ -2140,15 +2183,12 @@ describe.concurrent('elder-terms-terminal settings', () => {
           ])
           .toEqual([background, background, background]);
 
-        expect
-          .soft(
-            capturePixel(
-              topCapture,
-              0.5,
-              (topCapture.bounds.height - 30) / topCapture.bounds.height
-            )
-          )
-          .toEqual(componentBackground);
+        const fontSize = await app.getById(
+          'settings_terminal_font_size_dip_entry'
+        );
+        expect(capturePixel(await fontSize.capture(), 0.8, 0.5)).toEqual(
+          componentBackground
+        );
 
         const scrollRange = await scrollbar.valueInfo();
         expect(scrollRange.maximum).toBeGreaterThan(scrollRange.minimum);
@@ -2161,11 +2201,24 @@ describe.concurrent('elder-terms-terminal settings', () => {
           'settings-terminal-scroll-bottom-custom-background',
           async () => terminalPage.capture()
         );
-        expect
-          .soft(
-            capturePixel(bottomCapture, 0.5, 20 / bottomCapture.bounds.height)
-          )
-          .toEqual(componentBackground);
+        expect([
+          capturePixelAtScreenPosition(
+            bottomCapture,
+            bottomCapture.bounds.x + 6,
+            pageCenterY
+          ),
+          capturePixelAtScreenPosition(
+            bottomCapture,
+            scrollbarCapture.bounds.x - 6,
+            pageCenterY
+          ),
+        ]).toEqual([background, background]);
+        const colorFilter = await app.getById(
+          'settings_terminal_color_filter_combo'
+        );
+        expect(capturePixel(await colorFilter.capture(), 0.8, 0.5)).toEqual(
+          componentBackground
+        );
       },
       {
         globalSettings:
@@ -2219,7 +2272,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
   it('shows Save only when -c provides a persistent target', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app) => {
       await openSettingsDialog(app);
-      await expectSettingsActionCount(app, 2);
+      await expectSettingsActions(app, false);
     });
 
     await withTemporaryDirectory(async (directory) => {
@@ -2230,7 +2283,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
         ['--test-fixture', '-s', startupConfigPath],
         async (app) => {
           await openSettingsDialog(app);
-          await expectSettingsActionCount(app, 2);
+          await expectSettingsActions(app, false);
         }
       );
     });
@@ -2243,7 +2296,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
         ['--test-fixture', '-c', configPath],
         async (app) => {
           await openSettingsDialog(app);
-          await expectSettingsActionCount(app, 3);
+          await expectSettingsActions(app, true);
           expectElementKind(
             await app.getById('settings_save_button'),
             'button'
@@ -2863,13 +2916,6 @@ describe.concurrent('elder-terms-terminal settings', () => {
 
       await openSettingsDialog(app);
       await showTerminalSettingsPage(app);
-      const terminalScrollbar = expectElementKind(
-        await app.getById('settings_terminal_page_scrollbar'),
-        'scrollbar'
-      );
-      await terminalScrollbar.setValue(
-        (await terminalScrollbar.valueInfo()).maximum
-      );
       const zoomInKey = expectElementKind(
         await app.getById('settings_terminal_zoom_in_key_entry'),
         'entry'

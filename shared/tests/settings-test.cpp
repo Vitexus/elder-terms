@@ -770,6 +770,160 @@ static void test_general_indicator_color_round_trip_and_layering() {
   remove_config(global_path);
 }
 
+static void test_terminal_background_image_settings() {
+  using namespace elder_terms;
+  auto store = create_default_settings(default_terminal_display_settings(12), "Image");
+  const auto path_key = make_setting_key("terminal", "background_image");
+  const auto fit_key = make_setting_key("terminal", "background_image_fit");
+  const auto opacity_key = make_setting_key("terminal", "background_image_opacity");
+  expect_true(set_explicit_setting_value(&store, path_key, std::string("/tmp/background.png")), "accept local absolute image path");
+  for (const auto *fit : {"cover", "contain", "stretch"})
+    expect_true(set_explicit_setting_value(&store, fit_key, std::string(fit)), "accept image placement");
+  for (const auto opacity : {0, 50, 100})
+    expect_true(set_explicit_setting_value(&store, opacity_key, gint64{opacity}), "accept image opacity");
+  for (const auto *invalid : {"relative.png", "https://example.com/image.png", "/tmp/image\n.png"})
+    expect_true(!set_explicit_setting_value(&store, path_key, std::string(invalid)), "reject invalid image paths");
+  expect_true(!set_explicit_setting_value(&store, fit_key, std::string("tile")), "reject unsupported image placement");
+  expect_true(!set_explicit_setting_value(&store, opacity_key, gint64{101}), "reject excessive image opacity");
+  const auto global_path = temporary_config_path("image-global");
+  const auto connection_path = temporary_config_path("image-connection");
+  write_config(global_path, "[terminal]\nbackground_image=/tmp/global.png\nbackground_image_fit=contain\n");
+  write_config(connection_path, "[terminal]\nbackground_image=\n");
+  auto layered = load_settings(SettingsLoadOptions{.config_path = connection_path, .startup_config_path = std::nullopt,
+      .global_config_path = global_path}, 12).store;
+  expect_true(setting_string_value_or_default(layered, path_key, "missing").empty(), "explicit clear overrides inherited image");
+  expect_true(save_settings(layered, connection_path).saved, "save explicit image clear");
+  expect_true(read_config(connection_path).find("background_image=\n") != std::string::npos, "preserve explicit clear in file");
+  clear_explicit_setting_value(&layered, path_key);
+  expect_true(setting_string_value_or_default(layered, path_key, "") == "/tmp/global.png", "restore inherited image");
+  std::filesystem::remove(global_path);
+  std::filesystem::remove(connection_path);
+}
+
+static void test_terminal_background_settings() {
+  const auto global = temporary_config_path("background-global");
+  const auto path = temporary_config_path("background-connection");
+  const auto mode = elder_terms::make_setting_key("terminal", "background_mode");
+  const auto opacity = elder_terms::make_setting_key("terminal", "background_opacity");
+  const auto tint = elder_terms::make_setting_key("terminal", "background_tint_color");
+  const auto tint_opacity = elder_terms::make_setting_key("terminal", "background_tint_opacity");
+  write_config(global, "[terminal]\nbackground_mode=transparent\nbackground_opacity=55\nbackground_tint_color=#336699\nbackground_tint_opacity=40\n");
+  write_config(path, "");
+  const SettingsLoadOptions options{.config_path = path,
+      .startup_config_path = std::nullopt, .global_config_path = global};
+  auto loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "transparent" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, opacity, -1) == 55,
+              "transparent backgrounds should inherit the requested mode and opacity");
+  for (const auto &key : {opacity, tint_opacity}) {
+    for (const gint64 value : {0, 50, 100})
+      expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{value}),
+                  "background percentages include both ends of the range");
+    for (const gint64 value : {-1, 101})
+      expect_true(!set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{value}),
+                  "background percentages outside zero to one hundred must be rejected");
+  }
+  for (const auto *invalid : {"", "white", "#abc", "#12345678", "#x12345"})
+    expect_true(!set_explicit_setting_value(&loaded.store, tint, elder_terms::SettingValue{std::string(invalid)}),
+                "background tint must be a six-digit RGB color");
+  expect_true(!set_explicit_setting_value(&loaded.store, mode, elder_terms::SettingValue{std::string("invalid")}),
+              "unknown background modes must be rejected");
+  expect_true(set_explicit_setting_value(&loaded.store, mode, elder_terms::SettingValue{std::string("blur")}),
+              "frosted glass can be requested independently of current desktop support");
+  expect_true(set_explicit_setting_value(&loaded.store, tint, elder_terms::SettingValue{std::string("#a0B1c2")}) &&
+                  save_settings(loaded.store, path).saved,
+              "valid background preferences should save");
+  loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "blur",
+              "requested frosted glass survives persistence");
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, tint, "missing") == "#a0B1c2" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, tint_opacity, -1) == 100,
+              "tint and opacity should survive restart");
+  for (const auto &key : {mode, opacity, tint, tint_opacity}) clear_explicit_setting_value(&loaded.store, key);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "resetting background values should restore inheritance");
+  write_config(global, "");
+  loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "opaque" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, opacity, -1) == 80 &&
+                  elder_terms::setting_string_value_or_default(loaded.store, tint, "missing") == "#000000" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, tint_opacity, -1) == 0,
+              "background defaults should be opaque with optional tint disabled");
+  remove_config(path);
+  remove_config(global);
+}
+
+static void test_terminal_color_filter_settings() {
+  const auto global = temporary_config_path("filter-global");
+  const auto path = temporary_config_path("filter-connection");
+  const auto key = elder_terms::make_setting_key("terminal", "color_filter");
+  const SettingsLoadOptions options{.config_path = path, .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, ""); write_config(path, "");
+  auto loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "none", "color correction should default to off");
+  write_config(global, "[terminal]\ncolor_filter=oklch\n");
+  loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "oklch" &&
+      setting_value_source(loaded.store, key) == SettingValueSource::global, "color correction should inherit");
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "inherited filter should stay inherited");
+  for (const auto *value : {"none", "oklch"}) {
+    expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}) &&
+        save_settings(loaded.store, path).saved, "selected correction should save");
+    loaded = load_settings(options, 1.0);
+    expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == value, "correction should survive restart");
+  }
+  expect_true(!set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string("unknown")}), "unknown filter should be rejected");
+  clear_explicit_setting_value(&loaded.store, key);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "reset should restore inherited correction");
+  remove_config(path); remove_config(global);
+}
+
+static void test_terminal_cursor_settings() {
+  const auto global = temporary_config_path("cursor-global");
+  const auto path = temporary_config_path("cursor-connection");
+  const auto shape = elder_terms::make_setting_key("terminal", "cursor_shape");
+  const auto blink = elder_terms::make_setting_key("terminal", "cursor_blink");
+  const SettingsLoadOptions options{.config_path = path,
+      .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, "[terminal]\ncursor_shape=bar\ncursor_blink=false\n");
+  write_config(path, "");
+  auto loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == "bar" &&
+                  !elder_terms::setting_boolean_value_or_default(loaded.store, blink, true) &&
+                  setting_value_source(loaded.store, shape) == SettingValueSource::global,
+              "cursor shape and blinking should inherit the global preferences");
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "inherited cursor preferences should not be flattened into a connection");
+  for (const auto *value : {"block", "bar", "underline"}) {
+    for (const bool enabled : {false, true}) {
+      expect_true(set_explicit_setting_value(&loaded.store, shape, elder_terms::SettingValue{std::string(value)}) &&
+                      set_explicit_setting_value(&loaded.store, blink, elder_terms::SettingValue{enabled}) &&
+                      save_settings(loaded.store, path).saved,
+                  "each cursor shape and independent blink preference should save");
+      loaded = load_settings(options, 1.0);
+      expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == value &&
+                      elder_terms::setting_boolean_value_or_default(loaded.store, blink, !enabled) == enabled,
+                  "cursor preferences should survive restart");
+    }
+  }
+  for (const auto *invalid : {"", "terminal", "beam", "BLOCK"})
+    expect_true(!set_explicit_setting_value(&loaded.store, shape, elder_terms::SettingValue{std::string(invalid)}),
+                "unknown cursor shapes should be rejected without replacing the valid value");
+  expect_true(!set_explicit_setting_value(&loaded.store, blink, elder_terms::SettingValue{std::string("true")}),
+              "cursor blinking must be boolean");
+  clear_explicit_setting_value(&loaded.store, shape);
+  clear_explicit_setting_value(&loaded.store, blink);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "resetting cursor settings should restore inheritance");
+  write_config(global, "");
+  loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == "block" &&
+                  elder_terms::setting_boolean_value_or_default(loaded.store, blink, false),
+              "the built-in cursor should be a blinking full box");
+  remove_config(path);
+  remove_config(global);
+}
+
 static void test_terminal_font_list_round_trip_and_validation() {
   const auto global = temporary_config_path("font-list-global");
   const auto path = temporary_config_path("font-list-connection");
@@ -4433,6 +4587,10 @@ int main() {
     elder_terms_settings_test::test_webdav_settings_round_trip();
     elder_terms_settings_test::test_webdav_invalid_numeric_settings_remain_invalid_after_save();
     elder_terms_settings_test::test_independent_inactive_indicator_color();
+    elder_terms_settings_test::test_terminal_cursor_settings();
+    elder_terms_settings_test::test_terminal_background_settings();
+    elder_terms_settings_test::test_terminal_color_filter_settings();
+    elder_terms_settings_test::test_terminal_background_image_settings();
     elder_terms_settings_test::test_terminal_font_list_round_trip_and_validation();
     elder_terms_settings_test::test_default_settings();
     elder_terms_settings_test::test_general_indicator_color_round_trip_and_layering();

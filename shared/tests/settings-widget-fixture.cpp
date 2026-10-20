@@ -1113,15 +1113,17 @@ int main(int argc, char **argv) {
 
     elder_terms::SettingsWidgetCallbacks callbacks;
     callbacks.apply =
-        [](const elder_terms::SettingsStore &store) {
+        [](const elder_terms::SettingsStore &store, elder_terms::SettingsWidgetAction action) {
           elder_terms_settings_widget_fixture::print_store("APPLIED", store);
+          action.complete(true, {});
         };
     if (options.has_save) {
       callbacks.save =
-          [path = options.save_file](const elder_terms::SettingsStore &store) {
+          [path = options.save_file](const elder_terms::SettingsStore &store, elder_terms::SettingsWidgetAction action) {
             if (!path.empty()) {
               if (!elder_terms::save_settings(store, path).saved) {
-                return false;
+                action.complete(false, "Save failed");
+                return;
               }
               const auto reloaded = elder_terms::load_settings(
                   {.config_path = path,
@@ -1131,14 +1133,16 @@ int main(int argc, char **argv) {
                        "unused-global.ini"},
                   12.0);
               if (!reloaded.loaded) {
-                return false;
+                action.complete(false, "Reload failed");
+                return;
               }
               elder_terms_settings_widget_fixture::print_store(
                   "SAVED", reloaded.store);
-              return true;
+              action.complete(true, {});
+              return;
             }
             elder_terms_settings_widget_fixture::print_store("SAVED", store);
-            return true;
+            action.complete(true, {});
           };
     }
     callbacks.cancel =

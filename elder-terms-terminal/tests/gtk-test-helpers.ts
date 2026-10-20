@@ -266,6 +266,8 @@ export interface TransferProgressBarValue {
  * Launch options forwarded by runGtkTest.
  */
 export interface RunGtkTestOptions {
+  /** Use a disposable display when testing a window manager or compositor. */
+  readonly isolatedDisplay?: boolean;
   /** Environment overrides, including the isolated XDG config home. */
   readonly env?: GtkAppLauncherOptions['env'];
   /** Optional global.ini contents written before the application starts. */
@@ -757,11 +759,13 @@ export const runGtkTest = async (
         ...options?.env,
       },
       onSystemOutput: evidence.recordSystemOutputEvent,
-      xvfbPool: {
-        maxIdlePerKey: 8,
-        maxIdleTotal: 8,
-        type: 'xvfb',
-      },
+      xvfbPool: options?.isolatedDisplay
+        ? undefined
+        : {
+            maxIdlePerKey: 8,
+            maxIdleTotal: 8,
+            type: 'xvfb',
+          },
       xvfbTrayHost: true,
     });
     const apps: GtkApp[] = [];

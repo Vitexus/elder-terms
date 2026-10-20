@@ -427,6 +427,7 @@ validate_deb_package() {
 		usr/share/doc/elder-terms/licenses/boxrig/zlib-LICENSE \
 		usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
 		usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
+		usr/share/doc/elder-terms/licenses/boxrig/Wayland-protocols-NOTICES.md \
 		usr/share/doc/elder-terms/copyright; do
 		assert_file "$tmp_dir/$required_file"
 	done

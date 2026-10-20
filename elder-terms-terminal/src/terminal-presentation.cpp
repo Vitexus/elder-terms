@@ -1,5 +1,7 @@
 #include "terminal-presentation.h"
 #include "terminal-runtime.h"
+#include "terminal-background.h"
+#include "terminal-color-filter.h"
 
 #include <cmath>
 #include <cstdio>
@@ -21,7 +23,41 @@ struct TerminalPresentation {
   std::deque<boxrig_font_zoom_direction> zoom_requests;
   guint zoom_source = 0;
   std::optional<TerminalDisplaySettings> pending_grid;
+  TerminalCursorSettings cursor{TerminalCursorShape::block, true};
+  TerminalBackground *background = nullptr;
+  TerminalColorFilterContext colors{};
 };
+
+static bool apply_colors(TerminalPresentation *presentation, TerminalColorFilterContext context) {
+  auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(presentation->window->runtime));
+  const auto previous = presentation->colors;
+  presentation->colors = context;
+  const bool enabled = context.background.has_value() || context.visibility_correction;
+  const auto status = boxrig_ui_view_set_color_filter(view, enabled ? filter_terminal_colors : nullptr,
+      enabled ? &presentation->colors : nullptr);
+  if (status != BOXRIG_UI_OK) { presentation->colors = previous; return false; }
+  // Registration invalidates colors and requests a frame, including when the
+  // pointers are unchanged. Do not invalidate a second time for the same edit.
+  return true;
+}
+
+static bool apply_cursor(TerminalPresentation *presentation, const TerminalCursorSettings &settings) {
+  auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(presentation->window->runtime));
+  auto style = boxrig_ui_cursor_style_default();
+  style.shape = settings.shape == TerminalCursorShape::bar ? BOXRIG_UI_CURSOR_SHAPE_BAR :
+      settings.shape == TerminalCursorShape::underline ? BOXRIG_UI_CURSOR_SHAPE_UNDERLINE : BOXRIG_UI_CURSOR_SHAPE_BLOCK;
+  style.presentation = BOXRIG_UI_CURSOR_PRESENTATION_FOCUSED;
+  style.box_width_dip = 4;
+  style.line_width_dip = 1;
+  style.blink = settings.blink ? BOXRIG_UI_CURSOR_BLINK_ENABLED : BOXRIG_UI_CURSOR_BLINK_STEADY;
+  const auto status = boxrig_ui_view_set_cursor_style(view, &style);
+  if (status != BOXRIG_UI_OK) {
+    g_printerr("Terminal cursor: %d\n", status);
+    return false;
+  }
+  presentation->cursor = settings;
+  return true;
+}
 
 static gboolean dispatch_zoom(gpointer context) {
   auto *presentation = static_cast<TerminalPresentation *>(context);
@@ -112,6 +148,7 @@ TerminalPresentation *create_terminal_presentation(MainWindow *window, TestOptio
     std::function<void(TerminalDisplaySettings)> changed, std::function<void()> send_break) {
   auto *presentation = new TerminalPresentation{window, options, std::move(changed), std::move(send_break), {}, {}, 0, 0,
       options.maximize_window, {}, 0, {}};
+  presentation->background = create_terminal_background(window);
   g_signal_connect_after(window->root_box, "size-allocate", G_CALLBACK(+[](GtkWidget *, GtkAllocation *, gpointer context) {
     auto *current = static_cast<TerminalPresentation *>(context);
     if (!current->pending_grid) return;
@@ -129,6 +166,9 @@ void attach_terminal_presentation(TerminalPresentation *presentation) {
   const auto status = boxrig_gtk3_terminal_widget_set_key_router(
       terminal_runtime_widget(presentation->window->runtime), route_key, presentation);
   if (status != BOXRIG_UI_OK) g_printerr("Terminal shortcuts: %d\n", status);
+  apply_cursor(presentation, presentation->cursor);
+  if (!apply_colors(presentation, presentation->colors)) g_printerr("Failed to restore terminal color correction\n");
+  attach_terminal_background(presentation->background);
 }
 
 boxrig_input_mouse_route route_terminal_presentation_mouse(
@@ -144,10 +184,27 @@ boxrig_input_mouse_route route_terminal_presentation_mouse(
   return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
 }
 
-bool apply_terminal_presentation(TerminalPresentation *presentation, const SettingsStore &settings) {
+TerminalBackgroundImagePtr terminal_presentation_background_image(const TerminalPresentation *presentation) {
+  return terminal_background_image(presentation->background);
+}
+
+void prepare_terminal_presentation_background(TerminalPresentation *presentation, const SettingsStore &settings,
+    std::function<bool()> current, std::function<void(TerminalBackgroundImagePtr, std::string)> complete) {
+  prepare_terminal_background_image(presentation->background, settings, std::move(current), std::move(complete));
+}
+
+void cancel_terminal_presentation_background(TerminalPresentation *presentation) {
+  if (presentation) cancel_terminal_background_image(presentation->background);
+}
+
+bool apply_terminal_presentation(TerminalPresentation *presentation, const SettingsStore &settings, TerminalBackgroundImagePtr image) {
   auto *window = presentation->window;
   auto *widget = terminal_runtime_widget(window->runtime);
   const auto display = terminal_display_settings(settings);
+  if (!apply_colors(presentation, {general_color_settings(settings).background,
+      terminal_color_filter(settings) == TerminalColorFilter::oklch})) return false;
+  if (!apply_cursor(presentation, terminal_cursor_settings(settings))) return false;
+  if (!apply_terminal_background(presentation->background, settings, std::move(image))) return false;
   const auto accessibility_status = boxrig_gtk3_terminal_widget_set_accessibility_enabled(
       widget, terminal_accessibility_enabled(settings));
   if (accessibility_status != BOXRIG_UI_OK) {
@@ -209,7 +266,8 @@ void refresh_terminal_presentation(TerminalPresentation *presentation) {
   {
     char report[256];
     std::snprintf(report, sizeof(report), "backend=%s grid=%zux%zu font=%.2f history=%zu cell=%ux%u scale=%d ready=%d a11y=%s",
-        render.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL ? "opengl" : "cairo",
+        render.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL ? "opengl" :
+            render.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO ? "cairo" : "initializing",
         columns, rows, metrics.requested_size_dip, history, metrics.cell_width, metrics.cell_height,
         gtk_widget_get_scale_factor(GTK_WIDGET(widget)), settled,
         boxrig_gtk3_terminal_widget_get_accessibility_enabled(widget) ? "on" : "off");
@@ -253,9 +311,18 @@ void refresh_terminal_presentation(TerminalPresentation *presentation) {
 }
 
 void destroy_terminal_presentation(TerminalPresentation *presentation) {
+  if (presentation) {
+    auto *widget = terminal_runtime_widget(presentation->window->runtime);
+    if (widget) boxrig_ui_view_set_color_filter(boxrig_gtk3_terminal_widget_view(widget), nullptr, nullptr);
+  }
+  if (presentation) destroy_terminal_background(presentation->background);
   if (presentation && presentation->zoom_source) g_source_remove(presentation->zoom_source);
   if (presentation) g_signal_handlers_disconnect_by_data(presentation->window->root_box, presentation);
   delete presentation;
+}
+
+std::string terminal_presentation_background_status(const TerminalPresentation *presentation) {
+  return terminal_background_status(presentation ? presentation->background : nullptr);
 }
 
 }

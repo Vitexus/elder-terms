@@ -86,6 +86,7 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/settings-widget/webdav-settings-editor.cpp',
   'src/settings-widget/ssh-proxy-settings-editor.cpp',
   'src/settings-widget/settings-widget.cpp',
+  'src/settings-widget/terminal-background-editor.cpp',
 ]
 
 elder_terms_library = shared_library(
@@ -194,6 +195,11 @@ elder_terms_shared_test = executable(
 )
 
 test('elder-terms-shared-test', elder_terms_shared_test)
+
+settings_actions_test = executable('settings-actions-test', 'tests/settings-actions-test.cpp',
+  dependencies: [elder_terms_dep])
+test('settings-actions-test', find_program('xvfb-run'), args: ['-a', settings_actions_test],
+  env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
 
 elder_terms_serial_device_test = executable(
   'elder-terms-serial-device-test',

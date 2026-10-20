@@ -297,6 +297,10 @@ await appendFile(path, JSON.stringify(process.argv.slice(2)) + '\\n');
         await app.input.setMouseButton('left', true);
         await app.input.setMouseButton('left', false);
         await app.input.pressKey('Escape');
+        // Let GTK dismiss the previous popup before opening another one.
+        await waitForResult(async () =>
+          expect((await item.info()).states).not.toContain('showing')
+        );
         const treeBounds = (await tree.capture()).bounds;
         await app.input.moveMouseTo(
           treeBounds.x + 100,
@@ -310,6 +314,9 @@ await appendFile(path, JSON.stringify(process.argv.slice(2)) + '\\n');
           expect((await item.info()).states).not.toContain('enabled');
         });
         await app.input.pressKey('Escape');
+        await waitForResult(async () =>
+          expect((await item.info()).states).not.toContain('showing')
+        );
         await openMenu(remote, 'readme.txt');
         expect(
           await app.findById('file_transfer_remote_open_directory_item')

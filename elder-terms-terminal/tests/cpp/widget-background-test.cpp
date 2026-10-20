@@ -1,6 +1,7 @@
 #include "../../src/widget-background.h"
 
 #include <cstdint>
+#include <cmath>
 #include <iostream>
 #include <stdexcept>
 
@@ -20,6 +21,67 @@ static GdkRGBA foreground(GtkWidget *widget) {
   GdkRGBA color{};
   gtk_style_context_get_color(context, gtk_style_context_get_state(context), &color);
   return color;
+}
+
+static double luminance(std::uint32_t rgb) {
+  const auto linear = [](unsigned byte) {
+    const double value = byte / 255.0;
+    return value <= 0.04045 ? value / 12.92 : std::pow((value + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126*linear((rgb >> 16)&255) + 0.7152*linear((rgb >> 8)&255) + 0.0722*linear(rgb&255);
+}
+
+static void check_scrollbar_contrast() {
+  using namespace elder_terms;
+  g_object_set(gtk_settings_get_default(), "gtk-enable-animations", FALSE, nullptr);
+  for (const auto color : {std::optional<RgbColor>{}, std::optional<RgbColor>{{0x10,0x10,0x10}},
+                          std::optional<RgbColor>{{0xef,0xef,0xef}},
+                          std::optional<RgbColor>{{0x61,0x35,0x83}},
+                          std::optional<RgbColor>{{0x80,0x80,0x80}}}) {
+    auto *window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+    auto *adjustment = gtk_adjustment_new(200, 0, 1000, 1, 50, 100);
+    auto *bar = gtk_scrollbar_new(GTK_ORIENTATION_VERTICAL, adjustment);
+    gtk_container_add(GTK_CONTAINER(window), bar);
+    gtk_widget_set_size_request(window, 20, 320);
+    auto *base = color ? create_widget_background_provider(*color, "scrollbar base") : nullptr;
+    auto *components = color ? create_widget_component_background_provider(*color, "scrollbar component") : nullptr;
+    if (base) add_widget_tree_background_provider(window, base);
+    if (components) add_widget_tree_background_provider_at_priority(window, components,
+        GTK_STYLE_PROVIDER_PRIORITY_APPLICATION + 2);
+    set_terminal_scrollbar_background(bar, color);
+    gtk_widget_show_all(window);
+    while (g_main_context_iteration(nullptr, FALSE)) {}
+    const int width = gtk_widget_get_allocated_width(bar);
+    const int height = gtk_widget_get_allocated_height(bar);
+    for (const auto state : {GTK_STATE_FLAG_NORMAL, GTK_STATE_FLAG_PRELIGHT,
+                            GTK_STATE_FLAG_ACTIVE, GTK_STATE_FLAG_BACKDROP,
+                            GTK_STATE_FLAG_INSENSITIVE}) {
+      gtk_widget_set_state_flags(bar, state, TRUE);
+      while (g_main_context_iteration(nullptr, FALSE)) {}
+      auto *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
+      auto *cr = cairo_create(surface);
+      gtk_widget_draw(bar, cr);
+      cairo_surface_flush(surface);
+      const auto *pixels = reinterpret_cast<const std::uint32_t *>(cairo_image_surface_get_data(surface));
+      const int stride = cairo_image_surface_get_stride(surface)/4;
+      int first = 0, last = 0;
+      gtk_range_get_slider_range(GTK_RANGE(bar), &first, &last);
+      const double thumb = luminance(pixels[(first+last)/2*stride+width/2]);
+      const double trough = luminance(pixels[(last+height)/2*stride+width/2]);
+      const double contrast = (std::max(thumb,trough)+0.05)/(std::min(thumb,trough)+0.05);
+      cairo_destroy(cr);
+      cairo_surface_destroy(surface);
+      if (state != GTK_STATE_FLAG_INSENSITIVE && contrast < 3)
+        throw std::runtime_error("Scrollbar thumb contrast below 3:1: " + std::to_string(contrast));
+      if (state == GTK_STATE_FLAG_INSENSITIVE && contrast >= 3)
+        throw std::runtime_error("Disabled scrollbar must differ from the enabled thumb");
+      if (gtk_widget_get_allocated_width(bar) != width || gtk_widget_get_allocated_height(bar) != height)
+        throw std::runtime_error("Scrollbar state must preserve geometry");
+    }
+    gtk_widget_destroy(window);
+    if (base) g_object_unref(base);
+    if (components) g_object_unref(components);
+  }
 }
 
 int main(int argc, char **argv) {
@@ -99,6 +161,7 @@ int main(int argc, char **argv) {
     g_object_unref(light_provider);
     gtk_style_context_remove_provider_for_screen(gdk_screen_get_default(), GTK_STYLE_PROVIDER(theme));
     g_object_unref(theme);
+    check_scrollbar_contrast();
     std::cout << "widget-background-test: PASS\n";
     return 0;
   } catch (const std::exception &error) {
