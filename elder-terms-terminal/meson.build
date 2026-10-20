@@ -789,6 +789,14 @@ terminal_transfer_sink_buffer_test = executable(
 )
 test('terminal-transfer-sink-buffer-test', terminal_transfer_sink_buffer_test)
 
+terminal_transfer_send_buffer_test = executable(
+  'terminal-transfer-send-buffer-test',
+  'tests/cpp/terminal-transfer-send-buffer-test.cpp',
+  cpp_args: ['-I' + libxyzm_include_dir],
+  dependencies: [cardio_dep],
+)
+test('terminal-transfer-send-buffer-test', terminal_transfer_send_buffer_test)
+
 terminal_socket_read_test = executable(
   'terminal-socket-read-test',
   'tests/cpp/terminal-socket-read-test.cpp',
@@ -834,9 +842,21 @@ terminal_transfer_option_cases = [
   ['ymodem', 'receive', 'ymodem-g'],
 ]
 
+xyzm_pause_peer = executable(
+  'xyzm-pause-peer',
+  'tests/cpp/xyzm-pause-peer.cpp',
+  cpp_args: [
+    '-I' + libxyzm_include_dir,
+  ],
+  link_with: [
+    libxyzm_static_library,
+  ],
+)
+
 foreach throughput_case : [
   ['zmodem', 'send', 'standard'],
   ['zmodem', 'receive', 'standard'],
+  ['ymodem', 'send', 'ymodem-g'],
   ['ymodem', 'receive', 'ymodem-g'],
 ]
   test(
@@ -845,6 +865,7 @@ foreach throughput_case : [
     terminal_transfer_runner_test,
     args: ['--throughput-case', throughput_case[0], throughput_case[1],
            '0', throughput_case[2]],
+    depends: xyzm_pause_peer,
     timeout: 45,
   )
 endforeach
@@ -960,16 +981,6 @@ executable(
   'tests/cpp/serial-pty-helper.cpp',
 )
 
-executable(
-  'xyzm-pause-peer',
-  'tests/cpp/xyzm-pause-peer.cpp',
-  cpp_args: [
-    '-I' + libxyzm_include_dir,
-  ],
-  link_with: [
-    libxyzm_static_library,
-  ],
-)
 endif
 
 configure_file(

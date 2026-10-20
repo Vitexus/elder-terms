@@ -1137,7 +1137,7 @@ cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connectio
           operation.transfer_prefetch_offset = 0;
           if (!bytes.empty()) operation.transfer_prefetch.insert(0,
               reinterpret_cast<const char *>(bytes.data()), bytes.size());
-        }};
+        }, operation.transport.buffer_ymodem_output};
     co_await run_terminal_transfer_async(request, std::move(transport), stop.get_cancellation());
     succeeded = true;
   } catch (const cardio::canceled_exception &) {

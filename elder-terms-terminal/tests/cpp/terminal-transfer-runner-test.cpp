@@ -568,6 +568,14 @@ lrzsz_command(const TransferIntegrationCase &test_case,
       return {"/usr/bin/rz", "-q"};
     }
     if (protocol == TerminalTransferProtocol::ymodem) {
+      if (test_case.option_case == TransferProtocolOptionCase::ymodem_g) {
+        const auto peer = std::filesystem::read_symlink("/proc/self/exe")
+                              .parent_path() / "xyzm-pause-peer";
+        return {peer.string(), "--protocol", "ymodem", "--direction", "receive",
+                "--ymodem-g", "--output-dir", ".", "--fallback-name", file_name,
+                "--pause-request-file", "pause-request", "--paused-file", "paused",
+                "--resume-file", "resume"};
+      }
       return {"/usr/bin/rb"};
     }
     return {"/usr/bin/rx", file_name};
@@ -649,6 +657,7 @@ static void run_transfer_integration_case(TransferIntegrationCase test_case) {
   std::vector<std::string> status_updates;
   std::vector<TerminalTransferProgress> progress_updates;
   std::size_t wire_bytes = 0;
+  std::size_t send_calls = 0;
   std::optional<LrzszChild> child;
 
   try {
@@ -659,6 +668,14 @@ static void run_transfer_integration_case(TransferIntegrationCase test_case) {
     SocketPair sockets = make_socket_pair();
     TerminalTransferTransport transport =
         make_fd_transport(sockets.parent_fd.get());
+    transport.buffer_ymodem_output = true;
+    const auto send_bytes = transport.send;
+    transport.send = [&, send_bytes](std::span<const std::uint8_t> bytes,
+        std::uint32_t timeout, std::size_t &written,
+        cardio::cancellation cancellation) -> cardio::promise<void> {
+      ++send_calls;
+      co_await send_bytes(bytes, timeout, written, cancellation);
+    };
     if (test_case.check_progress_cadence) {
       // Model bursts within one display interval without wall-clock assertions.
       const auto send = transport.send;
@@ -746,6 +763,13 @@ static void run_transfer_integration_case(TransferIntegrationCase test_case) {
       expect_file_bytes(remote_directory / remote_name,
                         std::span<const std::uint8_t>(payload.data(),
                                                       payload.size()));
+      if (test_case.protocol == TerminalTransferProtocol::ymodem &&
+          test_case.option_case == TransferProtocolOptionCase::ymodem_g) {
+        std::cout << "Streaming YMODEM transport writes: " << send_calls << '\n';
+        expect_true(send_calls <= payload.size() / 8192 + 32,
+                    "streaming YMODEM should combine payload writes: " +
+                        std::to_string(send_calls) + " writes");
+      }
       if (is_zmodem_resume_case(test_case)) {
         expect_status_contains(
             status_updates,
@@ -1232,8 +1256,83 @@ static void return_unread_transport_bytes() {
   std::filesystem::remove_all(directory);
 }
 
+static void preserve_ymodem_cancel_after_buffered_failure() {
+  const auto directory = std::filesystem::temp_directory_path() /
+      ("elder-terms-ymodem-cancel-test-" + std::to_string(::getpid()));
+  std::filesystem::create_directories(directory);
+  const auto source = directory / "payload.bin";
+  write_bytes(source, std::vector<std::uint8_t>{'d', 'a', 't', 'a'});
+
+  try {
+    for (const bool buffered : {false, true}) {
+      std::vector<std::uint8_t> wire;
+      unsigned receives = 0;
+      TerminalTransferTransport transport{
+          .send = [&](std::span<const std::uint8_t> bytes, std::uint32_t,
+                      std::size_t &written, cardio::cancellation)
+              -> cardio::promise<void> {
+            wire.insert(wire.end(), bytes.begin(), bytes.end());
+            written = bytes.size();
+            co_return;
+          },
+          .recv = [&](std::span<std::uint8_t> bytes, std::uint32_t,
+                      std::size_t &received, cardio::cancellation)
+              -> cardio::promise<void> {
+            ++receives;
+            if (receives == 1) {
+              bytes[0] = 'G';
+              received = 1;
+              co_return;
+            }
+            throw xyzm_async_io_error("scripted header response failure");
+          },
+          .now_ms = [] { return std::uint64_t{0}; },
+          .buffer_ymodem_output = buffered,
+      };
+      TerminalTransferRequest request{
+          .protocol = TerminalTransferProtocol::ymodem,
+          .direction = TerminalTransferDirection::send,
+          .base_path = directory.string(),
+          .source_file_uris = {file_uri_for_path(source)},
+          .options = {}, .active = nullptr, .status = nullptr,
+          .progress = nullptr, .finished = nullptr,
+      };
+      cardio::dispatcher_group_glib group;
+      cardio::dispatcher_host_glib dispatcher(group);
+      std::exception_ptr unexpected_error;
+      bool preserved_error = false;
+      auto run = [&]() -> cardio::promise<void> {
+        try {
+          co_await run_terminal_transfer_async(request, std::move(transport), {});
+        } catch (const xyzm_async_io_error &error) {
+          preserved_error = std::string(error.what()) ==
+              "scripted header response failure";
+        } catch (...) {
+          unexpected_error = std::current_exception();
+        }
+        group.shutdown();
+      };
+      auto task = run();
+      dispatcher.park();
+      if (unexpected_error) std::rethrow_exception(unexpected_error);
+      expect_true(task.is_ready(), "failed YMODEM send should settle");
+      expect_true(preserved_error, "YMODEM send should preserve the receive error");
+      expect_true(receives == 2, "YMODEM should fail while waiting after its header");
+      expect_true(wire.size() > 2 && wire.front() == 0x01 &&
+                      wire[wire.size() - 2] == 0x18 &&
+                      wire.back() == 0x18,
+                  "YMODEM should send CAN CAN after its accepted header");
+    }
+  } catch (...) {
+    std::filesystem::remove_all(directory);
+    throw;
+  }
+  std::filesystem::remove_all(directory);
+}
+
 static void run_unit_cases() {
   return_unread_transport_bytes();
+  preserve_ymodem_cancel_after_buffered_failure();
   sanitize_received_file_names();
   format_progress_status();
   estimate_progress_speed();

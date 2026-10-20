@@ -115,7 +115,7 @@ static cardio::promise<TerminalTransport> open_telnet(TelnetConnectionSettings s
       [channel](cardio::cancellation stop) -> cardio::promise<void> {
         const auto bytes = channel->protocol.encode_break();
         co_await write_wire(channel.get(), bytes, stop);
-      }};
+      }, {}, {}, true};
 }
 
 TerminalTransportRequest make_telnet_transport_request(TelnetConnectionSettings settings,

@@ -1,6 +1,7 @@
 #include "terminal-transfer-runner.h"
 #include "terminal-transfer-source-buffer.h"
 #include "terminal-transfer-sink-buffer.h"
+#include "terminal-transfer-send-buffer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -522,15 +523,21 @@ make_transfer_observer(TransferProgressState *progress,
 }
 
 static xyzm_async_link_ops_t make_link_ops(TerminalTransferTransport *transport,
-                                           TransferProgressState *progress) {
+                                           TransferProgressState *progress,
+                                           TerminalTransferSendBuffer *send_buffer) {
   xyzm_async_link_ops_t link;
-  link.send = [transport, progress](std::span<const std::uint8_t> bytes,
+  link.send = [transport, progress, send_buffer](std::span<const std::uint8_t> bytes,
                                     std::uint32_t timeout_ms,
                                     std::size_t &written_len,
                                     cardio::cancellation cancellation)
       -> cardio::promise<void> {
-    co_await transport->send(bytes, timeout_ms, written_len,
-                             std::move(cancellation));
+    if (send_buffer != nullptr) {
+      co_await send_buffer->send_async(bytes, timeout_ms, written_len,
+          transport->send, transport->now_ms, std::move(cancellation));
+    } else {
+      co_await transport->send(bytes, timeout_ms, written_len,
+                               std::move(cancellation));
+    }
     if (progress != nullptr &&
         progress->direction == TerminalTransferDirection::send &&
         progress->total_bytes.has_value() && written_len > 0) {
@@ -538,10 +545,16 @@ static xyzm_async_link_ops_t make_link_ops(TerminalTransferTransport *transport,
     }
     co_return;
   };
-  link.recv = [transport](std::span<std::uint8_t> bytes,
+  link.recv = [transport, send_buffer](std::span<std::uint8_t> bytes,
                           std::uint32_t timeout_ms, std::size_t &read_len,
                           cardio::cancellation cancellation)
       -> cardio::promise<void> {
+    if (send_buffer != nullptr && timeout_ms > 0) {
+      // Handshake and ACK waits must observe every preceding queued byte.
+      // Draining keeps the send deadline; the receive deadline begins afterward.
+      co_await send_buffer->flush_async(transport->send, transport->now_ms,
+                                        cancellation);
+    }
     co_await transport->recv(bytes, timeout_ms, read_len,
                              std::move(cancellation));
     co_return;
@@ -1027,7 +1040,13 @@ run_terminal_transfer_async(TerminalTransferRequest request,
     });
   }
 
-  xyzm_async_link_ops_t link = make_link_ops(&transport, &progress);
+  std::unique_ptr<TerminalTransferSendBuffer> send_buffer;
+  if (transport.buffer_ymodem_output &&
+      request.direction == TerminalTransferDirection::send &&
+      request.protocol == TerminalTransferProtocol::ymodem) {
+    send_buffer = std::make_unique<TerminalTransferSendBuffer>();
+  }
+  xyzm_async_link_ops_t link = make_link_ops(&transport, &progress, send_buffer.get());
   xyzm_async_transfer_observer_t observer = make_transfer_observer(&progress, &transport);
   xyzm_async_transfer_report_t report{};
 
@@ -1041,8 +1060,30 @@ run_terminal_transfer_async(TerminalTransferRequest request,
         .progress = &progress,
         .read_buffer = {},
     };
-    co_await run_send_async(request, &link, &observer, &report, &source_state,
-                            cancellation);
+    std::exception_ptr send_error;
+    try {
+      co_await run_send_async(request, &link, &observer, &report, &source_state,
+                              cancellation);
+      if (send_buffer != nullptr)
+        co_await send_buffer->flush_async(transport.send, transport.now_ms, cancellation);
+    } catch (...) {
+      send_error = std::current_exception();
+    }
+    if (send_error) {
+      if (send_buffer != nullptr) {
+        // libxyzm can append CAN after a source/protocol failure. Preserve its
+        // position after accepted frames, without delaying caller cancellation.
+        if (!cancellation.is_cancellation_requested()) {
+          try {
+            co_await send_buffer->flush_async(transport.send, transport.now_ms, {});
+          } catch (...) {
+            // Failure notification is best effort; retain the original error.
+          }
+        }
+        send_buffer->abort();
+      }
+      std::rethrow_exception(send_error);
+    }
     co_return;
   }
 
