@@ -2415,6 +2415,7 @@ const registerBaseTests = () =>
                           await writeFile(fixture.markerPath, 'start', 'utf8');
                         }
 
+                        const activatedAtMs = performance.now();
                         try {
                           await waitForFileBytes(
                             fixture.expectedPath,
@@ -2439,6 +2440,12 @@ const registerBaseTests = () =>
                         await evidence.log('XYZMODEM e2e result', {
                           adjustedElapsedMs,
                           elapsedMs,
+                          activationElapsedMs: Math.max(
+                            0,
+                            activatedAtMs - startedAtMs - startDelayMs
+                          ),
+                          completionAfterActivationMs:
+                            performance.now() - activatedAtMs,
                         });
                       },
                       connection.gtkTestOptions
@@ -3119,6 +3126,7 @@ export const registerYmodemGThroughputTests = (): void => {
                     await writeFile(fixture.markerPath, 'start', 'utf8');
                     await delay(startDelayMs);
                     await activateTransfer(app, transferCase);
+                    const activatedAtMs = performance.now();
                     try {
                       await waitForFileBytes(
                         fixture.expectedPath,
@@ -3143,6 +3151,12 @@ export const registerYmodemGThroughputTests = (): void => {
                       connection: connectionCase.name,
                       direction: transferCase.direction,
                       elapsedMs,
+                      activationElapsedMs: Math.max(
+                        0,
+                        activatedAtMs - startedAtMs - startDelayMs
+                      ),
+                      completionAfterActivationMs:
+                        performance.now() - activatedAtMs,
                       bytesPerSecond:
                         (fixture.payload.length * 1000) / elapsedMs,
                     });
