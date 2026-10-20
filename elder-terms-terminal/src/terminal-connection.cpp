@@ -1026,7 +1026,9 @@ static cardio::promise<void> send_transfer_bytes(ConnectionOperation *operation,
   auto deadline = cardio::cancellations::timeout(timeout_ms);
   auto stop = cardio::cancellations::any(cancellation, operation->io_stop.get_cancellation(), deadline.get_cancellation());
   try {
-    const auto chunk = bytes.first(std::min(bytes.size(), operation->chunk_size));
+    // Binary frames bypass text conversion. Preserve their batches up to the
+    // connection's byte bound instead of applying the converter's chunk size.
+    const auto chunk = bytes.first(std::min(bytes.size(), operation->outgoing.storage.size()));
     co_await operation->transport.write(chunk, stop.get_cancellation());
     written = chunk.size();
   } catch (const cardio::canceled_exception &) {
