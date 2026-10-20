@@ -806,6 +806,12 @@ terminal_transfer_option_cases = [
 
 foreach protocol : terminal_transfer_test_protocols
   foreach direction : terminal_transfer_test_directions
+    test(
+      'terminal-transfer-runner-progress-' + protocol + '-' + direction,
+      terminal_transfer_runner_test,
+      args: ['--progress-case', protocol, direction, '0'],
+      timeout: 45,
+    )
     foreach delay : terminal_transfer_test_delays
       test(
         'terminal-transfer-runner-' + protocol + '-' + direction + '-' +

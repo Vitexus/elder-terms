@@ -118,6 +118,7 @@ struct TransferIntegrationCase {
   std::uint64_t start_delay_ms = 0;
   TransferProtocolOptionCase option_case =
       TransferProtocolOptionCase::standard;
+  bool check_progress_cadence = false;
 };
 
 static void expect_equal(const std::string &actual,
@@ -238,8 +239,8 @@ static std::string file_uri_for_path(const std::filesystem::path &path) {
   return result;
 }
 
-static std::vector<std::uint8_t> make_transfer_payload() {
-  std::vector<std::uint8_t> data(2048);
+static std::vector<std::uint8_t> make_transfer_payload(std::size_t size) {
+  std::vector<std::uint8_t> data(size);
   for (std::size_t index = 0; index < data.size(); ++index) {
     data[index] =
         static_cast<std::uint8_t>((index * 37U + (index >> 2U) + 17U) & 0xffU);
@@ -585,7 +586,8 @@ lrzsz_command(const TransferIntegrationCase &test_case,
     }
     return {"/usr/bin/sb", "--ymodem", "-b", "-q", file_name};
   }
-  return {"/usr/bin/sx", file_name};
+  // A large source can fill the child's captured stderr pipe with progress.
+  return {"/usr/bin/sx", "-q", file_name};
 }
 
 static TerminalTransferOptions
@@ -640,9 +642,11 @@ static void run_transfer_integration_case(TransferIntegrationCase test_case) {
   const std::filesystem::path local_directory = root / "local";
   const std::filesystem::path remote_directory = root / "remote";
   const std::filesystem::path receive_directory = root / "receive";
-  const std::vector<std::uint8_t> payload = make_transfer_payload();
+  const std::vector<std::uint8_t> payload =
+      make_transfer_payload(test_case.check_progress_cadence ? 256 * 1024 : 2048);
   std::vector<std::string> status_updates;
   std::vector<TerminalTransferProgress> progress_updates;
+  std::size_t wire_bytes = 0;
   std::optional<LrzszChild> child;
 
   try {
@@ -653,6 +657,26 @@ static void run_transfer_integration_case(TransferIntegrationCase test_case) {
     SocketPair sockets = make_socket_pair();
     TerminalTransferTransport transport =
         make_fd_transport(sockets.parent_fd.get());
+    if (test_case.check_progress_cadence) {
+      // Model bursts within one display interval without wall-clock assertions.
+      const auto send = transport.send;
+      const auto recv = transport.recv;
+      transport.send = [&, send](std::span<const std::uint8_t> bytes,
+          std::uint32_t timeout, std::size_t &written,
+          cardio::cancellation cancellation) -> cardio::promise<void> {
+        co_await send(bytes, timeout, written, cancellation);
+        wire_bytes += written;
+      };
+      transport.recv = [&, recv](std::span<std::uint8_t> bytes,
+          std::uint32_t timeout, std::size_t &received,
+          cardio::cancellation cancellation) -> cardio::promise<void> {
+        co_await recv(bytes, timeout, received, cancellation);
+        wire_bytes += received;
+      };
+      transport.now_ms = [&] {
+        return static_cast<std::uint64_t>(1000 + (wire_bytes / (16 * 1024)) * 100);
+      };
+    }
 
     cardio::dispatcher_group_glib dispatcher_group;
     cardio::dispatcher_host_glib dispatcher(dispatcher_group);
@@ -828,6 +852,23 @@ static void run_transfer_integration_case(TransferIntegrationCase test_case) {
     }
 
     expect_progress_updates_for_protocol(progress_updates, test_case.protocol);
+    if (test_case.check_progress_cadence) {
+      const auto maximum_updates = wire_bytes / (16 * 1024) + 5;
+      expect_true(status_updates.size() <= maximum_updates,
+          "status notifications should be bounded by elapsed display intervals: " +
+          std::to_string(status_updates.size()) + " updates for " +
+          std::to_string(maximum_updates) + " allowed");
+      expect_true(progress_updates.size() <= maximum_updates,
+          "progress notifications should be bounded by elapsed display intervals");
+      if (test_case.protocol != TerminalTransferProtocol::xmodem) {
+        expect_true(progress_updates.back().fraction == 1.0,
+            "coalescing progress must preserve file completion");
+        expect_true(std::ranges::any_of(progress_updates,
+            [](const TerminalTransferProgress &progress) {
+              return progress.fraction > 0.0 && progress.fraction < 1.0;
+            }), "progress should still advance between file start and completion");
+      }
+    }
     std::filesystem::remove_all(root);
   } catch (...) {
     kill_child_noexcept(child.has_value() ? &*child : nullptr);
@@ -1265,6 +1306,12 @@ static void run_from_arguments(int argc, char **argv) {
 
   if (command == "--transfer-case") {
     run_transfer_integration_case(parse_transfer_case_arguments(argc, argv));
+    return;
+  }
+  if (command == "--progress-case") {
+    auto test_case = parse_transfer_case_arguments(argc, argv);
+    test_case.check_progress_cadence = true;
+    run_transfer_integration_case(test_case);
     return;
   }
 

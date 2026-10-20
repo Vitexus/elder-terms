@@ -26,6 +26,7 @@ static constexpr std::uint32_t transfer_retry_limit = 8;
 static constexpr std::uint8_t transfer_pad_byte = 0x1a;
 static constexpr const char *fallback_receive_name = "received.bin";
 static constexpr std::uint64_t transfer_measurement_minimum_elapsed_ms = 1000;
+static constexpr std::uint64_t transfer_progress_interval_ms = 100;
 static constexpr std::size_t transfer_byte_field_width = 6;
 static constexpr std::size_t transfer_percent_field_width = 3;
 static constexpr std::size_t transfer_eta_field_width = 6;
@@ -59,6 +60,7 @@ struct TransferProgressState {
   std::uint64_t transferred_bytes = 0;
   std::uint64_t measurement_baseline_transferred_bytes = 0;
   std::optional<std::uint64_t> measurement_baseline_time_ms;
+  std::optional<std::uint64_t> last_published_time_ms = std::nullopt;
 
   void reset_measurement_baseline(std::uint64_t transferred) {
     measurement_baseline_transferred_bytes = transferred;
@@ -105,7 +107,16 @@ struct TransferProgressState {
         *total_bytes, *elapsed_ms);
   }
 
-  void publish() const {
+  void publish(bool force) {
+    const auto now = now_ms();
+    // UI updates share the I/O dispatcher. Limit redraws independently of packet
+    // size, while file boundaries and completion remain immediately visible.
+    if (!force && last_published_time_ms.has_value() &&
+        now >= *last_published_time_ms &&
+        now - *last_published_time_ms < transfer_progress_interval_ms) {
+      return;
+    }
+    last_published_time_ms = now;
     if (status) {
       const std::optional<std::uint64_t> elapsed_ms =
           measurement_elapsed_ms();
@@ -473,7 +484,7 @@ static void update_progress_file(TransferProgressState *state,
   state->file_name = next_name;
   state->total_bytes = info.size_bytes;
   state->reset_measurement_baseline(state->transferred_bytes);
-  state->publish();
+  state->publish(true);
 }
 
 static void update_progress_delta(TransferProgressState *state,
@@ -483,7 +494,8 @@ static void update_progress_delta(TransferProgressState *state,
   }
 
   state->transferred_bytes += payload_delta;
-  state->publish();
+  state->publish(state->total_bytes.has_value() &&
+      state->transferred_bytes >= *state->total_bytes);
 }
 
 static xyzm_async_transfer_observer_t
@@ -496,7 +508,7 @@ make_transfer_observer(TransferProgressState *progress,
       update_progress_file(progress, event.file_info->get());
     } else if (event.kind == XYZM_TRANSFER_EVENT_PROGRESS &&
                progress != nullptr && event.payload_delta != 0) {
-      progress->publish();
+      progress->publish(false);
     } else if (event.kind == XYZM_TRANSFER_EVENT_TRANSFER_FINISHED &&
                event.report.has_value() && transport->return_received) {
       transport->return_received(event.report->get().unread_bytes);
@@ -518,7 +530,7 @@ static xyzm_async_link_ops_t make_link_ops(TerminalTransferTransport *transport,
     if (progress != nullptr &&
         progress->direction == TerminalTransferDirection::send &&
         progress->total_bytes.has_value() && written_len > 0) {
-      progress->publish();
+      progress->publish(false);
     }
     co_return;
   };
@@ -611,7 +623,7 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
       if (previous_transferred == 0 && offset > 0) {
         state->progress->reset_measurement_baseline(offset);
       }
-      state->progress->publish();
+      state->progress->publish(true);
     }
     co_return;
   };
@@ -623,6 +635,7 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
                                   G_PRIORITY_DEFAULT);
     }
     cancellation.throw_if_cancellation_requested();
+    if (state->progress != nullptr) state->progress->publish(true);
     state->current_stream.reset();
     state->current_file.reset();
     state->current_info = {};
@@ -673,7 +686,7 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
       state->progress->total_bytes = info.size_bytes;
       state->progress->transferred_bytes = resume_offset;
       state->progress->reset_measurement_baseline(resume_offset);
-      state->progress->publish();
+      state->progress->publish(true);
     }
     co_return;
   };
@@ -720,6 +733,7 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
       }
       cancellation.throw_if_cancellation_requested();
     }
+    if (state->progress != nullptr) state->progress->publish(true);
     state->current_partial_file.reset();
     state->current_target_file.reset();
     co_return;
