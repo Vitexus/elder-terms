@@ -782,6 +782,20 @@ terminal_transfer_source_buffer_test = executable(
 test('terminal-transfer-source-buffer-test',
   terminal_transfer_source_buffer_test)
 
+terminal_transfer_sink_buffer_test = executable(
+  'terminal-transfer-sink-buffer-test',
+  'tests/cpp/terminal-transfer-sink-buffer-test.cpp',
+  dependencies: [cardio_dep],
+)
+test('terminal-transfer-sink-buffer-test', terminal_transfer_sink_buffer_test)
+
+terminal_socket_read_test = executable(
+  'terminal-socket-read-test',
+  'tests/cpp/terminal-socket-read-test.cpp',
+  dependencies: [cardio_dep],
+)
+test('terminal-socket-read-test', terminal_socket_read_test)
+
 terminal_zmodem_auto_start_test = executable(
   'terminal-zmodem-auto-start-test',
   [

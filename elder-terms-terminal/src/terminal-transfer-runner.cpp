@@ -1,5 +1,6 @@
 #include "terminal-transfer-runner.h"
 #include "terminal-transfer-source-buffer.h"
+#include "terminal-transfer-sink-buffer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -165,6 +166,7 @@ struct ReceiveSinkState {
   GObjectPtr<GFile> current_partial_file;
   GObjectPtr<GFileOutputStream> current_stream;
   TransferProgressState *progress = nullptr;
+  TerminalTransferSinkBuffer write_buffer;
 };
 
 static std::span<std::byte> writable_bytes(std::span<std::uint8_t> bytes) {
@@ -655,6 +657,20 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
   return source;
 }
 
+static cardio::promise<void> write_sink_bytes(ReceiveSinkState *state,
+    std::span<const std::uint8_t> bytes, cardio::cancellation cancellation) {
+  std::span<const std::byte> remaining = readonly_bytes(bytes);
+  while (!remaining.empty()) {
+    const std::size_t written = co_await cardio::gio::write(
+        G_OUTPUT_STREAM(state->current_stream.get()), remaining,
+        cancellation, G_PRIORITY_DEFAULT);
+    if (written == 0 || written > remaining.size())
+      throw xyzm_async_io_error("sink write was incomplete");
+    remaining = remaining.subspan(written);
+    cancellation.throw_if_cancellation_requested();
+  }
+}
+
 static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
   xyzm_async_sink_ops_t sink;
   sink.begin = [state](const xyzm_async_file_info_t &info,
@@ -665,6 +681,7 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
     state->current_stream.reset();
     state->current_target_file.reset();
     state->current_partial_file.reset();
+    state->write_buffer.reset();
 
     const bool allow_resume =
         state->protocol == TerminalTransferProtocol::zmodem;
@@ -709,17 +726,11 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
       throw xyzm_async_io_error("sink file is not open");
     }
 
-    std::span<const std::byte> remaining = readonly_bytes(bytes);
-    while (!remaining.empty()) {
-      const std::size_t written = co_await cardio::gio::write(
-          G_OUTPUT_STREAM(state->current_stream.get()), remaining,
-          cancellation, G_PRIORITY_DEFAULT);
-      if (written == 0 || written > remaining.size()) {
-        throw xyzm_async_io_error("sink write was incomplete");
-      }
-      remaining = remaining.subspan(written);
-      cancellation.throw_if_cancellation_requested();
-    }
+    const auto write = [state](std::span<const std::uint8_t> payload,
+                               cardio::cancellation stop) {
+      return write_sink_bytes(state, payload, stop);
+    };
+    co_await state->write_buffer.append_async(bytes, write, cancellation);
     update_progress_delta(state->progress, bytes.size());
     co_return;
   };
@@ -727,9 +738,24 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
                      cardio::cancellation cancellation)
       -> cardio::promise<void> {
     if (state->current_stream != nullptr) {
-      co_await cardio::gio::close(G_OUTPUT_STREAM(state->current_stream.get()),
-                                  G_PRIORITY_DEFAULT);
+      const auto write = [state](std::span<const std::uint8_t> payload,
+                                 cardio::cancellation stop) {
+        return write_sink_bytes(state, payload, stop);
+      };
+      std::exception_ptr close_error;
+      try {
+        // Preserve accepted bytes in the partial file even when the transfer
+        // was cancelled. Cleanup, like closing the stream, must finish first.
+        co_await state->write_buffer.flush_async(write, {});
+      } catch (...) { close_error = std::current_exception(); }
+      try {
+        co_await cardio::gio::close(G_OUTPUT_STREAM(state->current_stream.get()),
+                                    G_PRIORITY_DEFAULT);
+      } catch (...) {
+        if (!close_error) close_error = std::current_exception();
+      }
       state->current_stream.reset();
+      if (close_error) std::rethrow_exception(close_error);
     }
 
     if (!error && state->current_partial_file != nullptr &&
@@ -1027,6 +1053,7 @@ run_terminal_transfer_async(TerminalTransferRequest request,
       .current_partial_file = nullptr,
       .current_stream = nullptr,
       .progress = &progress,
+      .write_buffer = {},
   };
   co_await run_receive_async(request, &link, &observer, &report, &sink_state,
                              cancellation);
