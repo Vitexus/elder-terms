@@ -1075,7 +1075,8 @@ run_terminal_transfer_async(TerminalTransferRequest request,
         // position after accepted frames, without delaying caller cancellation.
         if (!cancellation.is_cancellation_requested()) {
           try {
-            co_await send_buffer->flush_async(transport.send, transport.now_ms, {});
+            co_await send_buffer->flush_async(transport.send, transport.now_ms,
+                                               cancellation);
           } catch (...) {
             // Failure notification is best effort; retain the original error.
           }

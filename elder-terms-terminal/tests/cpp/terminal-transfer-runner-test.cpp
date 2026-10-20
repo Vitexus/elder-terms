@@ -1330,9 +1330,100 @@ static void preserve_ymodem_cancel_after_buffered_failure() {
   std::filesystem::remove_all(directory);
 }
 
+static void cancel_ymodem_failure_cleanup_while_sending_can() {
+  const auto directory = std::filesystem::temp_directory_path() /
+      ("elder-terms-ymodem-cleanup-cancel-test-" + std::to_string(::getpid()));
+  std::filesystem::create_directories(directory);
+  const auto source = directory / "payload.bin";
+  write_bytes(source, std::vector<std::uint8_t>{'d', 'a', 't', 'a'});
+
+  try {
+    cardio::primitives::manually_conditional can_send_started;
+    cardio::primitives::manually_conditional release_can_send;
+    cardio::cancellation_source caller;
+    cardio::cancellation can_send_token;
+    unsigned receives = 0;
+    bool can_wait_cancelled = false;
+    TerminalTransferTransport transport{
+        .send = [&](std::span<const std::uint8_t> bytes, std::uint32_t,
+                    std::size_t &written, cardio::cancellation stop)
+            -> cardio::promise<void> {
+          if (bytes.size() == 2 && bytes[0] == 0x18 && bytes[1] == 0x18) {
+            can_send_token = stop;
+            can_send_started.raise();
+            try {
+              co_await release_can_send.wait(stop);
+            } catch (const cardio::canceled_exception &) {
+              can_wait_cancelled = true;
+              throw;
+            }
+          }
+          written = bytes.size();
+          co_return;
+        },
+        .recv = [&](std::span<std::uint8_t> bytes, std::uint32_t,
+                    std::size_t &received, cardio::cancellation)
+            -> cardio::promise<void> {
+          ++receives;
+          if (receives == 1) {
+            bytes[0] = 'G';
+            received = 1;
+            co_return;
+          }
+          throw xyzm_async_io_error("scripted header response failure");
+        },
+        .now_ms = [] { return std::uint64_t{0}; },
+        .buffer_ymodem_output = true,
+    };
+    TerminalTransferRequest request{
+        .protocol = TerminalTransferProtocol::ymodem,
+        .direction = TerminalTransferDirection::send,
+        .base_path = directory.string(),
+        .source_file_uris = {file_uri_for_path(source)},
+        .options = {}, .active = nullptr, .status = nullptr,
+        .progress = nullptr, .finished = nullptr,
+    };
+    cardio::dispatcher_group_glib group;
+    cardio::dispatcher_host_glib dispatcher(group);
+    std::exception_ptr unexpected_error;
+    bool preserved_error = false;
+    bool can_token_cancelled = false;
+    auto run = [&]() -> cardio::promise<void> {
+      auto transfer = run_terminal_transfer_async(
+          request, std::move(transport), caller.get_cancellation());
+      co_await can_send_started.wait();
+      caller.cancel();
+      can_token_cancelled = can_send_token.is_cancellation_requested();
+      if (!can_token_cancelled) release_can_send.raise();
+      try {
+        co_await transfer;
+      } catch (const xyzm_async_io_error &error) {
+        preserved_error = std::string(error.what()) ==
+            "scripted header response failure";
+      } catch (...) {
+        unexpected_error = std::current_exception();
+      }
+      group.shutdown();
+    };
+    auto task = run();
+    dispatcher.park();
+    if (unexpected_error) std::rethrow_exception(unexpected_error);
+    expect_true(task.is_ready(), "cancelled cleanup should settle");
+    expect_true(receives == 2 && preserved_error,
+                "cancelled cleanup should retain the original receive error");
+    expect_true(can_token_cancelled && can_wait_cancelled,
+                "caller cancellation should interrupt the pending CAN send");
+  } catch (...) {
+    std::filesystem::remove_all(directory);
+    throw;
+  }
+  std::filesystem::remove_all(directory);
+}
+
 static void run_unit_cases() {
   return_unread_transport_bytes();
   preserve_ymodem_cancel_after_buffered_failure();
+  cancel_ymodem_failure_cleanup_while_sending_can();
   sanitize_received_file_names();
   format_progress_status();
   estimate_progress_speed();
