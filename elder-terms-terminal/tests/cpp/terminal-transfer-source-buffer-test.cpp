@@ -174,7 +174,7 @@ int main() {
   std::exception_ptr failure;
   auto task = elder_terms::run_tests(group, failure);
   dispatcher.park();
-  task.unsafe_result();
+  elder_terms::expect(task.try_result(), "source buffer tests should complete");
   if (failure) std::rethrow_exception(failure);
   return 0;
 }
