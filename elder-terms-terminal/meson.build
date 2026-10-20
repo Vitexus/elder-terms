@@ -766,6 +766,15 @@ test('terminal-transfer-runner-unit-test', terminal_transfer_runner_test,
     '--unit',
   ])
 
+terminal_transfer_source_buffer_test = executable(
+  'terminal-transfer-source-buffer-test',
+  'tests/cpp/terminal-transfer-source-buffer-test.cpp',
+  dependencies: [cardio_dep],
+)
+
+test('terminal-transfer-source-buffer-test',
+  terminal_transfer_source_buffer_test)
+
 terminal_zmodem_auto_start_test = executable(
   'terminal-zmodem-auto-start-test',
   [

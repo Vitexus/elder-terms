@@ -1,4 +1,5 @@
 #include "terminal-transfer-runner.h"
+#include "terminal-transfer-source-buffer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -154,6 +155,7 @@ struct SendSourceState {
   GObjectPtr<GFileInputStream> current_stream;
   xyzm_async_file_info_t current_info;
   TransferProgressState *progress = nullptr;
+  TerminalTransferSourceBuffer read_buffer;
 };
 
 struct ReceiveSinkState {
@@ -555,6 +557,7 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
     state->current_stream.reset();
     state->current_file.reset();
     state->current_info = {};
+    state->read_buffer.reset();
 
     if (state->next_index >= state->source_file_uris.size()) {
       co_return xyzm_async_status_t::end;
@@ -587,9 +590,15 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
       throw xyzm_async_io_error("source file is not open");
     }
 
-    read_len = co_await cardio::gio::read(
-        G_INPUT_STREAM(state->current_stream.get()), writable_bytes(bytes),
-        std::move(cancellation), G_PRIORITY_DEFAULT);
+    const auto fill = [state](std::span<std::uint8_t> target,
+                              cardio::cancellation stop)
+        -> cardio::promise<std::size_t> {
+      co_return co_await cardio::gio::read(
+          G_INPUT_STREAM(state->current_stream.get()), writable_bytes(target),
+          std::move(stop), G_PRIORITY_DEFAULT);
+    };
+    read_len = co_await state->read_buffer.read_async(
+        bytes, fill, std::move(cancellation));
     if (read_len == 0) {
       co_return xyzm_async_status_t::end;
     }
@@ -616,6 +625,7 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
       g_clear_error(&error);
       throw xyzm_async_io_error(message);
     }
+    state->read_buffer.reset();
     if (state->progress != nullptr) {
       const std::uint64_t previous_transferred =
           state->progress->transferred_bytes;
@@ -639,6 +649,7 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
     state->current_stream.reset();
     state->current_file.reset();
     state->current_info = {};
+    state->read_buffer.reset();
     co_return;
   };
   return source;
@@ -1002,6 +1013,7 @@ run_terminal_transfer_async(TerminalTransferRequest request,
         .current_stream = nullptr,
         .current_info = {},
         .progress = &progress,
+        .read_buffer = {},
     };
     co_await run_send_async(request, &link, &observer, &report, &source_state,
                             cancellation);
