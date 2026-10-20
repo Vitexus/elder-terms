@@ -2076,14 +2076,17 @@ AAAEA8cCQePgwL2LLorJKJb/mbOaBviLYfCkaS2lc+lgrnvZglDbkkh3abjMMTzSsZS5/X
   gateway_options.authorized_key_path = encrypted_public_key;
   test_proxy_ssh(options, gateway_options, plain_private_key, encrypted_private_key,
                  root / ".ssh" / "nested_known_hosts", false, ProxySftpMode::none);
+  // The changed-key case installs its own conflicting entries for both peers.
   test_proxy_ssh(options, gateway_options, plain_private_key, encrypted_private_key,
-                 root / ".ssh" / "nested_known_hosts", true, ProxySftpMode::none);
+                 root / ".ssh" / "nested_changed_known_hosts", true, ProxySftpMode::none);
 
   auto sftp_options = options;
   sftp_options.sftp_root = root / "sftp-root";
   for (const auto mode : {ProxySftpMode::standalone, ProxySftpMode::shell_first, ProxySftpMode::sftp_first})
     test_proxy_ssh(sftp_options, gateway_options, plain_private_key, encrypted_private_key,
-                   root / ".ssh" / "sftp_proxy_known_hosts", false, mode);
+                   root / ".ssh" / ("sftp_proxy_known_hosts_" +
+                                      std::to_string(static_cast<int>(mode))),
+                   false, mode);
 
   options.authorized_key_path = encrypted_public_key;
   run_client_case(
