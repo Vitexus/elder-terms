@@ -1,4 +1,4 @@
-#include "terminal-color-filter.h"
+#include <elder-terms/terminal-color-filter.h>
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -107,6 +107,81 @@ RgbColor improve_color_visibility(RgbColor foreground, RgbColor background) {
       std::abs(srgb_to_oklch(lighter).lightness - color.lightness) ? darker : lighter;
 }
 
+struct ColorVisionProjection {
+  double first[9];
+  double second[9];
+  double normal[3];
+};
+
+static const ColorVisionProjection *color_vision_projection(TerminalColorVision profile) {
+  // Brettel 1997, Smith-Pokorny LMS, sRGB D65 white as the neutral axis.
+  // Precomputed coefficients by Nicolas Burrus, released to the public domain:
+  // https://github.com/DaltonLens/libDaltonLens/blob/1a01fc1bf8d8dd419af8343b80b05e98ba50a75d/libDaltonLens.c
+  static const ColorVisionProjection protan{
+      {.14980, 1.19548, -.34528, .10764, .84864, .04372, .00384, -.00540, 1.00156},
+      {.14570, 1.16172, -.30742, .10816, .85291, .03892, .00386, -.00524, 1.00139},
+      {.00048, .00393, -.00441}};
+  static const ColorVisionProjection deutan{
+      {.36477, .86381, -.22858, .26294, .64245, .09462, -.02006, .02728, .99278},
+      {.37298, .88166, -.25464, .25954, .63506, .10540, -.01980, .02784, .99196},
+      {-.00281, -.00611, .00892}};
+  static const ColorVisionProjection tritan{
+      {1.01277, .13548, -.14826, -.01243, .86812, .14431, .07589, .80500, .11911},
+      {.93678, .18979, -.12657, .06154, .81526, .12320, -.37562, 1.12767, .24796},
+      {.03901, -.02788, -.01113}};
+  switch (profile) {
+    case TerminalColorVision::protan: return &protan;
+    case TerminalColorVision::deutan: return &deutan;
+    case TerminalColorVision::tritan: return &tritan;
+    default: return nullptr;
+  }
+}
+
+static LinearRgb project_color_vision(LinearRgb color, const ColorVisionProjection &projection) {
+  const auto *normal = projection.normal;
+  const auto *matrix = color.red * normal[0] + color.green * normal[1] + color.blue * normal[2] >= 0
+      ? projection.first : projection.second;
+  return {matrix[0] * color.red + matrix[1] * color.green + matrix[2] * color.blue,
+      matrix[3] * color.red + matrix[4] * color.green + matrix[5] * color.blue,
+      matrix[6] * color.red + matrix[7] * color.green + matrix[8] * color.blue};
+}
+
+RgbColor simulate_color_vision(RgbColor color, TerminalColorVision profile) {
+  const auto *projection = color_vision_projection(profile);
+  if (!projection || (color.red == color.green && color.green == color.blue)) return color;
+  return encode(project_color_vision(linear_rgb(color), *projection));
+}
+RgbColor correct_color_vision(RgbColor color, TerminalColorVision profile, double strength) {
+  const auto *projection = color_vision_projection(profile);
+  if (!projection || !std::isfinite(strength) || strength <= 0 ||
+      (color.red == color.green && color.green == color.blue)) return color;
+  // Limit the transfer gain so saturated ANSI colors remain distinct.
+  strength = 0.75 * std::min(strength, 1.0);
+  auto rgb = linear_rgb(color);
+  const auto simulated = project_color_vision(rgb, *projection);
+  // Redistribute a lost component onto the other chromatic axis. The green
+  // adjustment balances sRGB luminance before gamut clipping. Unlike a common
+  // equal green/blue error shift, this retains ANSI red/green separation after
+  // Oklch contrast correction. Tritan uses the opposite red/green direction.
+  // These are application choices evaluated in plan5, not clinical parameters.
+  // Use a fixed normalization per profile to avoid a change in strength when
+  // crossing the two Brettel projection planes.
+  if (profile == TerminalColorVision::protan || profile == TerminalColorVision::deutan) {
+    const double loss = profile == TerminalColorVision::protan
+        ? (rgb.red - simulated.red) / (1 - projection->first[0])
+        : (rgb.green - simulated.green) / (1 - projection->first[4]);
+    rgb.green -= strength * loss * (.0722 / .7152);
+    rgb.blue += strength * loss;
+  } else {
+    const double loss = (rgb.blue - simulated.blue) / (1 - projection->first[8]);
+    rgb.red -= strength * loss;
+    rgb.green += strength * loss * (.2126 / .7152);
+  }
+  // Clip only the final linear RGB. Clipping the simulation before computing
+  // its error would discard the signal used to recolor saturated colors.
+  return encode(rgb);
+}
+
 boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filter_input *input, void *data) {
   const auto &context = *static_cast<const TerminalColorFilterContext *>(data);
   auto result = boxrig_ui_color_filter_result_default(input);
@@ -123,6 +198,24 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
     result.background = replace_default(result.background, input->background_source.role);
     result.underline = replace_default(result.underline, input->underline_source.role);
     result.marker = replace_default(result.marker, input->marker_source.role);
+  }
+  if (context.color_vision != TerminalColorVision::none && context.color_vision_strength > 0) {
+    const auto recolor = [&](boxrig_rgb value, boxrig_ui_color_source_role role) {
+      // Origins are already swapped for inverse cells. Preserve the connection
+      // background even when it is being used as the displayed foreground.
+      if (role == BOXRIG_UI_COLOR_DEFAULT_BACKGROUND || role == BOXRIG_UI_COLOR_UNUSED ||
+          role == BOXRIG_UI_COLOR_FOLLOWS_FOREGROUND) return value;
+      const auto color = correct_color_vision({value.red, value.green, value.blue},
+          context.color_vision, context.color_vision_strength);
+      return boxrig_rgb{color.red, color.green, color.blue};
+    };
+    if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
+        input->target == BOXRIG_UI_COLOR_SURFACE) {
+      result.foreground = recolor(result.foreground, input->foreground_source.role);
+      result.background = recolor(result.background, input->background_source.role);
+      if (!result.underline_follows_foreground)
+        result.underline = recolor(result.underline, input->underline_source.role);
+    } else result.marker = recolor(result.marker, input->marker_source.role);
   }
   if (!context.visibility_correction) return result;
   const auto correct = [](boxrig_rgb foreground, boxrig_rgb background) {

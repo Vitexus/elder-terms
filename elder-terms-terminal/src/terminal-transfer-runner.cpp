@@ -1,4 +1,7 @@
 #include "terminal-transfer-runner.h"
+#include "terminal-transfer-source-buffer.h"
+#include "terminal-transfer-sink-buffer.h"
+#include "terminal-transfer-send-buffer.h"
 
 #include <algorithm>
 #include <cmath>
@@ -26,6 +29,7 @@ static constexpr std::uint32_t transfer_retry_limit = 8;
 static constexpr std::uint8_t transfer_pad_byte = 0x1a;
 static constexpr const char *fallback_receive_name = "received.bin";
 static constexpr std::uint64_t transfer_measurement_minimum_elapsed_ms = 1000;
+static constexpr std::uint64_t transfer_progress_interval_ms = 100;
 static constexpr std::size_t transfer_byte_field_width = 6;
 static constexpr std::size_t transfer_percent_field_width = 3;
 static constexpr std::size_t transfer_eta_field_width = 6;
@@ -59,6 +63,7 @@ struct TransferProgressState {
   std::uint64_t transferred_bytes = 0;
   std::uint64_t measurement_baseline_transferred_bytes = 0;
   std::optional<std::uint64_t> measurement_baseline_time_ms;
+  std::optional<std::uint64_t> last_published_time_ms = std::nullopt;
 
   void reset_measurement_baseline(std::uint64_t transferred) {
     measurement_baseline_transferred_bytes = transferred;
@@ -105,7 +110,16 @@ struct TransferProgressState {
         *total_bytes, *elapsed_ms);
   }
 
-  void publish() const {
+  void publish(bool force) {
+    const auto now = now_ms();
+    // UI updates share the I/O dispatcher. Limit redraws independently of packet
+    // size, while file boundaries and completion remain immediately visible.
+    if (!force && last_published_time_ms.has_value() &&
+        now >= *last_published_time_ms &&
+        now - *last_published_time_ms < transfer_progress_interval_ms) {
+      return;
+    }
+    last_published_time_ms = now;
     if (status) {
       const std::optional<std::uint64_t> elapsed_ms =
           measurement_elapsed_ms();
@@ -143,6 +157,7 @@ struct SendSourceState {
   GObjectPtr<GFileInputStream> current_stream;
   xyzm_async_file_info_t current_info;
   TransferProgressState *progress = nullptr;
+  TerminalTransferSourceBuffer read_buffer;
 };
 
 struct ReceiveSinkState {
@@ -152,6 +167,7 @@ struct ReceiveSinkState {
   GObjectPtr<GFile> current_partial_file;
   GObjectPtr<GFileOutputStream> current_stream;
   TransferProgressState *progress = nullptr;
+  TerminalTransferSinkBuffer write_buffer;
 };
 
 static std::span<std::byte> writable_bytes(std::span<std::uint8_t> bytes) {
@@ -473,7 +489,7 @@ static void update_progress_file(TransferProgressState *state,
   state->file_name = next_name;
   state->total_bytes = info.size_bytes;
   state->reset_measurement_baseline(state->transferred_bytes);
-  state->publish();
+  state->publish(true);
 }
 
 static void update_progress_delta(TransferProgressState *state,
@@ -483,7 +499,8 @@ static void update_progress_delta(TransferProgressState *state,
   }
 
   state->transferred_bytes += payload_delta;
-  state->publish();
+  state->publish(state->total_bytes.has_value() &&
+      state->transferred_bytes >= *state->total_bytes);
 }
 
 static xyzm_async_transfer_observer_t
@@ -496,7 +513,7 @@ make_transfer_observer(TransferProgressState *progress,
       update_progress_file(progress, event.file_info->get());
     } else if (event.kind == XYZM_TRANSFER_EVENT_PROGRESS &&
                progress != nullptr && event.payload_delta != 0) {
-      progress->publish();
+      progress->publish(false);
     } else if (event.kind == XYZM_TRANSFER_EVENT_TRANSFER_FINISHED &&
                event.report.has_value() && transport->return_received) {
       transport->return_received(event.report->get().unread_bytes);
@@ -506,26 +523,38 @@ make_transfer_observer(TransferProgressState *progress,
 }
 
 static xyzm_async_link_ops_t make_link_ops(TerminalTransferTransport *transport,
-                                           TransferProgressState *progress) {
+                                           TransferProgressState *progress,
+                                           TerminalTransferSendBuffer *send_buffer) {
   xyzm_async_link_ops_t link;
-  link.send = [transport, progress](std::span<const std::uint8_t> bytes,
+  link.send = [transport, progress, send_buffer](std::span<const std::uint8_t> bytes,
                                     std::uint32_t timeout_ms,
                                     std::size_t &written_len,
                                     cardio::cancellation cancellation)
       -> cardio::promise<void> {
-    co_await transport->send(bytes, timeout_ms, written_len,
-                             std::move(cancellation));
+    if (send_buffer != nullptr) {
+      co_await send_buffer->send_async(bytes, timeout_ms, written_len,
+          transport->send, transport->now_ms, std::move(cancellation));
+    } else {
+      co_await transport->send(bytes, timeout_ms, written_len,
+                               std::move(cancellation));
+    }
     if (progress != nullptr &&
         progress->direction == TerminalTransferDirection::send &&
         progress->total_bytes.has_value() && written_len > 0) {
-      progress->publish();
+      progress->publish(false);
     }
     co_return;
   };
-  link.recv = [transport](std::span<std::uint8_t> bytes,
+  link.recv = [transport, send_buffer](std::span<std::uint8_t> bytes,
                           std::uint32_t timeout_ms, std::size_t &read_len,
                           cardio::cancellation cancellation)
       -> cardio::promise<void> {
+    if (send_buffer != nullptr && timeout_ms > 0) {
+      // Handshake and ACK waits must observe every preceding queued byte.
+      // Draining keeps the send deadline; the receive deadline begins afterward.
+      co_await send_buffer->flush_async(transport->send, transport->now_ms,
+                                        cancellation);
+    }
     co_await transport->recv(bytes, timeout_ms, read_len,
                              std::move(cancellation));
     co_return;
@@ -543,6 +572,7 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
     state->current_stream.reset();
     state->current_file.reset();
     state->current_info = {};
+    state->read_buffer.reset();
 
     if (state->next_index >= state->source_file_uris.size()) {
       co_return xyzm_async_status_t::end;
@@ -575,9 +605,15 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
       throw xyzm_async_io_error("source file is not open");
     }
 
-    read_len = co_await cardio::gio::read(
-        G_INPUT_STREAM(state->current_stream.get()), writable_bytes(bytes),
-        std::move(cancellation), G_PRIORITY_DEFAULT);
+    const auto fill = [state](std::span<std::uint8_t> target,
+                              cardio::cancellation stop)
+        -> cardio::promise<std::size_t> {
+      co_return co_await cardio::gio::read(
+          G_INPUT_STREAM(state->current_stream.get()), writable_bytes(target),
+          std::move(stop), G_PRIORITY_DEFAULT);
+    };
+    read_len = co_await state->read_buffer.read_async(
+        bytes, fill, std::move(cancellation));
     if (read_len == 0) {
       co_return xyzm_async_status_t::end;
     }
@@ -604,6 +640,7 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
       g_clear_error(&error);
       throw xyzm_async_io_error(message);
     }
+    state->read_buffer.reset();
     if (state->progress != nullptr) {
       const std::uint64_t previous_transferred =
           state->progress->transferred_bytes;
@@ -611,7 +648,7 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
       if (previous_transferred == 0 && offset > 0) {
         state->progress->reset_measurement_baseline(offset);
       }
-      state->progress->publish();
+      state->progress->publish(true);
     }
     co_return;
   };
@@ -623,12 +660,28 @@ static xyzm_async_source_ops_t make_source_ops(SendSourceState *state) {
                                   G_PRIORITY_DEFAULT);
     }
     cancellation.throw_if_cancellation_requested();
+    if (state->progress != nullptr) state->progress->publish(true);
     state->current_stream.reset();
     state->current_file.reset();
     state->current_info = {};
+    state->read_buffer.reset();
     co_return;
   };
   return source;
+}
+
+static cardio::promise<void> write_sink_bytes(ReceiveSinkState *state,
+    std::span<const std::uint8_t> bytes, cardio::cancellation cancellation) {
+  std::span<const std::byte> remaining = readonly_bytes(bytes);
+  while (!remaining.empty()) {
+    const std::size_t written = co_await cardio::gio::write(
+        G_OUTPUT_STREAM(state->current_stream.get()), remaining,
+        cancellation, G_PRIORITY_DEFAULT);
+    if (written == 0 || written > remaining.size())
+      throw xyzm_async_io_error("sink write was incomplete");
+    remaining = remaining.subspan(written);
+    cancellation.throw_if_cancellation_requested();
+  }
 }
 
 static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
@@ -641,6 +694,7 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
     state->current_stream.reset();
     state->current_target_file.reset();
     state->current_partial_file.reset();
+    state->write_buffer.reset();
 
     const bool allow_resume =
         state->protocol == TerminalTransferProtocol::zmodem;
@@ -673,7 +727,7 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
       state->progress->total_bytes = info.size_bytes;
       state->progress->transferred_bytes = resume_offset;
       state->progress->reset_measurement_baseline(resume_offset);
-      state->progress->publish();
+      state->progress->publish(true);
     }
     co_return;
   };
@@ -685,17 +739,11 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
       throw xyzm_async_io_error("sink file is not open");
     }
 
-    std::span<const std::byte> remaining = readonly_bytes(bytes);
-    while (!remaining.empty()) {
-      const std::size_t written = co_await cardio::gio::write(
-          G_OUTPUT_STREAM(state->current_stream.get()), remaining,
-          cancellation, G_PRIORITY_DEFAULT);
-      if (written == 0 || written > remaining.size()) {
-        throw xyzm_async_io_error("sink write was incomplete");
-      }
-      remaining = remaining.subspan(written);
-      cancellation.throw_if_cancellation_requested();
-    }
+    const auto write = [state](std::span<const std::uint8_t> payload,
+                               cardio::cancellation stop) {
+      return write_sink_bytes(state, payload, stop);
+    };
+    co_await state->write_buffer.append_async(bytes, write, cancellation);
     update_progress_delta(state->progress, bytes.size());
     co_return;
   };
@@ -703,9 +751,24 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
                      cardio::cancellation cancellation)
       -> cardio::promise<void> {
     if (state->current_stream != nullptr) {
-      co_await cardio::gio::close(G_OUTPUT_STREAM(state->current_stream.get()),
-                                  G_PRIORITY_DEFAULT);
+      const auto write = [state](std::span<const std::uint8_t> payload,
+                                 cardio::cancellation stop) {
+        return write_sink_bytes(state, payload, stop);
+      };
+      std::exception_ptr close_error;
+      try {
+        // Preserve accepted bytes in the partial file even when the transfer
+        // was cancelled. Cleanup, like closing the stream, must finish first.
+        co_await state->write_buffer.flush_async(write, {});
+      } catch (...) { close_error = std::current_exception(); }
+      try {
+        co_await cardio::gio::close(G_OUTPUT_STREAM(state->current_stream.get()),
+                                    G_PRIORITY_DEFAULT);
+      } catch (...) {
+        if (!close_error) close_error = std::current_exception();
+      }
       state->current_stream.reset();
+      if (close_error) std::rethrow_exception(close_error);
     }
 
     if (!error && state->current_partial_file != nullptr &&
@@ -720,6 +783,7 @@ static xyzm_async_sink_ops_t make_sink_ops(ReceiveSinkState *state) {
       }
       cancellation.throw_if_cancellation_requested();
     }
+    if (state->progress != nullptr) state->progress->publish(true);
     state->current_partial_file.reset();
     state->current_target_file.reset();
     co_return;
@@ -976,7 +1040,13 @@ run_terminal_transfer_async(TerminalTransferRequest request,
     });
   }
 
-  xyzm_async_link_ops_t link = make_link_ops(&transport, &progress);
+  std::unique_ptr<TerminalTransferSendBuffer> send_buffer;
+  if (transport.buffer_ymodem_output &&
+      request.direction == TerminalTransferDirection::send &&
+      request.protocol == TerminalTransferProtocol::ymodem) {
+    send_buffer = std::make_unique<TerminalTransferSendBuffer>();
+  }
+  xyzm_async_link_ops_t link = make_link_ops(&transport, &progress, send_buffer.get());
   xyzm_async_transfer_observer_t observer = make_transfer_observer(&progress, &transport);
   xyzm_async_transfer_report_t report{};
 
@@ -988,9 +1058,33 @@ run_terminal_transfer_async(TerminalTransferRequest request,
         .current_stream = nullptr,
         .current_info = {},
         .progress = &progress,
+        .read_buffer = {},
     };
-    co_await run_send_async(request, &link, &observer, &report, &source_state,
-                            cancellation);
+    std::exception_ptr send_error;
+    try {
+      co_await run_send_async(request, &link, &observer, &report, &source_state,
+                              cancellation);
+      if (send_buffer != nullptr)
+        co_await send_buffer->flush_async(transport.send, transport.now_ms, cancellation);
+    } catch (...) {
+      send_error = std::current_exception();
+    }
+    if (send_error) {
+      if (send_buffer != nullptr) {
+        // libxyzm can append CAN after a source/protocol failure. Preserve its
+        // position after accepted frames, without delaying caller cancellation.
+        if (!cancellation.is_cancellation_requested()) {
+          try {
+            co_await send_buffer->flush_async(transport.send, transport.now_ms,
+                                               cancellation);
+          } catch (...) {
+            // Failure notification is best effort; retain the original error.
+          }
+        }
+        send_buffer->abort();
+      }
+      std::rethrow_exception(send_error);
+    }
     co_return;
   }
 
@@ -1001,6 +1095,7 @@ run_terminal_transfer_async(TerminalTransferRequest request,
       .current_partial_file = nullptr,
       .current_stream = nullptr,
       .progress = &progress,
+      .write_buffer = {},
   };
   co_await run_receive_async(request, &link, &observer, &report, &sink_state,
                              cancellation);

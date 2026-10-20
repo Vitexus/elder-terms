@@ -31,6 +31,12 @@ struct TerminalTransferTransport {
    * An empty callback discards the remainder.
    */
   std::function<void(std::span<const std::uint8_t>)> return_received = {};
+  /**
+   * Permits bounded batching of streaming YMODEM output on network transports.
+   * @remarks Buffered bytes are drained before receiving a reply or reporting
+   * success. Leave disabled for low-speed transports such as serial ports.
+   */
+  bool buffer_ymodem_output = false;
 };
 
 /**

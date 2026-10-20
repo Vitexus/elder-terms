@@ -1,9 +1,13 @@
 #include "../../src/terminal-connection.h"
 
 #include <glib.h>
+#include <unistd.h>
+#include <algorithm>
 #include <csignal>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
+#include <fstream>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -64,6 +68,109 @@ static std::string contents(Test *test) {
 
 static TerminalLocalCommand command(std::string script) {
   return {{"/bin/sh", "-c", std::move(script)}, "xterm-256color", 17, 3};
+}
+
+static cardio::promise<void> test_binary_transfer_chunks(Test *test) {
+  const auto path = std::filesystem::temp_directory_path() /
+      ("elder-terms-binary-transfer-" + std::to_string(::getpid()));
+  std::vector<unsigned char> payload(256);
+  for (std::size_t index = 0; index < payload.size(); ++index)
+    payload[index] = static_cast<unsigned char>(index);
+  {
+    std::ofstream file(path, std::ios::binary);
+    file.write(reinterpret_cast<const char *>(payload.data()), payload.size());
+    expect(static_cast<bool>(file), "write binary transfer source");
+  }
+  std::vector<unsigned char> incoming;
+  std::vector<unsigned char> frame;
+  std::vector<unsigned char> received;
+  std::size_t write_count = 0;
+  std::vector<cardio::cancellation> read_tokens;
+  std::vector<cardio::cancellation> write_tokens;
+  bool fail_write = false;
+  cardio::primitives::conditional data_ready;
+  TerminalTransportRequest transport;
+  transport.encoding = "CP932";
+  transport.io_chunk_size = 1;
+  transport.open = [&](std::size_t, std::size_t, cardio::cancellation)
+      -> cardio::promise<TerminalTransport> {
+    co_return TerminalTransport{
+        [&](std::span<unsigned char> bytes, cardio::cancellation stop)
+            -> cardio::promise<std::size_t> {
+          read_tokens.push_back(stop);
+          while (incoming.empty()) co_await data_ready.wait(stop);
+          const auto count = std::min(bytes.size(), incoming.size());
+          std::copy_n(incoming.begin(), count, bytes.begin());
+          incoming.erase(incoming.begin(), incoming.begin() + count);
+          co_return count;
+        },
+        [&](std::span<const unsigned char> bytes, cardio::cancellation stop)
+            -> cardio::promise<void> {
+          write_tokens.push_back(stop);
+          if (fail_write) throw std::system_error(EIO, std::generic_category(), "test transfer write failure");
+          ++write_count;
+          frame.insert(frame.end(), bytes.begin(), bytes.end());
+          for (;;) {
+            if (frame.empty()) break;
+            if (frame.front() == 4) {
+              frame.erase(frame.begin());
+            } else {
+              if (frame.size() < 133) break;
+              expect(frame[0] == 1 && frame[1] + frame[2] == 255,
+                     "receiver should see a complete XMODEM CRC frame");
+              received.insert(received.end(), frame.begin() + 3, frame.begin() + 131);
+              frame.erase(frame.begin(), frame.begin() + 133);
+            }
+            incoming.push_back(6);
+            data_ready.trigger();
+          }
+          co_return;
+        },
+        [](std::size_t, std::size_t, cardio::cancellation)
+            -> cardio::promise<void> { co_return; },
+        []() -> cardio::promise<void> { co_return; }};
+  };
+  expect(terminal_connection_start_transport(test->connection, std::move(transport)),
+         "start binary transfer peer");
+  while (terminal_connection_state(test->connection).phase != TerminalConnectionPhase::connected)
+    co_await test->changed.wait();
+  expect(terminal_connection_prepare_transfer(test->connection), "reserve binary transfer");
+  incoming.push_back('C');
+  data_ready.trigger();
+  TerminalTransferRequest request;
+  request.protocol = TerminalTransferProtocol::xmodem;
+  request.direction = TerminalTransferDirection::send;
+  request.source_file_uris = {path.string()};
+  request.options.xmodem_packet_size = TerminalTransferXmodemPacketSize::bytes_128;
+  const auto succeeded = co_await terminal_connection_transfer(test->connection, request, {});
+  expect(!write_tokens.empty() && std::all_of(write_tokens.begin(), write_tokens.end(),
+      [](const cardio::cancellation &token) { return token.is_cancellation_requested(); }),
+      "completed transfer writes must release their linked deadlines");
+  expect(read_tokens.size() >= 2 && std::all_of(read_tokens.begin(), read_tokens.end() - 1,
+      [](const cardio::cancellation &token) { return token.is_cancellation_requested(); }),
+      "completed reads must release their linked cancellation");
+  const auto writes_before_failure = write_tokens.size();
+  fail_write = true;
+  expect(terminal_connection_prepare_transfer(test->connection), "reserve failing binary transfer");
+  incoming.push_back('C');
+  data_ready.trigger();
+  cardio::cancellation_source caller;
+  const auto failed = co_await terminal_connection_transfer(test->connection, request, caller.get_cancellation());
+  expect(!failed && write_tokens.size() > writes_before_failure,
+         "transport write failure should fail the transfer");
+  expect(std::all_of(write_tokens.begin() + writes_before_failure, write_tokens.end(),
+      [](const cardio::cancellation &token) { return token.is_cancellation_requested(); }),
+      "failed transfer writes must release their linked deadlines");
+  expect(!caller.get_cancellation().is_cancellation_requested(),
+         "releasing a transfer deadline must not cancel its caller");
+  terminal_connection_stop(test->connection);
+  co_await terminal_connection_wait_stopped(test->connection);
+  std::filesystem::remove(path);
+  expect(succeeded, "binary transfer should complete");
+  expect(received == payload && frame.empty(),
+         "binary transfer should preserve every byte independently of encoding");
+  expect(write_count == 3,
+         "text conversion chunk size must not split two binary frames and EOT");
 }
 
 static cardio::promise<void> scenarios(Test *test) {
@@ -237,6 +344,8 @@ static cardio::promise<void> scenarios(Test *test) {
   expect(!(co_await cancelled_exchange), "disconnect cancels an encoding exchange waiting for output");
   co_await terminal_connection_wait_stopped(test->connection);
   expect(test->cooked.size() == cancelled_exchange_start, "cancelled empty input has no duplicate finalization");
+
+  co_await test_binary_transfer_chunks(test);
 
   for (int attempt = 0; attempt < 4; ++attempt) {
     expect(terminal_connection_start_local(test->connection, command("trap '' HUP TERM; read value")), "start cancellable child");

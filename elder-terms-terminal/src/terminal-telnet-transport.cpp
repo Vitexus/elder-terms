@@ -1,8 +1,8 @@
 #include "terminal-transports.h"
+#include "terminal-socket-read.h"
 #include "terminal-sessions/ssh-session/ssh-proxy.h"
 #include "terminal-sessions/telnet-session/telnet-protocol.h"
 
-#include <sys/socket.h>
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
@@ -44,20 +44,15 @@ static cardio::promise<std::size_t> read_telnet(TelnetChannel *channel,
     std::span<unsigned char> bytes, cardio::cancellation cancellation) {
   const auto fd = ssh_proxy_connection_fd(channel->route);
   while (channel->offset == channel->pending.size()) {
-    co_await cardio::from_fd(fd, cardio::fd_event::read, cancellation);
-    const auto count = ::recv(fd, bytes.data(), bytes.size(), MSG_DONTWAIT);
+    const auto count = co_await read_terminal_socket_async(fd, bytes, cancellation);
     if (count == 0) {
       channel->pending = channel->protocol.finish_receive();
       channel->offset = 0;
       if (channel->pending.empty()) co_return 0;
       break;
     }
-    if (count < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) continue;
-      throw std::system_error(errno, std::generic_category(), "read TELNET");
-    }
     if (channel->callbacks.activity) channel->callbacks.activity(ActivityIndicatorId::rd);
-    auto result = channel->protocol.receive(bytes.first(static_cast<std::size_t>(count)));
+    auto result = channel->protocol.receive(bytes.first(count));
     channel->pending = std::move(result.terminal_data);
     channel->offset = 0;
     // Keep protocol replies ordered with application writes, without adding an
@@ -120,7 +115,7 @@ static cardio::promise<TerminalTransport> open_telnet(TelnetConnectionSettings s
       [channel](cardio::cancellation stop) -> cardio::promise<void> {
         const auto bytes = channel->protocol.encode_break();
         co_await write_wire(channel.get(), bytes, stop);
-      }};
+      }, {}, {}, true};
 }
 
 TerminalTransportRequest make_telnet_transport_request(TelnetConnectionSettings settings,

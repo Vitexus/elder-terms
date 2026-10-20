@@ -39,6 +39,12 @@ struct TerminalTransport {
    * Release callbacks before returning. The connection joins this before close.
    */
   std::function<cardio::promise<void>(std::function<void(bool)>, cardio::cancellation)> watch_carrier = {};
+  /**
+   * Allows bounded streaming YMODEM write batches on this network channel.
+   * @remarks Disabled by default because a batch can exceed a slow serial
+   * link's per-write deadline.
+   */
+  bool buffer_ymodem_output = false;
 };
 
 /** A reusable channel factory and bounded stream-conversion policy. */

@@ -22,7 +22,8 @@ static cardio::promise<TerminalTransport> open_ssh(SshConnectionSettings setting
       },
       [shell]() -> cardio::promise<void> { shell->channel.reset(); co_return; }, {},
       [shell](cardio::cancellation stop) { return shell->channel->send_break_async(500, stop); },
-      [shell] { return shell->channel ? shell->channel->authenticated_transport() : nullptr; }};
+      [shell] { return shell->channel ? shell->channel->authenticated_transport() : nullptr; },
+      {}, true};
 }
 
 TerminalTransportRequest make_ssh_transport_request(SshConnectionSettings settings,

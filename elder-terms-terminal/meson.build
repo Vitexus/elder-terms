@@ -97,7 +97,6 @@ elder_terms_sources = [
   'src/main-window.cpp',
   'src/terminal-background.cpp',
   'src/terminal-background-image.cpp',
-  'src/terminal-color-filter.cpp',
   'src/sftp/sftp-client.cpp',
   'src/sftp/sftp-fixture-client.cpp',
   'src/file-transfer/file-hash.cpp',
@@ -145,9 +144,27 @@ elder_terms_terminal = executable(
 
 if get_option('build_tests')
 color_filter_test = executable('terminal-color-filter-test',
-  ['tests/cpp/terminal-color-filter-test.cpp', 'src/terminal-color-filter.cpp'],
+  ['tests/cpp/terminal-color-filter-test.cpp'],
   dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
 test('terminal-color-filter-test', color_filter_test)
+
+color_vision_test = executable('terminal-color-vision-test',
+  ['tests/cpp/terminal-color-vision-test.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
+test('terminal-color-vision-test', color_vision_test)
+
+color_rendering_test = executable('terminal-color-rendering-test',
+  'tests/cpp/terminal-color-rendering-test.cpp', dependencies: [boxrig_runtime_dep, elder_terms_dep])
+foreach backend : ['cairo', 'opengl']
+  test('terminal-color-rendering-' + backend + '-test', find_program('xvfb-run'),
+    args: ['-a', color_rendering_test, backend], timeout: 60,
+    env: ['LIBGL_ALWAYS_SOFTWARE=1', 'GTK_IM_MODULE=gtk-im-context-simple', 'NO_AT_BRIDGE=1', 'GDK_SCALE=1'] +
+      (backend == 'cairo' ? ['GDK_GL=disable'] : []))
+endforeach
+
+executable('terminal-color-vision-demo',
+  ['tests/cpp/terminal-color-vision-demo.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
 
 terminal_renderer_status_test = executable('terminal-renderer-status-test',
   ['tests/cpp/terminal-renderer-status-test.cpp', 'src/terminal-renderer-status.cpp'],
@@ -711,6 +728,13 @@ ssh_channel_connection_test = executable(
 test('ssh-channel-connection-test', ssh_channel_connection_test,
   timeout: 60)
 
+ssh_channel_write_batch_test = executable(
+  'ssh-channel-write-batch-test',
+  'tests/cpp/ssh-channel-write-batch-test.cpp',
+)
+
+test('ssh-channel-write-batch-test', ssh_channel_write_batch_test)
+
 sftp_transfer_engine_test = executable(
   'sftp-transfer-engine-test',
   [
@@ -748,6 +772,37 @@ test('terminal-transfer-runner-unit-test', terminal_transfer_runner_test,
   args: [
     '--unit',
   ])
+
+terminal_transfer_source_buffer_test = executable(
+  'terminal-transfer-source-buffer-test',
+  'tests/cpp/terminal-transfer-source-buffer-test.cpp',
+  dependencies: [cardio_dep],
+)
+
+test('terminal-transfer-source-buffer-test',
+  terminal_transfer_source_buffer_test)
+
+terminal_transfer_sink_buffer_test = executable(
+  'terminal-transfer-sink-buffer-test',
+  'tests/cpp/terminal-transfer-sink-buffer-test.cpp',
+  dependencies: [cardio_dep],
+)
+test('terminal-transfer-sink-buffer-test', terminal_transfer_sink_buffer_test)
+
+terminal_transfer_send_buffer_test = executable(
+  'terminal-transfer-send-buffer-test',
+  'tests/cpp/terminal-transfer-send-buffer-test.cpp',
+  cpp_args: ['-I' + libxyzm_include_dir],
+  dependencies: [cardio_dep],
+)
+test('terminal-transfer-send-buffer-test', terminal_transfer_send_buffer_test)
+
+terminal_socket_read_test = executable(
+  'terminal-socket-read-test',
+  'tests/cpp/terminal-socket-read-test.cpp',
+  dependencies: [cardio_dep],
+)
+test('terminal-socket-read-test', terminal_socket_read_test)
 
 terminal_zmodem_auto_start_test = executable(
   'terminal-zmodem-auto-start-test',
@@ -787,8 +842,42 @@ terminal_transfer_option_cases = [
   ['ymodem', 'receive', 'ymodem-g'],
 ]
 
+xyzm_pause_peer = executable(
+  'xyzm-pause-peer',
+  'tests/cpp/xyzm-pause-peer.cpp',
+  cpp_args: [
+    '-I' + libxyzm_include_dir,
+  ],
+  link_with: [
+    libxyzm_static_library,
+  ],
+)
+
+foreach throughput_case : [
+  ['zmodem', 'send', 'standard'],
+  ['zmodem', 'receive', 'standard'],
+  ['ymodem', 'send', 'ymodem-g'],
+  ['ymodem', 'receive', 'ymodem-g'],
+]
+  test(
+    'terminal-transfer-runner-throughput-' + throughput_case[0] + '-' +
+      throughput_case[1],
+    terminal_transfer_runner_test,
+    args: ['--throughput-case', throughput_case[0], throughput_case[1],
+           '0', throughput_case[2]],
+    depends: xyzm_pause_peer,
+    timeout: 45,
+  )
+endforeach
+
 foreach protocol : terminal_transfer_test_protocols
   foreach direction : terminal_transfer_test_directions
+    test(
+      'terminal-transfer-runner-progress-' + protocol + '-' + direction,
+      terminal_transfer_runner_test,
+      args: ['--progress-case', protocol, direction, '0'],
+      timeout: 45,
+    )
     foreach delay : terminal_transfer_test_delays
       test(
         'terminal-transfer-runner-' + protocol + '-' + direction + '-' +
@@ -892,16 +981,6 @@ executable(
   'tests/cpp/serial-pty-helper.cpp',
 )
 
-executable(
-  'xyzm-pause-peer',
-  'tests/cpp/xyzm-pause-peer.cpp',
-  cpp_args: [
-    '-I' + libxyzm_include_dir,
-  ],
-  link_with: [
-    libxyzm_static_library,
-  ],
-)
 endif
 
 configure_file(

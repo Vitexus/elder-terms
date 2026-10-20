@@ -1,7 +1,7 @@
 #include "terminal-presentation.h"
 #include "terminal-runtime.h"
 #include "terminal-background.h"
-#include "terminal-color-filter.h"
+#include <elder-terms/terminal-color-filter.h>
 
 #include <cmath>
 #include <cstdio>
@@ -32,7 +32,8 @@ static bool apply_colors(TerminalPresentation *presentation, TerminalColorFilter
   auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(presentation->window->runtime));
   const auto previous = presentation->colors;
   presentation->colors = context;
-  const bool enabled = context.background.has_value() || context.visibility_correction;
+  const bool enabled = context.background.has_value() || context.visibility_correction ||
+      (context.color_vision != TerminalColorVision::none && context.color_vision_strength > 0);
   const auto status = boxrig_ui_view_set_color_filter(view, enabled ? filter_terminal_colors : nullptr,
       enabled ? &presentation->colors : nullptr);
   if (status != BOXRIG_UI_OK) { presentation->colors = previous; return false; }
@@ -201,8 +202,9 @@ bool apply_terminal_presentation(TerminalPresentation *presentation, const Setti
   auto *window = presentation->window;
   auto *widget = terminal_runtime_widget(window->runtime);
   const auto display = terminal_display_settings(settings);
+  const auto vision = terminal_color_vision_settings(settings);
   if (!apply_colors(presentation, {general_color_settings(settings).background,
-      terminal_color_filter(settings) == TerminalColorFilter::oklch})) return false;
+      terminal_color_filter(settings) == TerminalColorFilter::oklch, vision.profile, vision.strength / 100.0})) return false;
   if (!apply_cursor(presentation, terminal_cursor_settings(settings))) return false;
   if (!apply_terminal_background(presentation->background, settings, std::move(image))) return false;
   const auto accessibility_status = boxrig_gtk3_terminal_widget_set_accessibility_enabled(

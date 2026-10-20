@@ -688,7 +688,7 @@ See [boxrig's background effects](https://github.com/kekyo/boxrig/blob/0.4.0/doc
 Select "Improve visibility (Oklch)" under "Color filter" on the "Terminal" tab to improve contrast for text and markers that are difficult to distinguish from their background. All hues, including red, green, and blue, and neutral gray, black, and white are included.
 Oklch represents color using separate lightness, chroma, and hue components. This correction preserves hue and primarily adjusts lightness.
 Colors with a contrast ratio of at least 4.5:1 against the background are retained; only colors below that threshold are adjusted. Chroma is reduced when necessary to fit the displayable color range, and neutral colors remain neutral. The default is "No correction".
-Background colors, background images, communication, copied text, and logs remain unchanged.
+Oklch alone leaves background colors unchanged. Background images, communication, copied text, and logs are also unchanged.
 Correction uses the cell's background color as its reference; it does not adapt to individual pixels in a background image or transparent desktop.
 
 ```ini
@@ -704,6 +704,42 @@ background_image_opacity=70
 background_image_fit=cover
 color_filter=oklch
 ```
+
+## Helping Distinguish Colors
+
+Select Protan (P), Deutan (D), or Tritan (T) under "Color discrimination" on the "Terminal" tab.
+Recoloring represents information from difficult-to-distinguish colors using differences in other colors.
+The protan and deutan profiles primarily target red-green distinctions; the tritan profile primarily targets blue-yellow distinctions. The default is "No correction".
+
+Open "Compare colors" and compare the `- removed` and `+ added` diff samples, logs, and text on colored backgrounds.
+ANSI 16 colors are the terminal's basic palette, 256 colors are an extended indexed palette, and TrueColor specifies RGB values directly.
+The preview includes all three, with dark, light, and connection backgrounds.
+Choose the setting that makes your usual content easier to distinguish, using the samples as well as the profile names.
+
+"Correction strength" ranges from 0 to 100; 0 disables recoloring. The default strength when a profile is selected is 100.
+This value does not measure the severity of a color-vision difference.
+Some other colors can become more similar after correction. Reduce the strength or try another profile if this happens.
+Numerical tests and visual checks have been completed; reading evaluations with people who have color-vision differences have not yet been conducted.
+
+Recoloring applies to text, application-specified cell backgrounds, underlines, the cursor, and markers such as search and selection outlines.
+It preserves the connection's default background.
+Combine it with "Improve visibility (Oklch)" to adjust text and marker contrast against the recolored background.
+Oklch remains independent when recoloring strength is zero.
+Save preferences globally or per connection; clear an entry or select inheritance to restore the parent setting.
+Use Apply or Save to apply previewed changes to the terminal. Cancel discards the current edits.
+
+Correction affects display only. Communication, logical terminal colors, copied text, and logs remain unchanged.
+Background images, the desktop behind transparent windows, Kitty images, and intrinsic color-emoji pixels are excluded.
+See [boxrig's display color filters](https://github.com/kekyo/boxrig/blob/0.4.0/docs/en/color-filters.md) for the supported scope.
+
+```ini
+[terminal]
+color_vision=deutan
+color_vision_strength=60
+color_filter=oklch
+```
+
+Accepted `color_vision` values are `none`, `protan`, `deutan`, and `tritan`.
 
 ## Configuring Font Families
 

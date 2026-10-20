@@ -1,4 +1,4 @@
-#include "../../src/terminal-color-filter.h"
+#include <elder-terms/terminal-color-filter.h>
 #include <boxrig/ui.h>
 #include <algorithm>
 #include <cassert>
@@ -21,7 +21,62 @@ static double contrast(RgbColor a, RgbColor b) {
 }
 static RgbColor rgb(boxrig_rgb color) { return {color.red, color.green, color.blue}; }
 
+static void test_color_vision_hook() {
+  const RgbColor connection{70, 20, 80};
+  for (const auto profile : {TerminalColorVision::none, TerminalColorVision::protan, TerminalColorVision::deutan, TerminalColorVision::tritan}) {
+    for (const double strength : {0.0, .5, 1.0}) for (const bool oklch : {false, true}) {
+      TerminalColorFilterContext context{connection, oklch, profile, strength};
+      const auto recolor = [&](boxrig_rgb value) { return correct_color_vision(rgb(value), profile, strength); };
+      for (const auto target : {BOXRIG_UI_COLOR_CELL, BOXRIG_UI_COLOR_IME}) {
+        boxrig_ui_color_filter_input input{};
+        input.target = target;
+        input.colors = {{190, 60, 30}, {20, 90, 60}, {30, 80, 160}, {}, false};
+        input.foreground_source.role = input.background_source.role = input.underline_source.role = BOXRIG_UI_COLOR_RGB;
+        const auto background = recolor(input.colors.background);
+        const auto foreground = recolor(input.colors.foreground);
+        const auto underline = recolor(input.colors.underline);
+        auto result = filter_terminal_colors(&input, &context);
+        assert(equal(rgb(result.background), background));
+        assert(equal(rgb(result.foreground), oklch ? improve_color_visibility(foreground, background) : foreground));
+        assert(equal(rgb(result.underline), oklch ? improve_color_visibility(underline, background) : underline));
+        if (oklch) assert(contrast(rgb(result.foreground), rgb(result.background)) >= 4.5);
+        input.background_source.role = BOXRIG_UI_COLOR_DEFAULT_BACKGROUND;
+        result = filter_terminal_colors(&input, &context);
+        assert(equal(rgb(result.background), connection));
+        input.colors.underline_follows_foreground = true;
+        assert(filter_terminal_colors(&input, &context).underline_follows_foreground);
+        // The default background remains a connection identifier when reversed.
+        input.attributes = BOXRIG_CELL_INVERSE;
+        std::swap(input.colors.foreground, input.colors.background);
+        std::swap(input.foreground_source, input.background_source);
+        result = filter_terminal_colors(&input, &context);
+        const auto reverse_background = recolor(input.colors.background);
+        assert(equal(rgb(result.background), reverse_background));
+        assert(equal(rgb(result.foreground), oklch ? improve_color_visibility(connection, reverse_background) : connection));
+      }
+      for (const auto target : {BOXRIG_UI_COLOR_CURSOR, BOXRIG_UI_COLOR_SELECTION_MARKER, BOXRIG_UI_COLOR_SEARCH_MARKER,
+          BOXRIG_UI_COLOR_HOVER_MARKER, BOXRIG_UI_COLOR_IME_MARKER}) {
+        boxrig_ui_color_filter_input input{};
+        input.target = target;
+        input.colors.marker = {200, 60, 40};
+        input.marker_source.role = BOXRIG_UI_COLOR_RGB;
+        input.underlay_valid = true;
+        input.underlay.background = {50, 75, 120};
+        const auto marker = recolor(input.colors.marker);
+        const auto result = filter_terminal_colors(&input, &context);
+        assert(equal(rgb(result.marker), oklch ? improve_color_visibility(marker, rgb(input.underlay.background)) : marker));
+        assert(equal(rgb(input.underlay.background), {50, 75, 120}));
+      }
+      boxrig_ui_color_filter_input surface{};
+      surface.target = BOXRIG_UI_COLOR_SURFACE;
+      surface.background_source.role = BOXRIG_UI_COLOR_DEFAULT_BACKGROUND;
+      assert(equal(rgb(filter_terminal_colors(&surface, &context).background), connection));
+    }
+  }
+}
+
 int main() {
+  test_color_vision_hook();
   // Reference sRGB primaries from the D65 Oklab matrices, independent of the filter.
   const auto red = srgb_to_oklch({255, 0, 0});
   const auto green = srgb_to_oklch({0, 255, 0});
@@ -118,7 +173,8 @@ int main() {
   assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
   assert(boxrig_ui_model_create(terminal, &model) == BOXRIG_UI_OK);
   assert(boxrig_ui_view_create(model, &view_config, &view) == BOXRIG_UI_OK);
-  const char bytes[] = "\033]4;4;rgb:0000/0000/8080\a\033]10;rgb:0000/0000/ffff\a\033[34;4mABC\033[0mDEF";
+  const char bytes[] = "\033]4;4;rgb:0000/0000/8080\a\033]10;rgb:0000/0000/ffff\a\033[34;4mABC\033[0mDEF"
+      "\033[38;5;166;48;5;37;58;2;10;80;160;4mG\033[38;2;200;80;80;48;2;30;90;60;7mH\033[0m";
   std::size_t consumed = 0;
   assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(bytes), std::strlen(bytes), &consumed) == BOXRIG_STATUS_OK);
   assert(consumed == std::strlen(bytes));
@@ -134,7 +190,7 @@ int main() {
   assert(boxrig_ui_view_accept_allocation(view, &allocation, &layout) == BOXRIG_UI_OK);
   boxrig_ui_hit_test_result begin{}, end{};
   assert(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE, &begin) == BOXRIG_UI_OK);
-  assert(boxrig_ui_view_hit_test(view, 61 * BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE, &end) == BOXRIG_UI_OK);
+  assert(boxrig_ui_view_hit_test(view, 51 * BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE, &end) == BOXRIG_UI_OK);
   assert(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &begin) == BOXRIG_UI_OK);
   assert(boxrig_ui_view_update_selection(view, &end) == BOXRIG_UI_OK);
   const boxrig_text_snapshot_options options{BOXRIG_TEXT_SCREEN_PRIMARY, nullptr, 1024, 16};
@@ -151,9 +207,12 @@ int main() {
   const auto color_revision = boxrig_terminal_color_revision(terminal);
   context = {std::nullopt, true};
   assert(boxrig_ui_view_set_color_filter(view, filter_terminal_colors, &context) == BOXRIG_UI_OK);
-  for (const bool focused : {true, false}) {
+  for (const auto profile : {TerminalColorVision::none, TerminalColorVision::protan, TerminalColorVision::deutan, TerminalColorVision::tritan}) {
+    context.color_vision = profile;
+    assert(boxrig_ui_view_set_color_filter(view, filter_terminal_colors, &context) == BOXRIG_UI_OK);
+    for (const bool focused : {true, false}) {
     assert(boxrig_ui_view_set_focused(view, focused) == BOXRIG_UI_OK);
-    for (int frame = 0; frame < 100; frame++) for (std::size_t column = 0; column < 6; column++) {
+    for (int frame = 0; frame < 100; frame++) for (std::size_t column = 0; column < 8; column++) {
       boxrig_cell_view cell{};
       assert(boxrig_terminal_get_cell(terminal, 0, column, &cell) == BOXRIG_STATUS_OK);
       assert(boxrig_ui_color_resolve_cell(terminal, &cell, nullptr, 128, &result, &input) == BOXRIG_UI_OK);
@@ -161,7 +220,12 @@ int main() {
           (focused ? BOXRIG_UI_COLOR_FOCUSED : 0);
       assert(boxrig_ui_view_resolve_colors(view, &input, &result) == BOXRIG_UI_OK);
       assert(contrast(rgb(result.foreground), rgb(result.background)) >= 4.5);
-      assert(equal(rgb(result.underline), rgb(result.foreground)));
+      if (column < 6) assert(equal(rgb(result.underline), rgb(result.foreground)));
+      else assert(contrast(rgb(result.underline), rgb(result.background)) >= 4.5);
+      boxrig_cell_view unchanged{};
+      assert(boxrig_terminal_get_cell(terminal, 0, column, &unchanged) == BOXRIG_STATUS_OK);
+      assert(unchanged.foreground.kind == cell.foreground.kind && unchanged.background.kind == cell.background.kind);
+    }
     }
   }
   boxrig_rgb palette{}, dynamic{};
@@ -176,7 +240,7 @@ int main() {
   boxrig_text_snapshot_destroy(copied);
   assert(boxrig_terminal_color_revision(terminal) == color_revision);
   assert(boxrig_ui_view_set_color_filter(view, nullptr, nullptr) == BOXRIG_UI_OK);
-  assert(boxrig_ui_view_resolve_colors(view, &input, &result) == BOXRIG_UI_OK && equal(rgb(result.foreground), {0, 0, 255}));
+  assert(boxrig_ui_view_resolve_colors(view, &input, &result) == BOXRIG_UI_OK && equal(rgb(result.foreground), rgb(input.colors.foreground)));
   boxrig_ui_view_destroy(view); boxrig_ui_model_destroy(model); boxrig_terminal_destroy(terminal);
   std::puts("PASS Oklch conversion, hue/contrast, defaults, inverse, underline and marker targets");
 }

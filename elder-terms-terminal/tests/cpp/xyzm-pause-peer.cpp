@@ -22,9 +22,8 @@
 
 #include <libxyzm/sync.h>
 
-// Test-only peer for transfer progress-bar e2e tests. It pauses a synchronous
-// libxyzm transfer on request so GTK captures can inspect a stable intermediate
-// progress value that was actually rendered by the application.
+// Test-only peer for transfer e2e tests. It can pause a synchronous libxyzm
+// transfer on request so GTK captures can inspect an intermediate progress value.
 
 enum class Protocol {
   xmodem,
@@ -50,6 +49,7 @@ struct Options {
   uint32_t link_pace_ms = 0;
   std::size_t link_pace_every = 1;
   std::size_t max_link_chunk = 0;
+  bool ymodem_g = false;
 };
 
 struct PauseControl {
@@ -652,6 +652,11 @@ static std::optional<Options> parse_options(int argc, char **argv) {
       has_direction = true;
       continue;
     }
+    if (argument == "--ymodem-g") {
+      options.ymodem_g = true;
+      ++index;
+      continue;
+    }
     if (argument == "--source") {
       if (!read_option_value(&index, argc, argv, "--source", &value)) {
         return std::nullopt;
@@ -747,6 +752,12 @@ static std::optional<Options> parse_options(int argc, char **argv) {
     std::cerr << "missing required peer options" << '\n';
     return std::nullopt;
   }
+  if (options.ymodem_g &&
+      (options.protocol != Protocol::ymodem ||
+       options.direction != Direction::receive)) {
+    std::cerr << "--ymodem-g requires YMODEM receive" << '\n';
+    return std::nullopt;
+  }
   if (options.direction == Direction::send && options.source_path.empty()) {
     std::cerr << "--source is required for --direction send" << '\n';
     return std::nullopt;
@@ -840,6 +851,7 @@ static xyzm_status_t run_receive(const Options &options,
   }
   if (options.protocol == Protocol::ymodem) {
     xyzm_ymodem_opts_t opts = ymodem_options();
+    if (options.ymodem_g) opts.variant = XYZM_YMODEM_VARIANT_G;
     xyzm_ymodem_receive_request_t request{
         .link = &link,
         .sink = &sink,

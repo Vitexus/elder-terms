@@ -17,10 +17,28 @@ enum class TerminalColorFilter {
   none,  /**< Preserve the terminal colors after connection defaults. */
   oklch, /**< Improve low-contrast text and markers of any hue, including neutrals, in Oklch. */
 };
+/** Color-vision profile used for display recoloring, not a diagnosis. */
+enum class TerminalColorVision {
+  none,   /**< Disable color-vision recoloring. */
+  protan, /**< Assist red-green discrimination using the protan profile. */
+  deutan, /**< Assist red-green discrimination using the deutan profile. */
+  tritan, /**< Assist blue-yellow discrimination using the tritan profile. */
+};
 /** @returns Key for the selected display-color correction. */
 ELDER_TERMS_API SettingKey terminal_color_filter_setting_key();
 /** @param store Layered settings. @returns Selected display correction. */
 ELDER_TERMS_API TerminalColorFilter terminal_color_filter(const SettingsStore &store);
+/** Independent preferences for color discrimination assistance. */
+struct TerminalColorVisionSettings {
+  TerminalColorVision profile; /**< Recoloring profile; none disables assistance. */
+  int strength; /**< Adjustment from zero through one hundred, not clinical severity. */
+};
+/** @returns Key for the color-vision profile. */
+ELDER_TERMS_API SettingKey terminal_color_vision_setting_key();
+/** @returns Key for the independent recoloring strength. */
+ELDER_TERMS_API SettingKey terminal_color_vision_strength_setting_key();
+/** @param store Layered settings. @returns Effective recoloring preferences. */
+ELDER_TERMS_API TerminalColorVisionSettings terminal_color_vision_settings(const SettingsStore &store);
 
 /** Desired desktop background mode; actual support is determined by the window owner. */
 enum class TerminalBackgroundMode {

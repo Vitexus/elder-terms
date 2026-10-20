@@ -87,6 +87,8 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/settings-widget/ssh-proxy-settings-editor.cpp',
   'src/settings-widget/settings-widget.cpp',
   'src/settings-widget/terminal-background-editor.cpp',
+  'src/settings-widget/terminal-color-preview.cpp',
+  'src/terminal-color-filter.cpp',
 ]
 
 elder_terms_library = shared_library(
@@ -103,6 +105,7 @@ elder_terms_library = shared_library(
     elder_terms_shared_libudev_dep,
     elder_terms_shared_xkbcommon_dep,
     boxrig_deps['boxrig'],
+    boxrig_deps['boxrig-ui'],
   ],
   gnu_symbol_visibility: 'inlineshidden',
   link_args: [
@@ -119,6 +122,7 @@ elder_terms_dep = declare_dependency(
   link_with: elder_terms_library,
   dependencies: [
     boxrig_deps['boxrig'],
+    boxrig_deps['boxrig-ui'],
     cardio_dep,
     elder_terms_shared_glib_dep,
     elder_terms_shared_gio_dep,

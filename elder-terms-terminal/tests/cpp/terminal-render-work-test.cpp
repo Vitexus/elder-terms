@@ -112,6 +112,18 @@ static cardio::promise<void> run(TerminalRuntime *runtime,
     if (outgoing != "\033[B") throw std::runtime_error("outgoing arrow still reaches the peer");
     g_print("Frames while transmitting without screen changes: %zu\n", frames);
     if (frames != 1) throw std::runtime_error("outgoing progress must not request another terminal image");
+    // The runtime can settle before the queued OpenGL paint completes. Finish
+    // that frame before using the presentation generation as the batch baseline.
+    auto *frame_clock = gtk_widget_get_frame_clock(GTK_WIDGET(widget));
+    if (!frame_clock) throw std::runtime_error("terminal has a frame clock");
+    cardio::primitives::conditional painted;
+    const auto paint_handler = g_signal_connect(frame_clock, "after-paint",
+        G_CALLBACK(+[](GdkFrameClock *, gpointer context) {
+          static_cast<cardio::primitives::conditional *>(context)->trigger();
+        }), &painted);
+    gtk_widget_queue_draw(GTK_WIDGET(widget));
+    co_await painted.wait();
+    g_signal_handler_disconnect(frame_clock, paint_handler);
     const auto generation = boxrig_gtk3_terminal_widget_presentation_generation(widget);
     incoming = "\033[?2026h\033[H\033[2KCOMPLETE BATCH";
     received.trigger();

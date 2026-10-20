@@ -392,7 +392,9 @@ process.stdout.write('\\x1b]12;#ffffff\\x07\\x1b[48;2;0;0;0m\\x1b[2J\\x1b[H\\x1b
             await waitForResult(async () =>
               expect(await bar.value()).toBeGreaterThan(50)
             );
-            const before = await readTerminalGridLayout(app);
+            const before = await waitForResult(async () =>
+              readTerminalGridLayout(app)
+            );
             const capture = await waitForResult(async () => {
               const shot = await bar.capture();
               const png = PNG.sync.read(shot.image);
