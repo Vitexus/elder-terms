@@ -728,6 +728,13 @@ ssh_channel_connection_test = executable(
 test('ssh-channel-connection-test', ssh_channel_connection_test,
   timeout: 60)
 
+ssh_channel_write_batch_test = executable(
+  'ssh-channel-write-batch-test',
+  'tests/cpp/ssh-channel-write-batch-test.cpp',
+)
+
+test('ssh-channel-write-batch-test', ssh_channel_write_batch_test)
+
 sftp_transfer_engine_test = executable(
   'sftp-transfer-engine-test',
   [

@@ -1,4 +1,5 @@
 #include "ssh-channel-connection.h"
+#include "ssh-channel-write-batch.h"
 #include "ssh-proxy.h"
 
 #include <sys/epoll.h>
@@ -1116,6 +1117,17 @@ struct SshWorkerResult {
   std::string error;
 };
 
+static SshWorkerResult capture_ssh_worker_result(ssh_session session,
+                                                 int value) {
+  const char *detail = ssh_get_error(session);
+  return SshWorkerResult{
+      .value = value,
+      .error_code = ssh_get_error_code(session),
+      .poll_flags = ssh_get_poll_flags(session),
+      .error = detail == nullptr ? std::string() : std::string(detail),
+  };
+}
+
 struct SshChannelReadResult {
   int size = SSH_AGAIN;
   int poll_flags = 0;
@@ -1375,14 +1387,7 @@ struct AuthenticatedSshTransport::Impl {
     auto executing = execute_async<SshWorkerResult>(
         [this, operation = std::move(operation)]() mutable {
           const int value = operation();
-          const char *detail = ssh_get_error(session);
-          return SshWorkerResult{
-              .value = value,
-              .error_code = ssh_get_error_code(session),
-              .poll_flags = ssh_get_poll_flags(session),
-              .error =
-                  detail == nullptr ? std::string() : std::string(detail),
-          };
+          return capture_ssh_worker_result(session, value);
         },
         std::move(cancellation));
     co_return co_await executing;
@@ -2064,15 +2069,34 @@ cardio::promise<void> SshChannelConnection::write_all_async(
             bytes.size() - offset,
             std::numeric_limits<std::uint32_t>::max()));
     drain_ssh_event_fd(impl->events->writer.wakeup_fd);
-    const SshWorkerResult result =
-        co_await transport->impl->execute_ssh_async(
-            [channel, bytes, offset, chunk_size]() {
-              return ssh_channel_write(channel, bytes.data() + offset,
-                                       chunk_size);
-            },
-            cancellation);
-    if (result.value > 0) {
-      offset += static_cast<std::size_t>(result.value);
+    auto writing = dispatch_ssh_write_and_flush(
+        [transport, cancellation](auto operation) {
+          using Result = decltype(operation());
+          return transport->impl->execute_async<Result>(std::move(operation),
+                                                         cancellation);
+        },
+        [channel, session = transport->impl->session, bytes, offset,
+         chunk_size]() {
+          const int value = ssh_channel_write(channel, bytes.data() + offset,
+                                              chunk_size);
+          return capture_ssh_worker_result(session, value);
+        },
+        [session = transport->impl->session]() {
+          const int value = ssh_blocking_flush(session, 0);
+          return capture_ssh_worker_result(session, value);
+        },
+        chunk_size);
+    const auto outcome = co_await writing;
+    const SshWorkerResult &result = outcome.result;
+    if (outcome.written > 0) {
+      offset += static_cast<std::size_t>(outcome.written);
+      if (outcome.flushed) {
+        if (result.value == SSH_OK) co_return;
+        if (!ssh_worker_result_is_again(result))
+          throw ssh_worker_failure(result, "Failed to flush SSH output");
+        co_await flush_transport_async(transport, std::move(cancellation));
+        co_return;
+      }
       continue;
     }
     if (!ssh_worker_result_is_again(result) && result.value != 0) {
@@ -2080,7 +2104,6 @@ cardio::promise<void> SshChannelConnection::write_all_async(
     }
     co_await impl->events->writer.wait_async(result.poll_flags, cancellation);
   }
-  co_await flush_transport_async(transport, std::move(cancellation));
 }
 
 cardio::promise<void>
