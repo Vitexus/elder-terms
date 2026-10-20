@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <exception>
+#include <limits>
 #include <stdexcept>
 #include <vector>
 
@@ -16,11 +17,13 @@ static cardio::promise<void> test_tail_and_full_batch() {
   TerminalTransferSendBuffer buffer;
   std::vector<std::uint8_t> actual;
   std::vector<std::size_t> write_sizes;
+  std::vector<std::uint32_t> write_timeouts;
   const auto now = [] { return std::uint64_t{0}; };
   const auto send = [&](std::span<const std::uint8_t> bytes,
-      std::uint32_t, std::size_t &written, cardio::cancellation)
+      std::uint32_t timeout, std::size_t &written, cardio::cancellation)
       -> cardio::promise<void> {
     write_sizes.push_back(bytes.size());
+    write_timeouts.push_back(timeout);
     actual.insert(actual.end(), bytes.begin(), bytes.end());
     written = bytes.size();
     co_return;
@@ -56,6 +59,8 @@ static cardio::promise<void> test_tail_and_full_batch() {
   expect(write_sizes.size() == 4 && write_sizes.back() == 7 &&
              std::equal(oversized.begin(), oversized.end(), actual.end() - oversized.size()),
          "oversized input should reach the transport exactly once in order");
+  expect(write_timeouts == std::vector<std::uint32_t>(4, 5000),
+         "each completed batch should start with a fresh time budget");
 }
 
 static cardio::promise<void> test_partial_writes_and_short_acceptance() {
@@ -88,7 +93,7 @@ static cardio::promise<void> test_partial_writes_and_short_acceptance() {
   const auto write_full = [&](std::span<const std::uint8_t> bytes,
       std::uint32_t timeout, std::size_t &count, cardio::cancellation)
       -> cardio::promise<void> {
-    expect(timeout == 10, "full queue should flush under the shorter accepted timeout");
+    expect(timeout == 35, "full queue should include the accepted half of the next deadline");
     ++full_writes;
     count = bytes.size();
     co_return;
@@ -97,6 +102,43 @@ static cardio::promise<void> test_partial_writes_and_short_acceptance() {
   co_await short_buffer.send_async(second, 10, written, write_full, now, {});
   expect(written == 1 && full_writes == 1,
          "a full queue should return a short accepted count after flushing");
+
+  TerminalTransferSendBuffer slow_buffer;
+  std::uint64_t slow_clock = 0;
+  const auto slow_now = [&] { return slow_clock; };
+  const std::array<std::uint8_t, 2> slow_first{1, 2};
+  const std::array<std::uint8_t, 1> slow_second{3};
+  std::vector<std::uint32_t> slow_timeouts;
+  const auto slow_send = [&](std::span<const std::uint8_t>,
+      std::uint32_t timeout, std::size_t &count, cardio::cancellation)
+      -> cardio::promise<void> {
+    slow_timeouts.push_back(timeout);
+    count = 1;
+    slow_clock += 3000;
+    co_return;
+  };
+  co_await slow_buffer.send_async(slow_first, 5000, written,
+                                  slow_send, slow_now, {});
+  co_await slow_buffer.send_async(slow_second, 5000, written,
+                                  slow_send, slow_now, {});
+  co_await slow_buffer.flush_async(slow_send, slow_now, {});
+  expect(slow_timeouts == std::vector<std::uint32_t>{10000, 7000, 4000},
+         "progressing writes should use the sum of accepted frame budgets");
+
+  TerminalTransferSendBuffer saturated;
+  const auto maximum = std::numeric_limits<std::uint32_t>::max();
+  co_await saturated.send_async(slow_first, maximum, written,
+                                slow_send, now, {});
+  co_await saturated.send_async(slow_second, maximum, written,
+                                slow_send, now, {});
+  const auto saturated_send = [&](std::span<const std::uint8_t> bytes,
+      std::uint32_t timeout, std::size_t &count, cardio::cancellation)
+      -> cardio::promise<void> {
+    expect(timeout == maximum, "summed send budget should saturate safely");
+    count = bytes.size();
+    co_return;
+  };
+  co_await saturated.flush_async(saturated_send, now, {});
 }
 
 static cardio::promise<void> test_invalid_write_and_abort() {
@@ -151,7 +193,7 @@ static cardio::promise<void> test_timeout_and_cancellation() {
   const auto slow = [&](std::span<const std::uint8_t> bytes,
       std::uint32_t timeout, std::size_t &count, cardio::cancellation)
       -> cardio::promise<void> {
-    expect(timeout == 5, "flush should use the shortest accepted timeout");
+    expect(timeout == 25 - clock, "flush should spend one finite batch budget");
     ++calls;
     count = 1;
     clock += 5;
@@ -161,7 +203,7 @@ static cardio::promise<void> test_timeout_and_cancellation() {
   bool timed_out = false;
   try { co_await buffer.flush_async(slow, now, {}); }
   catch (const xyzm_async_timeout_error &) { timed_out = true; }
-  expect(timed_out && calls == 1, "one batch deadline should cover all partial writes");
+  expect(timed_out && calls == 5, "the summed budget must expire after partial writes");
 
   TerminalTransferSendBuffer cancelled_buffer;
   co_await cancelled_buffer.send_async(payload, 5000, written,
@@ -172,7 +214,7 @@ static cardio::promise<void> test_timeout_and_cancellation() {
   bool cancelled = false;
   try { co_await cancelled_buffer.flush_async(slow, now, stop.get_cancellation()); }
   catch (const cardio::canceled_exception &) { cancelled = true; }
-  expect(cancelled && calls == 1, "cancelled flush must not call the transport");
+  expect(cancelled && calls == 5, "cancelled flush must not call the transport");
 
   std::vector<std::uint8_t> actual;
   const auto direct = [&](std::span<const std::uint8_t> bytes,
