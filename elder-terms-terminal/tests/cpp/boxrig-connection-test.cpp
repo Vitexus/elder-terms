@@ -85,6 +85,9 @@ static cardio::promise<void> test_binary_transfer_chunks(Test *test) {
   std::vector<unsigned char> frame;
   std::vector<unsigned char> received;
   std::size_t write_count = 0;
+  std::vector<cardio::cancellation> read_tokens;
+  std::vector<cardio::cancellation> write_tokens;
+  bool fail_write = false;
   cardio::primitives::conditional data_ready;
   TerminalTransportRequest transport;
   transport.encoding = "CP932";
@@ -94,14 +97,17 @@ static cardio::promise<void> test_binary_transfer_chunks(Test *test) {
     co_return TerminalTransport{
         [&](std::span<unsigned char> bytes, cardio::cancellation stop)
             -> cardio::promise<std::size_t> {
+          read_tokens.push_back(stop);
           while (incoming.empty()) co_await data_ready.wait(stop);
           const auto count = std::min(bytes.size(), incoming.size());
           std::copy_n(incoming.begin(), count, bytes.begin());
           incoming.erase(incoming.begin(), incoming.begin() + count);
           co_return count;
         },
-        [&](std::span<const unsigned char> bytes, cardio::cancellation)
+        [&](std::span<const unsigned char> bytes, cardio::cancellation stop)
             -> cardio::promise<void> {
+          write_tokens.push_back(stop);
+          if (fail_write) throw std::system_error(EIO, std::generic_category(), "test transfer write failure");
           ++write_count;
           frame.insert(frame.end(), bytes.begin(), bytes.end());
           for (;;) {
@@ -137,6 +143,26 @@ static cardio::promise<void> test_binary_transfer_chunks(Test *test) {
   request.source_file_uris = {path.string()};
   request.options.xmodem_packet_size = TerminalTransferXmodemPacketSize::bytes_128;
   const auto succeeded = co_await terminal_connection_transfer(test->connection, request, {});
+  expect(!write_tokens.empty() && std::all_of(write_tokens.begin(), write_tokens.end(),
+      [](const cardio::cancellation &token) { return token.is_cancellation_requested(); }),
+      "completed transfer writes must release their linked deadlines");
+  expect(read_tokens.size() >= 2 && std::all_of(read_tokens.begin(), read_tokens.end() - 1,
+      [](const cardio::cancellation &token) { return token.is_cancellation_requested(); }),
+      "completed reads must release their linked cancellation");
+  const auto writes_before_failure = write_tokens.size();
+  fail_write = true;
+  expect(terminal_connection_prepare_transfer(test->connection), "reserve failing binary transfer");
+  incoming.push_back('C');
+  data_ready.trigger();
+  cardio::cancellation_source caller;
+  const auto failed = co_await terminal_connection_transfer(test->connection, request, caller.get_cancellation());
+  expect(!failed && write_tokens.size() > writes_before_failure,
+         "transport write failure should fail the transfer");
+  expect(std::all_of(write_tokens.begin() + writes_before_failure, write_tokens.end(),
+      [](const cardio::cancellation &token) { return token.is_cancellation_requested(); }),
+      "failed transfer writes must release their linked deadlines");
+  expect(!caller.get_cancellation().is_cancellation_requested(),
+         "releasing a transfer deadline must not cancel its caller");
   terminal_connection_stop(test->connection);
   co_await terminal_connection_wait_stopped(test->connection);
   std::filesystem::remove(path);

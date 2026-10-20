@@ -24,6 +24,13 @@ extern "C" {
 
 namespace elder_terms {
 
+// A linked cancellation source retains registrations on all inputs until it
+// is canceled. Release them when the operation that needed the link ends.
+struct CancellationScope {
+  cardio::cancellation_source &source;
+  ~CancellationScope() { (void)source.cancel(); }
+};
+
 struct ByteQueue {
   std::vector<unsigned char> storage;
   std::size_t head = 0;
@@ -273,12 +280,15 @@ static cardio::promise<void> read_stream(TerminalConnection *connection) {
       operation.read_interrupt = cardio::cancellations::any(cancellation);
       operation.read_active = true;
       std::size_t count = 0;
-      try {
-        count = co_await operation.transport.read(std::span(buffer).first(capacity), operation.read_interrupt.get_cancellation());
-      } catch (const cardio::canceled_exception &) {
-        cancellation.throw_if_cancellation_requested();
-        if (operation.read_paused || operation.read_policy_changed) continue;
-        throw;
+      {
+        CancellationScope read_scope{operation.read_interrupt};
+        try {
+          count = co_await operation.transport.read(std::span(buffer).first(capacity), operation.read_interrupt.get_cancellation());
+        } catch (const cardio::canceled_exception &) {
+          cancellation.throw_if_cancellation_requested();
+          if (operation.read_paused || operation.read_policy_changed) continue;
+          throw;
+        }
       }
       if (count > 0) {
         const std::span<const unsigned char> bytes(buffer.data(), static_cast<std::size_t>(count));
@@ -363,6 +373,7 @@ static cardio::promise<void> write_stream(TerminalConnection *connection) {
       consume(operation.outgoing, bytes.size());
       connection->wake();
       auto writing = cardio::cancellations::any(cancellation, operation.carrier_stop.get_cancellation());
+      CancellationScope writing_scope{writing};
       try {
         std::size_t offset = 0;
         while (offset < converted.bytes.size()) {
@@ -850,6 +861,7 @@ cardio::promise<bool> terminal_connection_change_encoding(TerminalConnection *co
   operation.receive_space.trigger();
   const auto receiving = operation.io_stop.get_cancellation();
   auto stop = cardio::cancellations::any(receiving, operation.carrier_stop.get_cancellation());
+  CancellationScope stop_scope{stop};
   const auto cancellation = stop.get_cancellation();
   bool changed = false;
   try {
@@ -929,6 +941,7 @@ cardio::promise<bool> terminal_connection_send_break(TerminalConnection *connect
   ++operation.pending_operations;
   operation.service_active = true;
   auto stop = cardio::cancellations::any(operation.io_stop.get_cancellation(), operation.carrier_stop.get_cancellation());
+  CancellationScope stop_scope{stop};
   const auto cancellation = stop.get_cancellation();
   bool succeeded = false;
   try {
@@ -958,6 +971,7 @@ cardio::promise<bool> terminal_connection_send_text(TerminalConnection *connecti
   ++operation.pending_operations;
   operation.service_active = true;
   auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation(), operation.carrier_stop.get_cancellation());
+  CancellationScope stop_scope{stop};
   request.text_settings.encoding = connection->state.encoding;
   bool succeeded = false;
   try {
@@ -1025,6 +1039,7 @@ static cardio::promise<void> send_transfer_bytes(ConnectionOperation *operation,
   if (bytes.empty()) co_return;
   auto deadline = cardio::cancellations::timeout(timeout_ms);
   auto stop = cardio::cancellations::any(cancellation, operation->io_stop.get_cancellation(), deadline.get_cancellation());
+  CancellationScope stop_scope{stop};
   try {
     // Binary frames bypass text conversion. Preserve their batches up to the
     // connection's byte bound instead of applying the converter's chunk size.
@@ -1050,6 +1065,7 @@ static cardio::promise<void> receive_transfer_bytes(ConnectionOperation *operati
     if (timeout_ms == 0) throw xyzm_async_timeout_error("transfer receive is not ready");
     auto deadline = cardio::cancellations::timeout(timeout_ms);
     auto stop = cardio::cancellations::any(cancellation, operation->io_stop.get_cancellation(), deadline.get_cancellation());
+    CancellationScope stop_scope{stop};
     try {
       while (operation->transfer_incoming.length == 0 && operation->transfer_prefetch.empty()) {
         if (operation->transport_eof) throw xyzm_async_io_error("transfer peer closed");
@@ -1086,6 +1102,7 @@ cardio::promise<bool> terminal_connection_transfer(TerminalConnection *connectio
   if (!connection->operation || !connection->operation->transfer_prepared) co_return false;
   auto &operation = *connection->operation;
   auto stop = cardio::cancellations::any(cancellation, operation.io_stop.get_cancellation(), operation.transfer_carrier);
+  CancellationScope stop_scope{stop};
   const auto start_control = operation.transfer_start_control;
   operation.transfer_start_control.reset();
   bool succeeded = false;
