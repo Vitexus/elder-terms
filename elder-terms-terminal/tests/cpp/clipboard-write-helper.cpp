@@ -1,5 +1,6 @@
 #include <unistd.h>
 
+#include <cerrno>
 #include <iostream>
 #include <string>
 
@@ -10,7 +11,9 @@ static gboolean on_stdin_ready(gint fd, GIOCondition condition,
                                gpointer data) {
   if ((condition & G_IO_IN) != 0) {
     char value = '\0';
-    (void)::read(fd, &value, 1);
+    const auto count = ::read(fd, &value, 1);
+    if (count < 0 && (errno == EINTR || errno == EAGAIN))
+      return G_SOURCE_CONTINUE;
   }
   g_main_loop_quit(static_cast<GMainLoop *>(data));
   return G_SOURCE_REMOVE;
