@@ -3079,7 +3079,10 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             },
             async ({ app, connections }) => {
               phase = 'configure profile';
-              const list = await app.getById('connection_list');
+              const list = expectElementKind(
+                await app.getById('connection_list'),
+                'table'
+              );
               await expectElementKind(
                 await app.getById('new_button'),
                 'button'
@@ -3161,7 +3164,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
                   expect(saved).toContain(value);
               });
               phase = 'reselect saved profile';
-              await selectConnectionRow(app, list, 1);
+              await list.selectRow(1);
               await waitForResult(async () => {
                 expect(
                   await expectElementKind(
@@ -3170,7 +3173,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
                   ).text()
                 ).toBe('');
               });
-              await selectConnectionRow(app, list, 0);
+              await list.selectRow(0);
               await waitForResult(async () => {
                 expect(
                   await expectElementKind(
