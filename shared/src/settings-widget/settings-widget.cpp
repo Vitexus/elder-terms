@@ -27,6 +27,7 @@
 #include <elder-terms/settings/regular-expression.h>
 
 #include "hyperlink-settings-editor.h"
+#include "connection-icon-editor.h"
 #include "webdav-settings-editor.h"
 #include "ssh-proxy-settings-editor.h"
 #include "terminal-background-editor.h"
@@ -123,6 +124,7 @@ struct SettingsWidgetState {
   GtkWidget *root = nullptr;
   GtkWidget *notebook = nullptr;
   GtkWidget *general_name_entry = nullptr;
+  ConnectionIconEditor *connection_icon_editor = nullptr;
   GtkWidget *general_type_combo = nullptr;
   GtkWidget *general_auto_close_combo = nullptr;
   GtkWidget *general_compact_mode_combo = nullptr;
@@ -3284,6 +3286,7 @@ static void create_ftp_tls_controls(SettingsWidgetState *state, GtkWidget *page)
 }
 
 static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_webdav_draft) {
+  sync_connection_icon_editor(state->connection_icon_editor);
   sync_terminal_background_editor(state->terminal_background_editor, preserve_webdav_draft);
   sync_terminal_color_preview(state->terminal_color_preview);
   sync_ftp_tls_controls(state);
@@ -4939,6 +4942,10 @@ static GtkWidget *create_general_page(SettingsWidgetState *state) {
                      G_CALLBACK(on_general_name_focus_out), state);
     attach_row(page, row++, general_name_setting_key(),
                state->general_name_entry);
+    state->connection_icon_editor = create_connection_icon_editor(&state->draft_store,
+        state->id_prefix, [state] { notify_changed(state); });
+    attach_row(page, row++, general_icon_setting_key(),
+        connection_icon_editor_root(state->connection_icon_editor));
   }
 
   const std::string type_id = widget_id(state, "general_type_combo");
@@ -6848,6 +6855,7 @@ void destroy_settings_widget(SettingsWidgetState *state) {
     return;
   }
   *state->action_owner = nullptr;
+  destroy_connection_icon_editor(state->connection_icon_editor);
   destroy_terminal_background_editor(state->terminal_background_editor);
   destroy_terminal_color_preview(state->terminal_color_preview);
 

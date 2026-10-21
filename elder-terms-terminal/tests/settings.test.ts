@@ -657,7 +657,7 @@ const captureWindowBackgroundPixels = async (
     (await app.getById('terminal_view')).capture(),
   ]);
   return {
-    header: capturePixel(header, 0.02, 0.5),
+    header: capturePixel(header, 0.5, 0.1),
     status: capturePixel(status, 0.45, 0.5),
     terminal: capturePixel(terminal, 0.5, 0.5),
   };

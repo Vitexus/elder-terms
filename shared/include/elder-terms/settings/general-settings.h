@@ -73,6 +73,22 @@ general_setting_definitions(std::string default_connection_name);
 ELDER_TERMS_API SettingKey general_name_setting_key();
 
 /**
+ * Returns the setting key for [general] icon.
+ *
+ * @returns Setting key for the connection icon specification.
+ */
+ELDER_TERMS_API SettingKey general_icon_setting_key();
+
+/**
+ * Gets the saved connection icon specification.
+ *
+ * @param store Source connection settings store.
+ * @returns `default`, a file reference, or a preset reference. Unknown
+ * references are preserved for fallback handling by the icon loader.
+ */
+ELDER_TERMS_API std::string general_connection_icon(const SettingsStore &store);
+
+/**
  * Returns the setting key for [general] type.
  *
  * @returns Setting key for the selected connection type.

@@ -61,6 +61,8 @@ struct MainWindow {
   GtkWidget *window = nullptr;
   /** Header bar widget. */
   GtkWidget *header_bar = nullptr;
+  /** Connection icon at the start of the header bar. */
+  GtkWidget *header_connection_icon = nullptr;
   /** Single-line title that expands ahead of title-bar controls. */
   GtkWidget *header_title_label = nullptr;
   /** Custom title container that accepts the activity indicators. */

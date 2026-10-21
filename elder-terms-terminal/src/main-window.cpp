@@ -385,6 +385,7 @@ static GtkWidget *required_widget(GtkBuilder *builder, const char *id) {
 
 static bool main_window_has_required_widgets(const MainWindow &main_window) {
   return main_window.window != nullptr && main_window.header_bar != nullptr &&
+         main_window.header_connection_icon != nullptr &&
          main_window.header_title_label != nullptr &&
          main_window.header_title_box != nullptr &&
          main_window.transfer_button != nullptr &&
@@ -1186,6 +1187,8 @@ std::optional<MainWindow> load_main_window() {
   main_window.window = required_widget(main_window.builder, "main_window");
   if (main_window.window) prepare_terminal_background_window(main_window.window);
   main_window.header_bar = required_widget(main_window.builder, "header_bar");
+  main_window.header_connection_icon =
+      required_widget(main_window.builder, "header_connection_icon");
   main_window.transfer_button =
       required_widget(main_window.builder, "transfer_button");
   main_window.application_menu_button =

@@ -6,6 +6,7 @@
       <column type="gchararray"/>
       <column type="gchararray"/>
       <column type="gboolean"/>
+      <column type="GdkPixbuf"/>
     </columns>
   </object>
   <object class="GtkMenu" id="connection_context_menu">
@@ -138,6 +139,12 @@
                         <child>
                           <object class="GtkTreeViewColumn" id="connection_name_column">
                             <property name="expand">True</property>
+                            <child>
+                              <object class="GtkCellRendererPixbuf" id="connection_icon_renderer">
+                                <property name="xpad">4</property>
+                                <property name="ypad">4</property>
+                              </object>
+                            </child>
                             <child>
                               <object class="GtkCellRendererText" id="connection_name_renderer">
                                 <property name="editable">False</property>

@@ -26,6 +26,15 @@
         <property name="title">elder-terms-terminal</property>
         <property name="show-close-button">True</property>
         <child>
+          <object class="GtkImage" id="header_connection_icon">
+            <property name="visible">True</property>
+            <property name="can-focus">False</property>
+          </object>
+          <packing>
+            <property name="pack-type">start</property>
+          </packing>
+        </child>
+        <child>
           <object class="GtkMenuButton" id="application_menu_button">
             <property name="visible">True</property>
             <property name="can-focus">True</property>

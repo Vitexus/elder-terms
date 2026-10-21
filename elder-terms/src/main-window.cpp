@@ -4,6 +4,7 @@
 #include <iostream>
 
 #include <gestament/gtk.h>
+#include <elder-terms/connection-icon-image.h>
 
 namespace elder_terms {
 
@@ -114,6 +115,25 @@ std::optional<LauncherMainWindow> load_launcher_main_window() {
     g_object_unref(builder);
     return std::nullopt;
   }
+  auto *column = GTK_TREE_VIEW_COLUMN(required_object(builder,
+      "connection_name_column", GTK_TYPE_TREE_VIEW_COLUMN));
+  auto *icon = GTK_CELL_RENDERER(required_object(builder,
+      "connection_icon_renderer", GTK_TYPE_CELL_RENDERER_PIXBUF));
+  if (!column || !icon) {
+    g_object_unref(builder);
+    return std::nullopt;
+  }
+  gtk_tree_view_column_set_cell_data_func(column, icon,
+      +[](GtkTreeViewColumn *column, GtkCellRenderer *cell, GtkTreeModel *model,
+          GtkTreeIter *iter, gpointer) {
+        GdkPixbuf *pixels = nullptr;
+        gtk_tree_model_get(model, iter, launcher_connection_icon_column, &pixels, -1);
+        auto *surface = connection_icon_surface(pixels, 20,
+            gtk_widget_get_scale_factor(gtk_tree_view_column_get_tree_view(column)));
+        g_object_set(cell, "surface", surface, nullptr);
+        cairo_surface_destroy(surface);
+        if (pixels) g_object_unref(pixels);
+      }, nullptr, nullptr);
   return result;
 }
 

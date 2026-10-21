@@ -5,6 +5,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -24,6 +25,7 @@
 
 #include <cardio.h>
 #include <elder-terms/application-icon.h>
+#include <elder-terms/connection-icon.h>
 #include <elder-terms/application-settings-widget.h>
 #include <elder-terms/application-version.h>
 #include <elder-terms/localization.h>
@@ -119,6 +121,7 @@ struct ApplicationState {
   std::filesystem::path connection_directory;
   std::filesystem::path global_config_path;
   std::vector<elder_terms::ConnectionProfile> profiles;
+  cardio::cancellation_source connection_icon_loading;
   std::optional<std::filesystem::path> selected_path;
   // Track file contents, not monitor event counts: one save can emit several
   // events, including replacement of the selected file's inode.
@@ -181,7 +184,8 @@ enum ConnectionColumns {
   connection_name_column = 0,
   connection_path_column = 1,
   connection_is_new_column = 2,
-  connection_column_count = 3,
+  connection_icon_column = elder_terms::launcher_connection_icon_column,
+  connection_column_count = 4,
 };
 
 static void update_action_sensitivity(ApplicationState *state);
@@ -977,7 +981,44 @@ static void restore_current_selection(ApplicationState *state) {
   state->suppress_selection = false;
 }
 
+static cardio::promise<void> load_profile_icon_async(
+    std::shared_ptr<GtkTreeRowReference> row, std::string specification,
+    cardio::cancellation cancellation) {
+  try {
+    const auto result = co_await elder_terms::load_connection_icon_async(
+        std::move(specification), cancellation);
+    if (cancellation.is_cancellation_requested()) co_return;
+    auto *path = gtk_tree_row_reference_get_path(row.get());
+    if (!path) co_return;
+    auto *model = gtk_tree_row_reference_get_model(row.get());
+    GtkTreeIter iterator;
+    if (gtk_tree_model_get_iter(model, &iterator, path))
+      gtk_list_store_set(GTK_LIST_STORE(model), &iterator,
+          connection_icon_column, result.image.get(), -1);
+    gtk_tree_path_free(path);
+  } catch (const cardio::canceled_exception &) {
+    // Rows were replaced or the launcher was destroyed.
+  } catch (const std::exception &error) {
+    std::cerr << "Connection icon: " << error.what() << '\n';
+  }
+}
+
+static void load_profile_icon(ApplicationState *state, GtkTreeIter *iterator,
+                              const elder_terms::SettingsStore &store) {
+  const auto specification = elder_terms::general_connection_icon(store);
+  if (specification == "default" || specification.empty()) return;
+  auto *model = GTK_TREE_MODEL(state->main_window->connection_store);
+  auto *path = gtk_tree_model_get_path(model, iterator);
+  auto row = std::shared_ptr<GtkTreeRowReference>(gtk_tree_row_reference_new(model, path),
+      gtk_tree_row_reference_free);
+  gtk_tree_path_free(path);
+  cardio::fire_and_forget(load_profile_icon_async(std::move(row), specification,
+      state->connection_icon_loading.get_cancellation()));
+}
+
 static void populate_profile_rows(ApplicationState *state) {
+  (void)state->connection_icon_loading.cancel();
+  state->connection_icon_loading = cardio::cancellation_source{};
   state->profiles = elder_terms::list_connection_profiles(
       state->connection_directory);
   state->suppress_selection = true;
@@ -989,6 +1030,7 @@ static void populate_profile_rows(ApplicationState *state) {
                        connection_name_column, profile.name.c_str(),
                        connection_path_column, profile.path.c_str(),
                        connection_is_new_column, FALSE, -1);
+    load_profile_icon(state, &iterator, elder_terms::load_connection_profile(profile.path).store);
   }
   state->suppress_selection = false;
 }
@@ -1142,6 +1184,8 @@ static void append_new_profile_row(ApplicationState *state) {
                      connection_name_column, state->draft_name.c_str(),
                      connection_path_column, "", connection_is_new_column,
                      TRUE, -1);
+  if (state->settings_widget)
+    load_profile_icon(state, &iterator, elder_terms::settings_widget_draft_store(state->settings_widget));
 }
 
 static void show_empty_details(ApplicationState *state) {
@@ -1361,6 +1405,7 @@ static void preserve_current_editor_after_list_refresh(ApplicationState *state) 
           connection_name_column, state->draft_name.c_str(),
           connection_path_column, state->selected_path->c_str(),
           connection_is_new_column, FALSE, -1);
+      load_profile_icon(state, &iterator, elder_terms::settings_widget_draft_store(state->settings_widget));
       selected = select_matching_row(state, state->selected_path, false);
     }
   }
@@ -2676,6 +2721,7 @@ static void on_window_destroy(GtkWidget *, gpointer user_data) {
     return;
   }
   state->window_destroyed = true;
+  (void)state->connection_icon_loading.cancel();
   state->shutting_down = true;
   stop_connection_monitor(state);
   for (EditorLaunch *launch : state->editor_launches) {

@@ -132,6 +132,20 @@ static void wait_for_draw(GtkWidget *widget) {
   g_signal_handler_disconnect(widget, handler);
 }
 
+static bool has_red_connection_icon(GtkWidget *image) {
+  if (gtk_image_get_storage_type(GTK_IMAGE(image)) != GTK_IMAGE_SURFACE) return false;
+  cairo_surface_t *surface = nullptr;
+  g_object_get(image, "surface", &surface, nullptr);
+  if (!surface) return false;
+  auto *pixel = gdk_pixbuf_get_from_surface(surface, 10, 10, 1, 1);
+  cairo_surface_destroy(surface);
+  if (!pixel) return false;
+  const auto *data = gdk_pixbuf_read_pixels(pixel);
+  const bool red = data[0] > 220 && data[1] < 35 && data[2] < 35;
+  g_object_unref(pixel);
+  return red;
+}
+
 static void check_exterior_colors(const std::shared_ptr<FileTransferWindow> &window) {
   auto *root = file_transfer_window_widget(window);
   auto *header = gtk_window_get_titlebar(GTK_WINDOW(root));
@@ -183,7 +197,8 @@ static void check_exterior_colors(const std::shared_ptr<FileTransferWindow> &win
 
 static cardio::promise<void> verify_async(
     std::shared_ptr<FileTransferWindow> window, std::shared_ptr<GatedClient> client,
-    cardio::dispatcher_group_glib &group, std::exception_ptr &failure) {
+    std::filesystem::path directory, cardio::dispatcher_group_glib &group,
+    std::exception_ptr &failure) {
   std::optional<cardio::promise<void>> closing;
   try {
     show_file_transfer_window(window);
@@ -315,6 +330,30 @@ static cardio::promise<void> verify_async(
     expect(find_widget(menu, "settings_menu_item") != nullptr &&
            find_widget(menu, "about_menu_item") != nullptr,
            "File browser menu must offer Settings and About");
+    const auto icon_path = directory / "red-icon.png";
+    auto *red_image = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 2, 2);
+    expect(red_image != nullptr, "Test icon must allocate");
+    gdk_pixbuf_fill(red_image, 0xff0000ffU);
+    GError *icon_error = nullptr;
+    const bool icon_saved = gdk_pixbuf_save(red_image, icon_path.c_str(), "png",
+                                             &icon_error, nullptr);
+    g_object_unref(red_image);
+    if (icon_error != nullptr) g_error_free(icon_error);
+    expect(icon_saved, "Test icon must save");
+    auto *title_icon = find_widget(gtk_window_get_titlebar(GTK_WINDOW(root)),
+                                   "file_transfer_connection_icon");
+    expect(GTK_IS_IMAGE(title_icon), "File browser must expose its title icon");
+    cardio::primitives::manually_conditional red_loaded{false};
+    const auto icon_handler = g_signal_connect(title_icon, "notify::surface",
+        G_CALLBACK(+[](GObject *image, GParamSpec *, gpointer data) {
+          if (has_red_connection_icon(GTK_WIDGET(image)))
+            static_cast<cardio::primitives::manually_conditional *>(data)->raise();
+        }), &red_loaded);
+    set_file_transfer_window_connection_icon(window, "file:" + icon_path.string());
+    co_await red_loaded.wait();
+    g_signal_handler_disconnect(title_icon, icon_handler);
+    expect(has_red_connection_icon(title_icon),
+           "File browser title must show the selected red image");
     GtkWidget *frame = find_widget(root, "file_transfer_remote_group");
     GtkWidget *tree = find_widget(root, "file_transfer_remote_tree");
     GtkWidget *path = find_widget(root, "file_transfer_remote_path_entry");
@@ -384,6 +423,11 @@ static cardio::promise<void> verify_async(
              "Settings menu must open the shared runtime settings editor");
       expect(gtk_window_get_transient_for(GTK_WINDOW(settings_dialog)) == GTK_WINDOW(root),
              "Settings must belong to the file browser");
+      auto *icon_selection = find_widget(settings_dialog,
+                                         "settings_general_icon_selection");
+      expect(GTK_IS_LABEL(icon_selection) &&
+             std::strcmp(gtk_label_get_text(GTK_LABEL(icon_selection)), "red-icon.png") == 0,
+             "File browser Settings must retain the runtime icon selection");
       set_file_transfer_window_connection_available(window, false);
       expect(gtk_image_get_pixbuf(GTK_IMAGE(connection_image)) == off_icon,
              "Disconnected service must deactivate CONN");
@@ -447,7 +491,7 @@ int main(int argc, char **argv) {
         .local_directory = path.data(), .remote_directory = "/remote",
         .remote_file_hash = {}, .colors = {}, .closed = {},
         .settings = settings});
-    auto task = verify_async(window, client, group, failure);
+    auto task = verify_async(window, client, path.data(), group, failure);
     dispatcher.park();
     if (failure) break;
   }

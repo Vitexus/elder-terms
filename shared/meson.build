@@ -71,6 +71,8 @@ configure_file(
 
 elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/application-icon.cpp',
+  'src/connection-icon.cpp',
+  'src/connection-icon-image.cpp',
   'src/native-window-icon.cpp',
   'src/application-version.cpp',
   'src/key-binding.cpp',
@@ -103,6 +105,7 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/settings/transfer-settings.cpp',
   'src/settings-widget/settings-presentation.cpp',
   'src/settings-widget/application-settings-widget.cpp',
+  'src/settings-widget/connection-icon-editor.cpp',
   'src/settings-widget/hyperlink-settings-editor.cpp',
   'src/settings-widget/webdav-settings-editor.cpp',
   'src/settings-widget/ssh-proxy-settings-editor.cpp',
@@ -243,9 +246,18 @@ elder_terms_shared_test = executable(
 
 test('elder-terms-shared-test', elder_terms_shared_test)
 
+connection_icon_test = executable('connection-icon-test',
+  'tests/connection-icon-test.cpp', dependencies: elder_terms_dep)
+test('connection-icon-test', connection_icon_test)
+
 settings_actions_test = executable('settings-actions-test', 'tests/settings-actions-test.cpp',
   dependencies: [elder_terms_dep])
 test('settings-actions-test', find_program('xvfb-run'), args: ['-a', settings_actions_test],
+  env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
+
+settings_icon_test = executable('settings-icon-test', 'tests/settings-icon-test.cpp',
+  dependencies: [elder_terms_dep])
+test('settings-icon-test', find_program('xvfb-run'), args: ['-a', settings_icon_test],
   env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
 
 settings_tabs_test = executable('settings-tabs-test', 'tests/settings-tabs-test.cpp',

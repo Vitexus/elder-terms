@@ -48,6 +48,7 @@ static constexpr std::array setting_labels{
     SettingLabelEntry{"ftp", "tls_cipher_list", N_("TLS 1.2 and earlier ciphers")},
     SettingLabelEntry{"ftp", "tls13_cipher_list", N_("TLS 1.3 ciphers")},
     SettingLabelEntry{"general", "name", N_("Connection name")},
+    SettingLabelEntry{"general", "icon", N_("Connection icon")},
     SettingLabelEntry{"general", "type", N_("Connection type")},
     SettingLabelEntry{"general", "open_connection",
                       N_("Open connection shortcut")},

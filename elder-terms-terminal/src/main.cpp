@@ -24,6 +24,7 @@
 #include <gestament/gtk.h>
 
 #include <elder-terms/application-icon.h>
+#include <elder-terms/connection-icon-image.h>
 #include <elder-terms/localization.h>
 #include <elder-terms/settings/application-settings.h>
 #include <elder-terms/settings.h>
@@ -806,6 +807,9 @@ static bool apply_runtime_settings(ApplicationState *state,
     return false;
   }
   state->settings_store = store;
+  elder_terms::set_connection_icon_image(
+      GTK_IMAGE(state->main_window->header_connection_icon),
+      elder_terms::general_connection_icon(state->settings_store), 20);
   elder_terms::apply_terminal_bell_settings(
       state->bell_state,
       elder_terms::terminal_bell_settings(state->settings_store));
@@ -819,6 +823,9 @@ static bool apply_runtime_settings(ApplicationState *state,
       state->main_window, elder_terms::general_indicator_color(state->settings_store),
       elder_terms::general_indicator_off_color(state->settings_store));
   if (state->sftp_window != nullptr) {
+    elder_terms::set_file_transfer_window_connection_icon(
+        state->sftp_window,
+        elder_terms::general_connection_icon(state->settings_store));
     elder_terms::set_file_transfer_window_colors(
         state->sftp_window, colors);
     elder_terms::set_file_transfer_window_indicator_colors(
@@ -1876,6 +1883,9 @@ int main(int argc, char **argv) {
   app_state.active_profile = *connection_profile;
   app_state.dispatcher_group = &dispatcher_group;
   app_state.settings_store = settings_result.store;
+  elder_terms::set_connection_icon_image(
+      GTK_IMAGE(main_window->header_connection_icon),
+      elder_terms::general_connection_icon(app_state.settings_store), 20);
   app_state.config_path = launch_options.config_path;
   app_state.test_options = launch_options.test;
   app_state.auto_close = elder_terms::general_auto_close(settings_result.store);

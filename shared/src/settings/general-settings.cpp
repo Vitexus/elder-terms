@@ -10,6 +10,7 @@ static constexpr char general_section[] = "general";
 static constexpr char general_auto_close_key[] = "auto_close";
 static constexpr bool default_general_auto_close = true;
 static constexpr char general_name_key[] = "name";
+static constexpr char general_icon_key[] = "icon";
 static constexpr char general_type_key[] = "type";
 static constexpr char general_open_connection_key[] = "open_connection";
 static constexpr char general_exterior_background_key[] =
@@ -159,6 +160,15 @@ SettingKey general_name_setting_key() {
   return make_setting_key(general_section, general_name_key);
 }
 
+SettingKey general_icon_setting_key() {
+  return make_setting_key(general_section, general_icon_key);
+}
+
+std::string general_connection_icon(const SettingsStore &store) {
+  return setting_string_value_or_default(store, general_icon_setting_key(),
+                                         "default");
+}
+
 SettingKey general_type_setting_key() {
   return make_setting_key(general_section, general_type_key);
 }
@@ -215,6 +225,11 @@ general_setting_definitions(std::string default_connection_name) {
           .key = general_name_setting_key(),
           .default_value =
               SettingValue{std::move(default_connection_name)},
+          .validate = nullptr,
+      },
+      {
+          .key = general_icon_setting_key(),
+          .default_value = SettingValue{std::string("default")},
           .validate = nullptr,
       },
       {

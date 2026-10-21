@@ -365,6 +365,64 @@ const captureBorderSamples = (capture: GtkCapture): readonly RgbPixel[] => {
 };
 
 describe('SFTP window', () => {
+  it('shows a saved connection icon at the left of the file transfer title bar', async (context) => {
+    const directory = await mkdtemp(join(tmpdir(), 'elder-terms-sftp-icon-'));
+    try {
+      const icon = join(directory, 'icon.png');
+      const image = new PNG({ width: 1, height: 1 });
+      image.data.set([255, 0, 0, 255]);
+      await writeFile(icon, PNG.sync.write(image));
+      await runSftpFixture(
+        context,
+        false,
+        [`icon=file:${icon}`],
+        undefined,
+        async ({ app }) => {
+          const titleIcon = expectElementKind(
+            await app.getById('file_transfer_connection_icon'),
+            'image'
+          );
+          await waitForResult(async () => {
+            const [red, green, blue] = capturePixel(
+              await titleIcon.capture(),
+              0.5,
+              0.5
+            );
+            expect(red).toBeGreaterThan(220);
+            expect(green).toBeLessThan(35);
+            expect(blue).toBeLessThan(35);
+          });
+          await expectElementKind(
+            await app.getById('application_menu_button'),
+            'toggleButton'
+          ).click();
+          await expectElementKind(
+            await app.getById('settings_menu_item'),
+            'menuItem'
+          ).click();
+          await expectElementKind(
+            await app.getById('settings_general_icon_reset'),
+            'button'
+          ).click();
+          await expectElementKind(
+            await app.getById('settings_save_button'),
+            'button'
+          ).click();
+          await waitForResult(async () => {
+            const [red, green, blue] = capturePixel(
+              await titleIcon.capture(),
+              0.5,
+              0.5
+            );
+            expect(red < 220 || green > 35 || blue > 35).toBe(true);
+          });
+        }
+      );
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('centers the file transfer title text in the title bar', async (context) => {
     await runSftpFixture(
       context,

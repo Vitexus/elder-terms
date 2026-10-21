@@ -148,6 +148,16 @@ void set_file_transfer_window_colors(
     const GeneralColorSettings &settings);
 
 /**
+ * Applies a connection icon to an existing file-transfer window.
+ *
+ * @param window File-transfer window state.
+ * @param specification Saved icon specification to show and retain for its Settings editor.
+ */
+void set_file_transfer_window_connection_icon(
+    const std::shared_ptr<FileTransferWindow> &window,
+    const std::string &specification);
+
+/**
  * Applies indicator colors without changing connection or blink state.
  * @param window File-transfer window state.
  * @param color Active tint, or no value for the original green lamp.

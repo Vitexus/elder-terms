@@ -476,6 +476,7 @@ static bool load_settings_file(SettingsStore *store,
 
   if (exclude_connection_settings) {
     g_key_file_remove_key(key_file, "general", "name", nullptr);
+    g_key_file_remove_key(key_file, "general", "icon", nullptr);
     g_key_file_remove_key(key_file, "general", "open_connection",
                           nullptr);
   }
@@ -541,9 +542,11 @@ static void resolve_terminal_key_binding_conflict(
 
 static bool is_connection_only_key(const SettingKey &key) {
   const SettingKey name = general_name_setting_key();
+  const SettingKey icon = general_icon_setting_key();
   const SettingKey hotkey =
       general_open_connection_hotkey_setting_key();
   return (key.section == name.section && key.name == name.name) ||
+         (key.section == icon.section && key.name == icon.name) ||
          (key.section == hotkey.section && key.name == hotkey.name);
 }
 
