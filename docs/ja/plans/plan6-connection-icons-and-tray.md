@@ -420,6 +420,56 @@ Ubuntuでキー表記が見えることと、接続の追加・変更・削除�
 完了条件は、次節の受入条件を満たし、検証結果と制約を記録することである。
 変更内容に応じて`fix:`、`chore:`、`doc:`のコミットへ分ける。
 
+## 実装記録
+
+### 段階1の結果
+
+共通ライブラリーに`set_native_window_icon()`を追加した。
+X11ではGTKへ画像リストを渡す。
+Waylandでは公開アクセサーを動的に解決し、必要なシグナルと接続先のregistryを調べる。
+registryの応答はGTKのイベントループで受け取り、UIスレッドで同期的に待たない。
+GTKのバージョンによるコンパイル時の分岐は設けていない。
+
+GTK 3.24.41のヘッダーとライブラリーでビルドした同一のテストバイナリーを使った。
+対応するランタイムには、公開アクセサーを追加した[上流コミット][gtk-xdg-accessor]のGTKを別ディレクトリーへビルドした。
+システムのGTKと外部ソースは変更していない。
+
+| 実行環境 | 確認した結果 |
+| --- | --- |
+| GTK 3.24.41、Xvfb | `_NET_WM_ICON`の赤と青の画素、既定への復帰、再生成後の更新を確認した |
+| GTK 3.24.41、アイコン対応の試験用コンポジター | 公開APIがない状態を検出し、ロードエラーなく終了した |
+| 上流GTK、アイコン非対応の試験用コンポジター | registryの応答後に非対応と判定し、正常終了した |
+| 上流GTK、アイコン対応の試験用コンポジター | 画像の受信、変更、既定への復帰、再生成後の送信を確認した |
+
+受信試験では、実際のWayland接続を介して画像とsurfaceのcommitを観測した。
+縦長画像の透明な余白と、半透明画素の乗算済みアルファを検証している。
+アイコンが使っているバッファーの内容が変わらず、明示的な破棄順序が正しいことも確認した。
+接続切断時にはWaylandサーバーが資源を任意の順序で破棄するため、その後の順序は検査対象から除いた。[Wayland Server API][wayland-server]
+
+最初のX11テストはAPI未実装によるリンク失敗となり、実装後に成功した。
+Waylandの初回試験では終了時のシグナル解放に警告が出たため、接続状態を確認してから解放するよう修正した。
+最終状態では、対象のC++テストとWaylandの4ケース、共有ライブラリーの検査が成功した。
+`make build`も成功し、アプリのビルドには警告がなかった。
+
+検証用の上流GTKには、未使用変数、列挙値、未初期化の可能性などに関するコンパイラー警告があった。
+外部ソースを変更しない方針に従い、そのビルドは実行時能力の試験だけに使う。
+アプリや配布パッケージへ、このGTKを組み込む変更はしていない。
+
+再実行時は、通常のビルド後に次の環境変数を指定して共有ワークスペースのテストを実行する。
+`ELDER_TERMS_NATIVE_ICON_GTK_LIBRARY_PATH`には対応GTKのライブラリーディレクトリーを指定する。
+`GTK_PATH`には、必要に応じてシステムのGTKモジュールの場所を指定する。
+今回のUbuntu環境では`/usr/lib/x86_64-linux-gnu/gtk-3.0`を使った。
+`ELDER_TERMS_NATIVE_ICON_EXPECT_LEGACY_GTK=1`は、通常のランタイムが公開APIを持たない環境で指定する。
+
+```sh
+npx vitest run tests/native-window-icon.test.ts tests/shared-library.test.ts
+meson test -C ../.build native-window-icon-test --print-errorlogs
+```
+
+受信ログは`test-results/plan6/native-icons/`へ保存する。
+段階1の完了条件は満たした。
+実際の接続ウインドウへの組み込みとドックでの表示確認は、段階5と段階6で行う。
+
 ## 検証方法と全体の完了条件
 
 | 領域 | 検証方法 |
@@ -482,3 +532,4 @@ GTKのGUI試験には既存のgestamentとVitestを使う。
 [dbusmenu]: https://sources.debian.org/src/libdbusmenu-qt/0.9.3%2B16.04.20160218-2/src/com.canonical.dbusmenu.xml
 [ubuntu-menu]: https://github.com/ubuntu/gnome-shell-extension-appindicator/blob/master/dbusMenu.js
 [image-menu-item]: https://docs.gtk.org/gtk3/class.ImageMenuItem.html
+[wayland-server]: https://wayland.freedesktop.org/docs/html/apc.html

@@ -4,6 +4,26 @@ elder_terms_shared_gtk_dep = dependency('gtk+-3.0')
 elder_terms_shared_gdk_pixbuf_dep = dependency('gdk-pixbuf-2.0')
 elder_terms_shared_libudev_dep = dependency('libudev')
 elder_terms_shared_xkbcommon_dep = dependency('xkbcommon')
+elder_terms_shared_wayland_dep = dependency('wayland-client')
+elder_terms_shared_gdk_wayland_dep = dependency('gdk-wayland-3.0')
+elder_terms_shared_gdk_x11_dep = dependency('gdk-x11-3.0')
+elder_terms_shared_gmodule_dep = dependency('gmodule-2.0')
+add_languages('c')
+elder_terms_wayland_scanner = find_program('wayland-scanner')
+elder_terms_icon_protocol_xml = meson.project_source_root() / 'deps/boxrig/deps/wayland-protocols/staging/xdg-toplevel-icon/xdg-toplevel-icon-v1.xml'
+elder_terms_xdg_shell_xml = meson.project_source_root() / 'deps/boxrig/deps/wayland-protocols/stable/xdg-shell/xdg-shell.xml'
+elder_terms_icon_protocol_header = custom_target('elder-terms-icon-protocol-header',
+  input: elder_terms_icon_protocol_xml, output: 'xdg-toplevel-icon-v1-client-protocol.h',
+  command: [elder_terms_wayland_scanner, 'client-header', '@INPUT@', '@OUTPUT@'])
+elder_terms_icon_protocol_code = custom_target('elder-terms-icon-protocol-code',
+  input: elder_terms_icon_protocol_xml, output: 'xdg-toplevel-icon-v1-protocol.c',
+  command: [elder_terms_wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
+elder_terms_icon_protocol_server_header = custom_target('elder-terms-icon-protocol-server-header',
+  input: elder_terms_icon_protocol_xml, output: 'xdg-toplevel-icon-v1-server-protocol.h',
+  command: [elder_terms_wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
+elder_terms_xdg_shell_protocol_code = custom_target('elder-terms-xdg-shell-protocol-code',
+  input: elder_terms_xdg_shell_xml, output: 'elder-terms-xdg-shell-protocol.c',
+  command: [elder_terms_wayland_scanner, 'private-code', '@INPUT@', '@OUTPUT@'])
 elder_terms_shared_include_dir = include_directories('include')
 elder_terms_symbol_map = meson.current_source_dir() / 'elder-terms.map'
 elder_terms_gnome = import('gnome')
@@ -51,6 +71,7 @@ configure_file(
 
 elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/application-icon.cpp',
+  'src/native-window-icon.cpp',
   'src/application-version.cpp',
   'src/key-binding.cpp',
   'src/key-binding-input-widget.cpp',
@@ -89,7 +110,8 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/settings-widget/terminal-background-editor.cpp',
   'src/settings-widget/terminal-color-preview.cpp',
   'src/terminal-color-filter.cpp',
-]
+] + [elder_terms_icon_protocol_header, elder_terms_icon_protocol_code,
+     elder_terms_xdg_shell_protocol_code]
 
 elder_terms_library = shared_library(
   'elder-terms',
@@ -104,10 +126,16 @@ elder_terms_library = shared_library(
     elder_terms_shared_gdk_pixbuf_dep,
     elder_terms_shared_libudev_dep,
     elder_terms_shared_xkbcommon_dep,
+    elder_terms_shared_wayland_dep,
+    elder_terms_shared_gdk_wayland_dep,
+    elder_terms_shared_gdk_x11_dep,
+    elder_terms_shared_gmodule_dep,
     boxrig_deps['boxrig'],
     boxrig_deps['boxrig-ui'],
   ],
   gnu_symbol_visibility: 'inlineshidden',
+  # glib-compile-resources emits one string literal for the whole resource blob.
+  c_args: ['-Wno-overlength-strings'],
   link_args: [
     '-Wl,--version-script=' + elder_terms_symbol_map,
   ],
@@ -132,6 +160,21 @@ elder_terms_dep = declare_dependency(
 )
 
 if get_option('build_tests')
+native_xdg_shell_server_header = custom_target('native-xdg-shell-server-header',
+  input: elder_terms_xdg_shell_xml, output: 'native-xdg-shell-server-protocol.h',
+  command: [elder_terms_wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'])
+native_window_icon_compositor = executable('native-window-icon-compositor',
+  'tests/native-window-icon-compositor.cpp',
+  elder_terms_icon_protocol_server_header, native_xdg_shell_server_header,
+  elder_terms_icon_protocol_code, elder_terms_xdg_shell_protocol_code,
+  dependencies: dependency('wayland-server'))
+
+native_window_icon_test = executable('native-window-icon-test',
+  'tests/native-window-icon-test.cpp',
+  dependencies: [elder_terms_dep, elder_terms_shared_gdk_x11_dep, dependency('x11')])
+test('native-window-icon-test', find_program('xvfb-run'),
+  args: ['-a', native_window_icon_test], env: ['GDK_BACKEND=x11'])
+
 shared_regex_test = executable('shared-regex-test', 'tests/regex-test.cpp', dependencies: elder_terms_dep)
 test('shared-regex-test', shared_regex_test)
 
