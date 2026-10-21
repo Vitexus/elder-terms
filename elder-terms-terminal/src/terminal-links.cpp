@@ -193,12 +193,14 @@ std::optional<TerminalHyperlinkResolution> terminal_links_resolve(
   std::optional<TerminalHyperlinkResolution> rejection;
   for (const auto &rule : links->rules) {
     std::shared_ptr<boxrig_regex_result> result;
+    std::uint64_t match_id = 0;
     if (rule.rule.recognition_source == HyperlinkRecognitionSource::osc8) {
       result = match_osc8(rule, hit);
     } else if (rule.recognizer) {
       const auto annotation = std::find_if(annotations.begin(), annotations.begin() + count,
           [&rule](const auto &item) { return item.source_id == rule.recognizer; });
       if (annotation == annotations.begin() + count) continue;
+      match_id = annotation->item_id;
       const boxrig_text_range grapheme{hit.leading_position, hit.trailing_position};
       boxrig_text_recognition_result current{};
       std::size_t required = 0;
@@ -213,8 +215,10 @@ std::optional<TerminalHyperlinkResolution> terminal_links_resolve(
     std::string reason;
     auto action = expand_terminal_hyperlink_action(rule.rule,
         [&result](const std::string &capture) { return regular_expression_capture(result.get(), capture); }, &reason);
-    if (action) return TerminalHyperlinkResolution{std::move(action), {}};
-    if (!rejection) rejection = TerminalHyperlinkResolution{std::nullopt, "rule " + rule.rule.id + ": " + reason};
+    const auto hyperlink_handle = rule.recognizer ? 0 : hit.hyperlink_handle;
+    if (action) return TerminalHyperlinkResolution{std::move(action), {}, rule.recognizer, match_id, hyperlink_handle};
+    if (!rejection) rejection = TerminalHyperlinkResolution{std::nullopt, "rule " + rule.rule.id + ": " + reason,
+        rule.recognizer, match_id, hyperlink_handle};
   }
   return rejection;
 }

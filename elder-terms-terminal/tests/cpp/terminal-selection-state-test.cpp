@@ -123,6 +123,146 @@ static cardio::promise<void> barrier(Fixture *fixture, bool kitty) {
     co_await fixture->changed.wait();
 }
 
+static cardio::promise<void> click_scenarios(Fixture *fixture) {
+  auto *runtime = fixture->window->runtime;
+  expect(terminal_runtime_feed(runtime, "\033[=0u\033[2J\033[Halpha beta gamma\r\nsecond row"), "prepare click text");
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), "click primary", -1);
+  select(fixture, BOXRIG_UI_SELECTION_LINEAR, false);
+  mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, 0);
+  co_await barrier(fixture, false);
+  expect(!selected(fixture), "single press clears the old selection without selecting one character");
+  mouse(fixture, GDK_BUTTON_RELEASE, 0.1, 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(!selected(fixture) && co_await clipboard(GDK_SELECTION_PRIMARY) == "click primary",
+      "single click preserves PRIMARY and has no selected character");
+
+  auto *widget = GTK_WIDGET(terminal_runtime_widget(runtime));
+  boxrig_font_effective_metrics metrics{};
+  expect(boxrig_gtk3_terminal_widget_get_effective_metrics(terminal_runtime_widget(runtime), &metrics) == BOXRIG_FONT_CATALOG_OK,
+      "drag threshold metrics");
+  int threshold = 0;
+  g_object_get(gtk_widget_get_settings(widget), "gtk-dnd-drag-threshold", &threshold, nullptr);
+  const auto columns_per_dip = static_cast<double>(gtk_widget_get_scale_factor(widget)) / metrics.cell_width;
+  mouse(fixture, GDK_BUTTON_PRESS, 1.25 * columns_per_dip, 0.5, 0);
+  mouse(fixture, GDK_MOTION_NOTIFY, (threshold + 1.25) * columns_per_dip, 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(!selected(fixture), "motion at the GTK threshold remains a pending click at either display scale");
+  mouse(fixture, GDK_MOTION_NOTIFY, (threshold + 2.25) * columns_per_dip, 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(selected(fixture), "motion beyond the GTK threshold starts a selection");
+  mouse(fixture, GDK_BUTTON_RELEASE, 8.9, 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect((co_await clipboard(GDK_SELECTION_PRIMARY)).starts_with("alpha"), "drag starts at the original press");
+
+  for (const auto type : {GDK_2BUTTON_PRESS, GDK_3BUTTON_PRESS}) {
+    mouse(fixture, type, 1.1, 0.5, 0);
+    co_await barrier(fixture, false);
+    boxrig_ui_selection selection{};
+    expect(boxrig_ui_view_get_selection(view(fixture), &selection) && selection.kind ==
+        (type == GDK_2BUTTON_PRESS ? BOXRIG_UI_SELECTION_WORD : BOXRIG_UI_SELECTION_LINE),
+        "multiple clicks immediately select a word or line");
+    mouse(fixture, GDK_BUTTON_RELEASE, 1.1, 0.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    const auto copied = co_await clipboard(GDK_SELECTION_PRIMARY);
+    expect(type == GDK_2BUTTON_PRESS ? copied == "alpha" : copied.starts_with("alpha beta gamma"),
+        "word and line selection copy their text");
+    mouse(fixture, type, 1.1, 0.5, GDK_CONTROL_MASK);
+    mouse(fixture, GDK_MOTION_NOTIFY, 8.9, 1.5, GDK_BUTTON1_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 8.9, 1.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    expect(boxrig_ui_view_get_selection(view(fixture), &selection) &&
+        selection.kind == BOXRIG_UI_SELECTION_CHARACTER && selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR,
+        "Ctrl multiple clicks use character rectangles even after Ctrl is released");
+  }
+
+  for (const auto modifier : {GDK_SHIFT_MASK, GDK_CONTROL_MASK}) {
+    gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), "cancel pending", -1);
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, modifier);
+    key(fixture, GDK_KEY_Escape, GDK_KEY_PRESS, 0);
+    key(fixture, GDK_KEY_Escape, GDK_KEY_RELEASE, 0);
+    mouse(fixture, GDK_MOTION_NOTIFY, 8.9, 0.5, GDK_BUTTON1_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 8.9, 0.5, GDK_BUTTON1_MASK);
+    fixture->outgoing.clear();
+    co_await barrier(fixture, false);
+    expect(!selected(fixture) && fixture->outgoing == "\r" &&
+        co_await clipboard(GDK_SELECTION_PRIMARY) == "cancel pending", "Escape cancels a pending click without side effects");
+  }
+
+  // A retained press must never acquire a new generation after terminal output.
+  mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, GDK_CONTROL_MASK);
+  co_await barrier(fixture, false);
+  expect(terminal_runtime_feed(runtime, "\033[Hchanged text"), "replace text under a pending click");
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  mouse(fixture, GDK_MOTION_NOTIFY, 8.9, 0.5, GDK_BUTTON1_MASK);
+  mouse(fixture, GDK_BUTTON_RELEASE, 8.9, 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(!selected(fixture) && co_await clipboard(GDK_SELECTION_PRIMARY) == "cancel pending",
+      "a stale pending press aborts without selecting replacement text");
+
+  std::vector<TerminalHyperlinkResolution> actions;
+  terminal_runtime_set_hyperlink_rules(runtime, default_hyperlink_action_rules(),
+      [&actions](TerminalHyperlinkResolution action) { actions.push_back(std::move(action)); });
+  for (const bool osc8 : {false, true}) {
+    const std::string text = osc8 ? "\033]8;;https://link.test/\033\\Open link\033]8;;\033\\" : "https://link.test/";
+    expect(terminal_runtime_feed(runtime, "\033[2J\033[H" + text + "\r\nsecond row\033[?1002h\033[?1006h"),
+        "prepare links with mouse reporting");
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    for (const auto modifier : {guint(GDK_CONTROL_MASK), guint(GDK_CONTROL_MASK | GDK_SHIFT_MASK)}) {
+      const auto previous = actions.size();
+      mouse(fixture, GDK_BUTTON_PRESS, 2.1, 0.5, modifier);
+      co_await barrier(fixture, false);
+      expect(actions.size() == previous && !selected(fixture), "link activation waits for release");
+      mouse(fixture, GDK_MOTION_NOTIFY, 8.9, 1.5, GDK_BUTTON1_MASK);
+      mouse(fixture, GDK_BUTTON_RELEASE, 8.9, 1.5, GDK_BUTTON1_MASK);
+      fixture->outgoing.clear();
+      co_await barrier(fixture, false);
+      boxrig_ui_selection selection{};
+      expect(actions.size() == previous && boxrig_ui_view_get_selection(view(fixture), &selection) &&
+          selection.shape == BOXRIG_UI_SELECTION_RECTANGULAR && fixture->outgoing == "\r",
+          "Ctrl drag over regex and OSC 8 links selects a rectangle without launching or terminal mouse reports");
+    }
+    const auto previous = actions.size();
+    mouse(fixture, GDK_BUTTON_PRESS, 2.1, 0.5, GDK_CONTROL_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 2.1, 0.5, GDK_BUTTON1_MASK | GDK_CONTROL_MASK);
+    co_await barrier(fixture, false);
+    expect(actions.size() == previous + 1 && actions.back().action &&
+        actions.back().action->arguments == std::vector<std::string>{"https://link.test/"},
+        "Ctrl click launches the same valid link once on release");
+    mouse(fixture, GDK_BUTTON_PRESS, 2.1, 0.5, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 2.1, 0.5, GDK_BUTTON1_MASK | GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+    co_await barrier(fixture, false);
+    expect(actions.size() == previous + 1, "Ctrl Shift click never launches a link");
+    mouse(fixture, GDK_BUTTON_PRESS, 2.1, 0.5, GDK_CONTROL_MASK);
+    co_await barrier(fixture, false);
+    expect(terminal_runtime_feed(runtime, "\033[Hremoved link         "), "invalidate a pending link");
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    mouse(fixture, GDK_BUTTON_RELEASE, 2.1, 0.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    expect(actions.size() == previous + 1, "an invalidated link does not launch on release");
+    const std::string adjacent = osc8 ?
+        "\033]8;id=first;https://a.test/\033\\left\033]8;;\033\\ "
+        "\033]8;id=second;https://a.test/\033\\right\033]8;;\033\\" :
+        "https://a.test/ https://a.test/";
+    expect(terminal_runtime_feed(runtime, "\033[2J\033[H" + adjacent), "prepare distinct links with identical actions");
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    const auto boundary = osc8 ? 4.0 : 15.0;
+    mouse(fixture, GDK_BUTTON_PRESS, boundary - 0.1, 0.5, GDK_CONTROL_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, boundary + 1.1, 0.5, GDK_BUTTON1_MASK | GDK_CONTROL_MASK);
+    co_await barrier(fixture, false);
+    expect(actions.size() == previous + 1, "release on a different link with the same URL does not activate it");
+  }
+  terminal_runtime_set_hyperlink_rules(runtime, {}, {});
+  fixture->outgoing.clear();
+  mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, 0);
+  mouse(fixture, GDK_MOTION_NOTIFY, 8.9, 0.5, GDK_BUTTON1_MASK);
+  mouse(fixture, GDK_BUTTON_RELEASE, 8.9, 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(fixture->outgoing == "\033[<0;1;1M\033[<32;9;1M\033[<0;9;1m\r" && !selected(fixture),
+      "unmodified mouse reports reach the peer as one complete sequence");
+  expect(terminal_runtime_feed(runtime, "\033[?1002l\033[?1006l"), "restore ordinary mouse input");
+}
+
 static cardio::promise<void> scenarios(Fixture *fixture) {
   auto *runtime = fixture->window->runtime;
   TerminalTransportRequest request;
@@ -219,6 +359,7 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
     }
     expect(terminal_runtime_feed(runtime, "\033[?1002l\033[?1006l"), "restore ordinary mouse input");
   }
+  co_await click_scenarios(fixture);
   while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
   select(fixture, BOXRIG_UI_SELECTION_RECTANGULAR, false);
   auto *composition = boxrig_gtk3_terminal_widget_composition(terminal_runtime_widget(runtime));

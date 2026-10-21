@@ -17,6 +17,14 @@ namespace elder_terms {
 
 using TerminalServiceRequest = std::variant<TerminalTextSendRequest, TerminalTransferRequest>;
 
+enum class SelectionPhase { idle, pending, dragging, cancelled };
+
+struct PendingSelection {
+  boxrig_ui_hit_test_result hit{};
+  boxrig_ui_selection_options options{};
+  std::optional<TerminalHyperlinkResolution> link;
+};
+
 struct TerminalRuntime {
   boxrig_terminal *terminal = nullptr;
   boxrig_ui_model *model = nullptr;
@@ -71,8 +79,8 @@ struct TerminalRuntime {
   bool ui_failed = false;
   bool widget_allocated = false;
   bool notified_settled = false;
-  bool selection_drag_active = false;
-  bool selection_cancelled = false;
+  SelectionPhase selection_phase = SelectionPhase::idle;
+  PendingSelection selection_press;
   std::uint64_t allocation_generation = 0;
   std::uint64_t command_allocation = 0;
   boxrig_ui_layout_action size_command{};
@@ -147,14 +155,40 @@ static gboolean pointer_left(GtkWidget *, GdkEventCrossing *, gpointer context) 
   return FALSE;
 }
 
+static bool selecting(const TerminalRuntime *runtime) {
+  return runtime->selection_phase == SelectionPhase::pending || runtime->selection_phase == SelectionPhase::dragging;
+}
+
+static int pointer_dip(boxrig_ui_fixed coordinate, int scale) {
+  return static_cast<int>(std::clamp<boxrig_ui_fixed>(coordinate / BOXRIG_UI_FIXED_ONE / scale,
+      std::numeric_limits<int>::min(), std::numeric_limits<int>::max()));
+}
+
+static std::optional<TerminalHyperlinkResolution> released_link(
+    TerminalRuntime *runtime, const boxrig_ui_hit_test_result &hit) {
+  const auto &press = runtime->selection_press;
+  if (!runtime->links || !press.link) return std::nullopt;
+  std::size_t required = 0;
+  const auto status = boxrig_ui_view_query_text_annotation_hits(boxrig_gtk3_terminal_widget_view(runtime->widget),
+      &press.hit, BOXRIG_UI_ANNOTATION_HIT_ALL, nullptr, 0, &required, nullptr);
+  if (status != BOXRIG_UI_OK && status != BOXRIG_UI_LIMIT_EXCEEDED) return std::nullopt;
+  const auto current = terminal_links_resolve(runtime->links.get(), hit);
+  if (!current || current->source_id != press.link->source_id || current->match_id != press.link->match_id ||
+      current->hyperlink_handle != press.link->hyperlink_handle || current->error != press.link->error ||
+      current->action.has_value() != press.link->action.has_value()) return std::nullopt;
+  if (current->action && (current->action->command != press.link->action->command ||
+      current->action->arguments != press.link->action->arguments)) return std::nullopt;
+  return current;
+}
+
 static boxrig_input_mouse_route route_mouse(
     const boxrig_mouse_event *event, const boxrig_ui_hit_test_result *hit,
     void *context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
-  if (runtime->selection_cancelled) {
+  if (runtime->selection_phase == SelectionPhase::cancelled) {
     if (event->action == BOXRIG_MOUSE_RELEASE && event->button == BOXRIG_MOUSE_BUTTON_LEFT)
-      runtime->selection_cancelled = false;
+      runtime->selection_phase = SelectionPhase::idle;
     return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
   }
   if (runtime->host.mouse) {
@@ -167,20 +201,50 @@ static boxrig_input_mouse_route route_mouse(
   }
   const bool release = event->action == BOXRIG_MOUSE_RELEASE &&
                        event->button == BOXRIG_MOUSE_BUTTON_LEFT;
-  if (runtime->selection_drag_active) {
+  if (runtime->selection_phase == SelectionPhase::pending) {
+    if (event->action != BOXRIG_MOUSE_MOTION && !release) return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
+    const auto &press = runtime->selection_press;
+    const auto scale = gtk_widget_get_scale_factor(GTK_WIDGET(runtime->widget));
+    if (!gtk_drag_check_threshold(GTK_WIDGET(runtime->widget), pointer_dip(press.hit.x, scale), pointer_dip(press.hit.y, scale),
+        pointer_dip(hit->x, scale), pointer_dip(hit->y, scale))) {
+      if (release) {
+        const auto link = released_link(runtime, *hit);
+        runtime->selection_phase = SelectionPhase::idle;
+        runtime->selection_press = {};
+        if (link && runtime->activate_link) runtime->activate_link(*link);
+      }
+      return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
+    }
+    const auto status = boxrig_ui_view_begin_selection_with_options(view, &press.options, &press.hit);
+    runtime->selection_press = {};
+    if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) {
+      runtime->selection_phase = release ? SelectionPhase::idle : SelectionPhase::cancelled;
+      return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
+    }
+    if (status != BOXRIG_UI_OK) {
+      g_warning("boxrig selection start failed: %d", status);
+      return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+    }
+    runtime->selection_phase = SelectionPhase::dragging;
+  }
+  if (runtime->selection_phase == SelectionPhase::dragging) {
     if ((event->action == BOXRIG_MOUSE_MOTION || release) &&
         hit->inside_grid && hit->text_position_valid) {
       const auto status = boxrig_ui_view_update_selection(view, hit);
       // Output or a connection transition can remove the selection between
       // queued pointer events. End that drag without failing native input.
-      if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) runtime->selection_drag_active = false;
+      if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) {
+        runtime->selection_phase = release ? SelectionPhase::idle : SelectionPhase::cancelled;
+        request_frame(runtime);
+        return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
+      }
       else if (status != BOXRIG_UI_OK) {
         g_warning("boxrig selection update failed: %d", status);
         return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
       }
     }
     if (release) {
-      runtime->selection_drag_active = false;
+      runtime->selection_phase = SelectionPhase::idle;
       const boxrig_ui_view_action copy{BOXRIG_UI_VIEW_ACTION_COPY,
           BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION};
       const auto status = boxrig_gtk3_terminal_widget_apply_view_action(runtime->widget, &copy);
@@ -194,14 +258,6 @@ static boxrig_input_mouse_route route_mouse(
   }
   if (event->action != BOXRIG_MOUSE_PRESS || !hit->inside_grid)
     return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
-  if (runtime->links && event->button == BOXRIG_MOUSE_BUTTON_LEFT &&
-      (event->modifiers & BOXRIG_MODIFIER_CONTROL)) {
-    const auto resolved = terminal_links_resolve(runtime->links.get(), *hit);
-    if (resolved) {
-      if (runtime->activate_link) runtime->activate_link(*resolved);
-      return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
-    }
-  }
   const bool override = (event->modifiers & (BOXRIG_MODIFIER_SHIFT | BOXRIG_MODIFIER_CONTROL)) != 0;
   if (boxrig_terminal_mouse_reporting_enabled(runtime->terminal) && !override)
     return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
@@ -212,13 +268,28 @@ static boxrig_input_mouse_route route_mouse(
     options.kind = options.shape == BOXRIG_UI_SELECTION_RECTANGULAR ? BOXRIG_UI_SELECTION_CHARACTER :
         event->click_count >= 3 ? BOXRIG_UI_SELECTION_LINE :
         event->click_count == 2 ? BOXRIG_UI_SELECTION_WORD : BOXRIG_UI_SELECTION_CHARACTER;
+    if (event->click_count <= 1) {
+      if (boxrig_ui_view_clear_selection(view) != BOXRIG_UI_OK) return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+      runtime->selection_press = {*hit, options, {}};
+      // Only the revisioned positions are retained. OSC 8 strings are borrowed
+      // for one hit; the link resolution owns its command and arguments.
+      runtime->selection_press.hit.hyperlink_uri = nullptr;
+      runtime->selection_press.hit.hyperlink_id = nullptr;
+      constexpr auto modifiers = BOXRIG_MODIFIER_SHIFT | BOXRIG_MODIFIER_CONTROL | BOXRIG_MODIFIER_ALT |
+          BOXRIG_MODIFIER_SUPER | BOXRIG_MODIFIER_HYPER | BOXRIG_MODIFIER_META;
+      if (runtime->links && (event->modifiers & modifiers) == BOXRIG_MODIFIER_CONTROL)
+        runtime->selection_press.link = terminal_links_resolve(runtime->links.get(), *hit);
+      runtime->selection_phase = SelectionPhase::pending;
+      request_frame(runtime);
+      return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
+    }
     const auto status = boxrig_ui_view_begin_selection_with_options(view, &options, hit);
     if (status == BOXRIG_UI_STALE) return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
     if (status != BOXRIG_UI_OK) {
       g_warning("boxrig selection start failed: %d", status);
       return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
     }
-    runtime->selection_drag_active = true;
+    runtime->selection_phase = SelectionPhase::dragging;
     request_frame(runtime);
     return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
   }
@@ -792,8 +863,8 @@ static bool attach_widget(TerminalRuntime *runtime) {
   runtime->osc8_hover = false;
   runtime->scroll = scroll;
   runtime->size_command = {};
-  runtime->selection_drag_active = false;
-  runtime->selection_cancelled = false;
+  runtime->selection_phase = SelectionPhase::idle;
+  runtime->selection_press = {};
   runtime->widget_allocated = false;
   runtime->pending_input = runtime->applied_input;
   gtk_box_pack_start(runtime->attachment, scroll, TRUE, TRUE, 0);
@@ -887,11 +958,11 @@ boxrig_input_key_route terminal_runtime_route_selection_key(TerminalRuntime *run
   if (composition.active || composition.commit_pending) return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
   auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
   boxrig_ui_selection selection{};
-  if (!boxrig_ui_view_get_selection(view, &selection) && !runtime->selection_drag_active)
+  if (!boxrig_ui_view_get_selection(view, &selection) && !selecting(runtime))
     return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
   if (boxrig_ui_view_clear_selection(view) != BOXRIG_UI_OK) return BOXRIG_INPUT_KEY_ROUTE_ERROR;
-  runtime->selection_cancelled = runtime->selection_cancelled || runtime->selection_drag_active;
-  runtime->selection_drag_active = false;
+  if (selecting(runtime)) runtime->selection_phase = SelectionPhase::cancelled;
+  runtime->selection_press = {};
   request_frame(runtime);
   return BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
 }

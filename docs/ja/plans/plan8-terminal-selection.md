@@ -273,6 +273,14 @@ IMEの検証では、直接接続のIBus、fcitx 5、fcitx 4、OpenGLからCairo
 
 通常ビルドにコンパイラ警告はなく、上記の配送条件を明記した段階2の完了条件を満たしました。ログは`test-results/plan8-implementation/step2-*.log`です。全体テストは段階6で改めて実行します。
 
+### 段階3：クリックとリンクの判別
+
+単一クリックは既存の選択を解除し、GTKのドラッグ距離を超えるまで選択開始を保留します。Ctrl＋リンクも解放まで保留し、元の文字位置とリンク識別子が有効な場合に1回だけ起動するよう変更しました。同じURLを持つ別のリンクへの移動も、起動の対象外です。
+
+追加した試験は、修正前に単一押下で1文字が残る失敗を確認しました。修正後はCairo／OpenGL、倍率1／2の4件が成功しています。閾値の前後、単語・行選択、Ctrl付き複数回クリック、途中でCtrlを離す矩形、押下待機中のESC、本文変更後の失効、正規表現リンクとOSC 8、Ctrl＋Shift、マウス通知の押下から解放までを検証しました。
+
+製品GUIの選択2件と、既存のリンク・ドライバー・IMEの11件も成功しました。通常ビルドにコンパイラ警告はありません。段階3の完了条件を満たしました。ログは`test-results/plan8-implementation/step3-*.log`です。
+
 [ibus-snooper]: https://github.com/ibus/ibus/blob/1.5.29/client/gtk2/ibusimcontext.c#L643-L752
 [boxrig-text]: https://github.com/kekyo/boxrig/blob/0.5.0/docs/ja/text.md
 [boxrig-view]: https://github.com/kekyo/boxrig/blob/0.5.0/include/boxrig/ui/view.h

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <string>
 #include <vector>
@@ -27,6 +28,12 @@ struct TerminalHyperlinkResolution {
   std::optional<TerminalHyperlinkAction> action;
   /** Human-readable rejection reason when action has no value. */
   std::string error;
+  /** Recognizer identity for a text link, or zero for OSC 8. */
+  std::uint64_t source_id = 0;
+  /** Match identity within source_id, or zero for OSC 8. */
+  std::uint64_t match_id = 0;
+  /** Terminal-lifetime OSC 8 identity, or zero for a text link. */
+  std::uint32_t hyperlink_handle = 0;
 };
 
 /**
