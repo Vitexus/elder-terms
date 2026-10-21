@@ -122,6 +122,12 @@ its settings. Clicking "Apply" applies the changes only to the currently
 running terminal. Clicking "Save" remembers the settings and uses them the next
 time the terminal starts.
 
+Terminal settings are split into two tabs. "Terminal" contains encoding, special
+keys, rows and columns, scrollback, BEL, shortcuts, and screen-reader access.
+"Terminal appearance" contains fonts, text size, borders, the cursor, background,
+and color correction. The same layout is used for individual connections and
+"Connection defaults". Neither tab is shown for file transfers.
+
 ![Settings (Terminal)](./images/settings-terminal.png)
 
 Try changing different settings with the "Apply" button. If something goes
@@ -142,8 +148,8 @@ application for plain text files.
 Changes saved in an external editor are reloaded automatically, including
 editors that replace the file when saving.
 
-To choose the connection opened by "New Window" on a terminal window's desktop
-icon, open "Application settings" in the launcher and select its name from
+To choose the connection opened by "New Window" on the desktop icon of a terminal
+started without a connection, open "Application settings" in the launcher and select its name from
 "Use for \"New Window\"". Select "None" to use the default terminal settings.
 The list includes saved local shell, TELNET, SSH, and serial connections.
 The desktop action is named "New Window" in every system language.
@@ -220,6 +226,61 @@ the connection's INI file, while "Apply" affects only the current session.
 Clearing a text field or selecting the default item in a selection field
 removes the explicit value, causing the setting to inherit the global or
 built-in default again.
+
+## Configuring Connection Icons
+
+Open "Choose icon…" on a connection's "General" tab to display a popup grid.
+Switch between Noto Color Emoji and Material Icons, scroll through the images,
+and click one to select it. "Choose image file…" also accepts PNG and JPEG files.
+"Default icon" restores the elder-terms image. Presets are bundled and do not
+require a download when selected.
+
+Apply updates the current window; Save records the selection for the next launch.
+Cancel discards edits made since the last apply. The image appears at the left
+edge of terminal and file-transfer title bars. The launcher's connection list
+and tray connection menu show saved icons. Icons are specific to each connection
+and do not inherit from "Connection defaults".
+
+Selected files are read from their original paths. Keep the file somewhere it
+will remain available on subsequent launches. Both the file and decoded RGBA
+image are limited to 64 MiB, with each dimension limited to 16384 pixels.
+Images retain their aspect ratio within a square, with transparent padding.
+An unspecified or unreadable image uses the default icon. The settings page
+shows loading errors without preventing the connection from opening.
+Missing files and unknown preset IDs do not automatically clear the saved selection.
+
+Saved connections also use individual dock icons. Windows for the same connection
+are grouped together, separately from other connections. Renaming a connection
+preserves its identity; duplicating it creates a separate identity. A window
+started from unsaved edits forms a separate temporary group. Pinning that group
+and relaunching it opens the launcher. The launcher's own window, dock, and tray
+icons remain unchanged.
+
+Window icon support is detected from the running display environment and GTK
+capabilities. On X11, elder-terms supplies multiple image sizes to GTK. On Wayland,
+it sends icons when the public API and `xdg-toplevel-icon-v1` are available.
+The title-bar and connection-list icons remain available in unsupported environments.
+Dock presentation also depends on the desktop environment; see the
+[GTK icon documentation](https://docs.gtk.org/gtk3/method.Window.set_icon_list.html).
+Testing on Ubuntu GNOME 46 found that applying an icon change to a running window
+can leave the previous image in the dock. Save the setting and reopen the
+connection in that case. Initial display and updates after relaunch were verified.
+
+Dock integration generates files in `$XDG_DATA_HOME/applications/` and
+`$XDG_DATA_HOME/elder-terms/connection-icons/`, normally under `~/.local/share/`
+when `XDG_DATA_HOME` is unset. Old images and generated desktop files are retained,
+including after deleting a connection, to preserve running windows and pinned entries.
+Launching a pinned entry for a deleted connection reports an error; it cannot
+open a different connection created with the same name.
+
+In an INI file, `[general] icon` accepts these forms:
+
+| Value | Image |
+| --- | --- |
+| `default` or omitted | elder-terms default |
+| `noto:emoji_u1f44d` | Example Noto Color Emoji preset |
+| `material:action/home` | Example Material Icons preset |
+| `file:/home/user/Pictures/server.png` | PNG or JPEG at an absolute path |
 
 ## Finding a Host with IP Scan
 
@@ -635,7 +696,7 @@ Invalid values produce a warning and use the next valid inherited or built-in va
 
 ## Configuring Text Size
 
-"Text size (DIP)" on the "Terminal" tab sets the text size. A DIP is based on 1/96 inch; the default is 12 DIP.
+"Text size (DIP)" on the "Terminal appearance" tab sets the text size. A DIP is based on 1/96 inch; the default is 12 DIP.
 You can also use `Ctrl`+`=`, `Ctrl`+`-`, or the mouse wheel while holding `Ctrl`. The committed size is saved in the connection settings.
 Zooming preserves the row and column counts reported to the connection. Resizing the window manually reports the new counts.
 
@@ -646,7 +707,7 @@ font_size_dip=14.5
 
 ## Configuring the Cursor and Background
 
-Cursor, background, and color correction options are near the bottom of the "Terminal" tab.
+Cursor, background, and color correction options are on the "Terminal appearance" tab.
 They can inherit connection defaults or be overridden for each connection.
 "Apply" changes the current terminal; "Save" also keeps the settings for its next start.
 "Cancel" discards edits made since the last Apply. Previously applied changes remain active.
@@ -685,7 +746,7 @@ See [boxrig's background effects](https://github.com/kekyo/boxrig/blob/0.4.0/doc
 
 ## Improving Text Color Visibility
 
-Select "Improve visibility (Oklch)" under "Color filter" on the "Terminal" tab to improve contrast for text and markers that are difficult to distinguish from their background. All hues, including red, green, and blue, and neutral gray, black, and white are included.
+Select "Improve visibility (Oklch)" under "Color filter" on the "Terminal appearance" tab to improve contrast for text and markers that are difficult to distinguish from their background. All hues, including red, green, and blue, and neutral gray, black, and white are included.
 Oklch represents color using separate lightness, chroma, and hue components. This correction preserves hue and primarily adjusts lightness.
 Colors with a contrast ratio of at least 4.5:1 against the background are retained; only colors below that threshold are adjusted. Chroma is reduced when necessary to fit the displayable color range, and neutral colors remain neutral. The default is "No correction".
 Oklch alone leaves background colors unchanged. Background images, communication, copied text, and logs are also unchanged.
@@ -707,7 +768,7 @@ color_filter=oklch
 
 ## Helping Distinguish Colors
 
-Select Protan (P), Deutan (D), or Tritan (T) under "Color discrimination" on the "Terminal" tab.
+Select Protan (P), Deutan (D), or Tritan (T) under "Color discrimination" on the "Terminal appearance" tab.
 Recoloring represents information from difficult-to-distinguish colors using differences in other colors.
 The protan and deutan profiles primarily target red-green distinctions; the tritan profile primarily targets blue-yellow distinctions. The default is "No correction".
 
@@ -743,7 +804,7 @@ Accepted `color_vision` values are `none`, `protan`, `deutan`, and `tritan`.
 
 ## Configuring Font Families
 
-Scroll down on the "Terminal" tab to edit an ordered list of font families.
+Use the "Terminal appearance" tab to edit an ordered list of font families.
 Add or remove rows, and use the up/down buttons to change their priority.
 Each row accepts a family name or opens a font chooser.
 
@@ -762,7 +823,7 @@ Connection overrides replace the global list rather than extending it.
 Apply changes the current settings, Save persists them, and Cancel discards changes made since the last apply.
 
 These settings save only the font families; they do not include font size, weight, or style.
-Font size continues to follow "Zoom factor", `Ctrl`+`=`, `Ctrl`+`-`, or the mouse wheel while holding `Ctrl`.
+Font size follows "Text size (DIP)", `Ctrl`+`=`, `Ctrl`+`-`, or the mouse wheel while holding `Ctrl`.
 
 When editing the INI file directly, specify the values as follows:
 
@@ -783,6 +844,14 @@ In environments with a system tray, you can keep the launcher in the tray by ope
 selecting "Application settings", and setting "Startup mode" to "System tray only" or "System tray and main window".
 
 ![System tray](./images/system-tray.png)
+
+The tray's "Connections" submenu lists every saved connection with its icon and
+name. Connections with a hotkey also show a combination such as `Ctrl+Alt+X`.
+Select an entry to open it, regardless of whether it has a hotkey or registration
+succeeded. This also works while the launcher is hidden. Menu actions use saved
+settings; unsaved edits in the launcher are not passed to the new connection.
+Adding or deleting connections and saving changes to names, icons, or hotkeys
+updates the menu.
 
 The deb package and Meson installation install an XDG autostart entry that starts elder-terms when you log in to the desktop.
 Whether autostart shows the launcher and keeps it in the system tray follows "Startup mode" under "Application settings",
@@ -1166,16 +1235,21 @@ Rendering requires GTK3 3.24 or later, Pango 1.50 or later, Cairo 1.18 or later,
 
 ```bash
 sudo apt update
-sudo apt install build-essential git meson ninja-build pkg-config gettext \
+sudo apt install build-essential git meson ninja-build pkg-config gettext imagemagick \
   libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev libxfixes-dev \
-  libxkbcommon-dev liburing-dev libudev-dev libssh-dev libcurl4-openssl-dev \
+  libxkbcommon-dev liburing-dev libudev-dev libsystemd-dev libssh-dev libcurl4-openssl-dev \
   libcairo2-dev libpango1.0-dev libfontconfig1-dev libepoxy-dev libibus-1.0-dev \
   libwayland-dev libgl-dev libegl-dev libssl-dev libxml2-dev ca-certificates xdg-utils
 ```
 
 Node.js 22.18 or later is also required for
 [direct TypeScript execution](https://nodejs.org/docs/latest-v22.x/api/typescript.html).
-Check the installed version when using your distribution's package:
+
+Material Icons are rendered to PNG using ImageMagick's `convert` during the build.
+The generated images are included in the distribution; ImageMagick is not needed
+at runtime.
+
+Check the installed Node.js version when using your distribution's package:
 
 ```bash
 sudo apt install nodejs
@@ -1250,7 +1324,9 @@ The following package combinations are supported:
 Debian bookworm is excluded because its standard [Cairo 1.16](https://packages.debian.org/bookworm/libcairo2-dev) and [IBus 1.5.27](https://packages.debian.org/bookworm/libibus-1.0-dev) are below the rendering library's required versions.
 
 The host requires Podman, binfmt/QEMU for non-native targets, `dpkg-deb`,
-`readelf`, GNU Make, Node.js 22.18 or later, npm, and `npx`. Run `npm ci` first.
+`readelf`, GNU Make, Node.js 22.18 or later, npm, and `npx`.
+Preparing preset images also requires ImageMagick's `convert` and GLib's
+`glib-compile-resources`. Run `npm ci` first.
 From the repository root, generate the
 reusable prerequisite images once, then build packages for every combination:
 
@@ -1291,3 +1367,8 @@ dynamic-library resolution.
 ## License
 
 Under MIT.
+
+Bundled connection artwork and emoji names are covered by their respective
+licenses. See [artwork sources and licenses](./data/connection-icons/SOURCES.md).
+Distribution packages include the licenses and notices under
+`/usr/share/doc/elder-terms/licenses/connection-icons/`.
