@@ -8,6 +8,21 @@
 
 using namespace elder_terms;
 
+static bool reject_frame = false;
+static bool rejected_frame = false;
+
+extern "C" boxrig_ui_status __real_boxrig_gtk3_terminal_widget_frame(
+    BoxrigGtk3TerminalWidget *, boxrig_ui_component_frame_result *);
+extern "C" boxrig_ui_status __wrap_boxrig_gtk3_terminal_widget_frame(
+    BoxrigGtk3TerminalWidget *widget, boxrig_ui_component_frame_result *result) {
+  if (reject_frame) {
+    reject_frame = false;
+    rejected_frame = true;
+    return BOXRIG_UI_OUT_OF_MEMORY;
+  }
+  return __real_boxrig_gtk3_terminal_widget_frame(widget, result);
+}
+
 struct Fixture {
   MainWindow *window;
   TerminalPresentation *presentation;
@@ -41,7 +56,7 @@ static void key(Fixture *fixture, guint symbol, GdkEventType type, guint modifie
   expect(handled, "native terminal accepts the key event");
 }
 
-static void mouse(Fixture *fixture, GdkEventType type, double column, double row, guint modifiers) {
+static void mouse(Fixture *fixture, GdkEventType type, double column, double row, guint modifiers, guint button = GDK_BUTTON_PRIMARY) {
   auto *widget = terminal_runtime_widget(fixture->window->runtime);
   boxrig_font_effective_metrics metrics{};
   expect(boxrig_gtk3_terminal_widget_get_effective_metrics(widget, &metrics) == BOXRIG_FONT_CATALOG_OK, "mouse metrics");
@@ -65,7 +80,7 @@ static void mouse(Fixture *fixture, GdkEventType type, double column, double row
     event.send_event = TRUE;
     event.x = x;
     event.y = y;
-    event.button = 1;
+    event.button = button;
     event.state = modifiers;
     g_signal_emit_by_name(widget, type == GDK_BUTTON_RELEASE ? "button-release-event" : "button-press-event", &event, &handled);
   }
@@ -442,6 +457,139 @@ static cardio::promise<void> scroll_scenarios(Fixture *fixture) {
   expect(terminal_runtime_feed(runtime, "\033[?1049l\033[?1007l"), "restore primary screen");
 }
 
+static cardio::promise<void> observe_main_loop(Fixture *fixture) {
+  struct Progress { Fixture *fixture; int ticks = 0; } progress{fixture};
+  // Observe delivered main-loop callbacks rather than sleeping or assuming a
+  // frame rate. A running animation need not become globally idle.
+  g_timeout_add_full(G_PRIORITY_DEFAULT, 50, +[](gpointer context) -> gboolean {
+    auto *progress = static_cast<Progress *>(context);
+    const bool done = ++progress->ticks == 4;
+    progress->fixture->changed.trigger();
+    return done ? G_SOURCE_REMOVE : G_SOURCE_CONTINUE;
+  }, &progress, nullptr);
+  while (progress.ticks < 4)
+    co_await fixture->changed.wait();
+}
+
+static cardio::promise<void> autoscroll_scenarios(Fixture *fixture) {
+  auto *runtime = fixture->window->runtime;
+  auto *terminal = boxrig_ui_model_terminal(boxrig_ui_view_model(view(fixture)));
+  for (const auto modifier : {GDK_SHIFT_MASK, GDK_CONTROL_MASK}) {
+    for (const auto ending : {0, 1, 2, 3, 4, 5, 6, 7, 8}) {
+      std::string history = "\033[3J\033[2J\033[H";
+      for (int row = 0; row != 200; ++row) history += std::to_string(1000 + row) + " alpha beta" + (row == 199 ? "" : "\r\n");
+      expect(terminal_runtime_feed(runtime, history), "prepare autoscroll history");
+      while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+      boxrig_scrollbar_model initial{};
+      expect(boxrig_scrollbar_model_read(terminal, &initial) == 0, "initial autoscroll position");
+      mouse(fixture, GDK_BUTTON_PRESS, 0.1, 1.5, modifier);
+      mouse(fixture, GDK_MOTION_NOTIFY, 3.9, -3.5, GDK_BUTTON1_MASK);
+      co_await observe_main_loop(fixture);
+      boxrig_scrollbar_model moving{};
+      expect(boxrig_scrollbar_model_read(terminal, &moving) == 0 && moving.position < initial.position,
+          "a held pointer above the grid continuously scrolls history");
+      if (modifier == GDK_CONTROL_MASK) {
+        mouse(fixture, GDK_MOTION_NOTIFY, 0.1, -3.5, GDK_BUTTON1_MASK);
+        boxrig_ui_selection empty{};
+        while (!boxrig_ui_view_get_selection(view(fixture), &empty) || empty.row_count != 0)
+          co_await fixture->changed.wait();
+        expect(boxrig_ui_view_get_selection(view(fixture), &empty) && empty.row_count == 0,
+            "autoscroll retains an empty rectangle");
+        co_await observe_main_loop(fixture);
+        boxrig_scrollbar_model empty_moving{};
+        expect(boxrig_scrollbar_model_read(terminal, &empty_moving) == 0 && empty_moving.position < moving.position,
+            "autoscroll continues while rectangle width is zero");
+        mouse(fixture, GDK_MOTION_NOTIFY, 3.9, -3.5, GDK_BUTTON1_MASK);
+        while (!boxrig_ui_view_get_selection(view(fixture), &empty) || empty.row_count == 0)
+          co_await fixture->changed.wait();
+        expect(selected_text(fixture).find('\n') != std::string::npos, "empty autoscroll rectangle grows again");
+      }
+      gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), "autoscroll primary", -1);
+      if (ending == 0) mouse(fixture, GDK_BUTTON_RELEASE, 3.9, -3.5, GDK_BUTTON1_MASK);
+      else if (ending == 1) {
+        key(fixture, GDK_KEY_Escape, GDK_KEY_PRESS, 0);
+        key(fixture, GDK_KEY_Escape, GDK_KEY_RELEASE, 0);
+      } else if (ending == 2) {
+        GdkEventFocus focus{};
+        focus.type = GDK_FOCUS_CHANGE;
+        focus.window = gtk_widget_get_window(GTK_WIDGET(terminal_runtime_widget(runtime)));
+        focus.in = FALSE;
+        gboolean handled = FALSE;
+        g_signal_emit_by_name(terminal_runtime_widget(runtime), "focus-out-event", &focus, &handled);
+      } else if (ending == 3) {
+        expect(terminal_runtime_feed(runtime, "\033[3J\033[2J\033[Hinvalidated"), "evict autoscroll selection text");
+      } else if (ending == 4) {
+        expect(terminal_runtime_visual_zoom(runtime, BOXRIG_FONT_ZOOM_INCREASE) == BOXRIG_UI_OK, "zoom invalidates an active gesture");
+      } else if (ending == 5) {
+        boxrig_ui_layout_result layout{};
+        expect(boxrig_ui_view_get_layout(view(fixture), &layout) == BOXRIG_UI_OK, "grid before gesture invalidation");
+        expect(terminal_runtime_set_preferred_grid(runtime, layout.rows, layout.columns - 1) == BOXRIG_UI_OK,
+            "column change invalidates an active gesture");
+      } else if (ending == 6) {
+        gtk_widget_hide(fixture->window->window);
+        gtk_widget_show(fixture->window->window);
+      } else if (ending == 7) {
+        terminal_runtime_request_input_enabled(runtime, false);
+      } else {
+        mouse(fixture, GDK_BUTTON_PRESS, 3.9, 1.5, GDK_BUTTON1_MASK, GDK_BUTTON_SECONDARY);
+        mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 1.5, GDK_BUTTON1_MASK | GDK_BUTTON3_MASK, GDK_BUTTON_SECONDARY);
+        co_await observe_main_loop(fixture);
+        auto *menu = gtk_grab_get_current();
+        expect(menu && GTK_IS_MENU(menu) && gtk_widget_get_visible(menu),
+            "right click during a held selection opens the context menu on release");
+        gtk_menu_popdown(GTK_MENU(menu));
+      }
+      // Focus loss disables the simple IM context, so use state notifications
+      // instead of the keyboard barrier until focus is restored.
+      while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+      boxrig_scrollbar_model stopped{};
+      expect(boxrig_scrollbar_model_read(terminal, &stopped) == 0, "position at gesture end");
+      co_await observe_main_loop(fixture);
+      boxrig_scrollbar_model after{};
+      boxrig_scrollbar_model_read(terminal, &after);
+      if (after.position != stopped.position)
+        g_printerr("autoscroll ending=%d changed position from %zu to %zu\n", ending, stopped.position, after.position);
+      expect(boxrig_scrollbar_model_read(terminal, &after) == 0 && after.position == stopped.position,
+          "gesture endings, focus, text, font, grid, mapping and input inhibition stop autoscroll");
+      if (ending != 0) {
+        mouse(fixture, GDK_MOTION_NOTIFY, 8.9, -3.5, GDK_BUTTON1_MASK);
+        mouse(fixture, GDK_BUTTON_RELEASE, 8.9, -3.5, GDK_BUTTON1_MASK);
+        co_await observe_main_loop(fixture);
+        while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+        expect(co_await clipboard(GDK_SELECTION_PRIMARY) == "autoscroll primary", "cancelled autoscroll never copies on release");
+      }
+      if (ending == 2) {
+        expect(selected(fixture), "focus loss retains the displayed selection");
+        GdkEventFocus focus{};
+        focus.type = GDK_FOCUS_CHANGE;
+        focus.window = gtk_widget_get_window(GTK_WIDGET(terminal_runtime_widget(runtime)));
+        focus.in = TRUE;
+        gboolean handled = FALSE;
+        g_signal_emit_by_name(terminal_runtime_widget(runtime), "focus-in-event", &focus, &handled);
+      }
+      if (ending == 4) {
+        bool changed = false;
+        expect(boxrig_gtk3_terminal_widget_visual_zoom_reset(terminal_runtime_widget(runtime), &changed) == BOXRIG_UI_OK,
+            "restore font after cancellation");
+        terminal_runtime_refresh(runtime);
+      } else if (ending == 5) {
+        boxrig_ui_layout_result layout{};
+        expect(boxrig_ui_view_get_layout(view(fixture), &layout) == BOXRIG_UI_OK, "grid after cancellation");
+        expect(terminal_runtime_set_preferred_grid(runtime, layout.rows, layout.columns + 1) == BOXRIG_UI_OK, "restore columns");
+      } else if (ending == 6) {
+        gtk_widget_grab_focus(GTK_WIDGET(terminal_runtime_widget(runtime)));
+        GdkEventFocus focus{};
+        focus.type = GDK_FOCUS_CHANGE;
+        focus.window = gtk_widget_get_window(GTK_WIDGET(terminal_runtime_widget(runtime)));
+        focus.in = TRUE;
+        gboolean handled = FALSE;
+        g_signal_emit_by_name(terminal_runtime_widget(runtime), "focus-in-event", &focus, &handled);
+      } else if (ending == 7) terminal_runtime_request_input_enabled(runtime, true);
+      while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    }
+  }
+}
+
 static cardio::promise<void> scenarios(Fixture *fixture) {
   auto *runtime = fixture->window->runtime;
   TerminalTransportRequest request;
@@ -540,6 +688,7 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   }
   co_await click_scenarios(fixture);
   co_await scroll_scenarios(fixture);
+  co_await autoscroll_scenarios(fixture);
   while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
   select(fixture, BOXRIG_UI_SELECTION_RECTANGULAR, false);
   auto *composition = boxrig_gtk3_terminal_widget_composition(terminal_runtime_widget(runtime));
@@ -565,12 +714,75 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
       "selection routing does not discard or duplicate the accepted commit");
   expect(terminal_runtime_route_selection_key(runtime, escape) == BOXRIG_INPUT_KEY_ROUTE_APPLICATION && !selected(fixture),
       "selection cancellation resumes after commit delivery");
+
+  auto *terminal = boxrig_ui_model_terminal(boxrig_ui_view_model(view(fixture)));
+  for (const bool fail : {false, true}) {
+    std::string history = "\033[3J\033[2J\033[H";
+    for (int row = 0; row != 200; ++row) history += "retained history" + std::string(row == 199 ? "" : "\r\n");
+    expect(terminal_runtime_feed(runtime, history), "prepare selection before connection lifecycle changes");
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 1.5, GDK_CONTROL_MASK);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, -3.5, GDK_BUTTON1_MASK);
+    co_await observe_main_loop(fixture);
+    boxrig_scrollbar_model moving{};
+    expect(boxrig_scrollbar_model_read(terminal, &moving) == 0 && moving.position < moving.history_rows,
+        "autoscroll is running before disconnect or view failure");
+    gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), "lifecycle primary", -1);
+    auto *previous = terminal_runtime_widget(runtime);
+    g_object_ref(previous);
+    if (fail) {
+      reject_frame = true;
+      boxrig_ui_view_invalidate_colors(view(fixture));
+      while (!rejected_frame) co_await fixture->changed.wait();
+    }
+    co_await terminal_runtime_disconnect(runtime);
+    boxrig_scrollbar_model stopped{};
+    expect(boxrig_scrollbar_model_read(terminal, &stopped) == 0, "position after disconnect");
+    co_await observe_main_loop(fixture);
+    boxrig_scrollbar_model after{};
+    expect(boxrig_scrollbar_model_read(terminal, &after) == 0 && after.position == stopped.position,
+        "disconnect or view failure removes the active scroll callback");
+    expect(terminal_runtime_connect_local(runtime, {{"/bin/cat"}}), "reconnect after cancelled autoscroll");
+    if (fail) expect(terminal_runtime_widget(runtime) != previous, "view failure replaces the native widget");
+    while (terminal_runtime_connection_state(runtime).phase != TerminalConnectionPhase::connected ||
+        !terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    expect(boxrig_ui_model_terminal(boxrig_ui_view_model(view(fixture))) == terminal, "view replacement retains the terminal core");
+    boxrig_scrollbar_model reconnected{};
+    expect(boxrig_scrollbar_model_read(terminal, &reconnected) == 0, "position after reconnect");
+    co_await observe_main_loop(fixture);
+    expect(boxrig_scrollbar_model_read(terminal, &after) == 0 && after.position == reconnected.position &&
+        co_await clipboard(GDK_SELECTION_PRIMARY) == "lifecycle primary",
+        "the retired gesture cannot scroll or copy into the replacement view");
+    g_object_unref(previous);
+  }
 }
 
 static cardio::promise<void> run(Fixture *fixture, std::exception_ptr *failure) {
-  try { co_await scenarios(fixture); }
+  try {
+    co_await scenarios(fixture);
+    co_await terminal_runtime_disconnect(fixture->window->runtime);
+    auto *terminal = boxrig_ui_model_terminal(boxrig_ui_view_model(view(fixture)));
+    boxrig_scrollbar_model before{};
+    expect(boxrig_scrollbar_model_read(terminal, &before) == 0, "history before destruction");
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 1.5, GDK_CONTROL_MASK);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, -3.5, GDK_BUTTON1_MASK);
+    co_await observe_main_loop(fixture);
+    boxrig_scrollbar_model moving{};
+    expect(boxrig_scrollbar_model_read(terminal, &moving) == 0 && moving.position < before.position,
+        "a disconnected terminal can still select retained history before destruction");
+    terminal_runtime_set_changed_callback(fixture->window->runtime, nullptr, nullptr);
+    terminal_runtime_set_host_callbacks(fixture->window->runtime, {});
+    destroy_terminal_presentation(fixture->presentation);
+    fixture->presentation = nullptr;
+    destroy_terminal_runtime(fixture->window->runtime);
+    fixture->window->runtime = nullptr;
+    fixture->window->terminal = nullptr;
+    // Deliver more main-loop callbacks after destroying an actively scrolling
+    // widget. G_DEBUG=fatal-criticals also diagnoses late GTK object access.
+    co_await observe_main_loop(fixture);
+  }
   catch (...) { *failure = std::current_exception(); }
-  co_await terminal_runtime_disconnect(fixture->window->runtime);
+  if (fixture->window->runtime) co_await terminal_runtime_disconnect(fixture->window->runtime);
   gtk_main_quit();
 }
 
@@ -597,10 +809,12 @@ extern "C" int __wrap_main(int argc, char **argv) {
   std::exception_ptr failure;
   auto completion = run(&fixture, &failure);
   gtk_main();
-  terminal_runtime_set_changed_callback(window->runtime, nullptr, nullptr);
-  terminal_runtime_set_host_callbacks(window->runtime, {});
-  destroy_terminal_presentation(fixture.presentation);
-  destroy_terminal_runtime(window->runtime);
+  if (window->runtime) {
+    terminal_runtime_set_changed_callback(window->runtime, nullptr, nullptr);
+    terminal_runtime_set_host_callbacks(window->runtime, {});
+    destroy_terminal_presentation(fixture.presentation);
+    destroy_terminal_runtime(window->runtime);
+  }
   window->runtime = nullptr;
   window->terminal = nullptr;
   gtk_widget_destroy(window->window);

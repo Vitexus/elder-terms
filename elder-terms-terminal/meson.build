@@ -220,7 +220,7 @@ selection_state_test = executable('terminal-selection-state-test',
   dependencies: [cardio_dep, elder_terms_dep, canberra_dep, gio_dep, gtk_dep,
     liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep, boxrig_background_dep],
   link_with: libxyzm_async_static_library,
-  link_args: ['-Wl,--wrap=main'])
+  link_args: ['-Wl,--wrap=main', '-Wl,--wrap=boxrig_gtk3_terminal_widget_frame'])
 foreach backend : ['cairo', 'opengl']
   foreach scale : ['1', '2']
     appearance_env = ['GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals',

@@ -84,6 +84,16 @@ struct TerminalRuntime {
   std::optional<std::pair<boxrig_ui_fixed, boxrig_ui_fixed>> selection_pointer;
   bool selection_scroll_pending = false;
   bool selection_release_pending = false;
+  bool selection_left_down = false;
+  guint selection_scroll_source = 0;
+  GdkWindow *selection_event_window = nullptr;
+  bool selection_event_compression = true;
+  std::uint64_t selection_metrics_revision = 0;
+  std::size_t selection_grid_rows = 0;
+  std::size_t selection_grid_columns = 0;
+  std::uint64_t selection_connection_generation = 0;
+  TerminalConnectionPhase selection_connection_phase = TerminalConnectionPhase::idle;
+  std::uint64_t selection_carrier_losses = 0;
   std::uint64_t allocation_generation = 0;
   std::uint64_t command_allocation = 0;
   boxrig_ui_layout_action size_command{};
@@ -166,12 +176,89 @@ static bool selecting(const TerminalRuntime *runtime) {
   return runtime->selection_phase == SelectionPhase::pending || runtime->selection_phase == SelectionPhase::dragging;
 }
 
+static void stop_selection_scroll(TerminalRuntime *runtime) {
+  if (runtime->selection_scroll_source) g_source_remove(runtime->selection_scroll_source);
+  runtime->selection_scroll_source = 0;
+}
+
+static void restore_pointer_delivery(TerminalRuntime *runtime) {
+  if (!runtime->selection_event_window) return;
+  gdk_window_set_event_compression(runtime->selection_event_window, runtime->selection_event_compression);
+  g_clear_object(&runtime->selection_event_window);
+}
+
+static void cancel_selection_gesture(TerminalRuntime *runtime) {
+  stop_selection_scroll(runtime);
+  restore_pointer_delivery(runtime);
+  if (selecting(runtime)) runtime->selection_phase = runtime->selection_left_down ? SelectionPhase::cancelled : SelectionPhase::idle;
+  runtime->selection_press = {};
+  runtime->selection_pointer.reset();
+  runtime->selection_scroll_pending = false;
+  runtime->selection_release_pending = false;
+}
+
+static gboolean selection_native_event(GtkWidget *, GdkEvent *event, gpointer context) {
+  auto *runtime = static_cast<TerminalRuntime *>(context);
+  if (event->type == GDK_BUTTON_PRESS && event->button.button == GDK_BUTTON_PRIMARY) {
+    if (runtime->selection_release_pending) cancel_selection_gesture(runtime);
+    restore_pointer_delivery(runtime);
+    runtime->selection_event_window = GDK_WINDOW(g_object_ref(event->any.window));
+    runtime->selection_event_compression = gdk_window_get_event_compression(event->any.window);
+    // Deliver the final motion even when it leaves the terminal's event
+    // window and no further paint or input arrives to flush GDK compression.
+    gdk_window_set_event_compression(event->any.window, FALSE);
+  } else if (event->type == GDK_BUTTON_RELEASE && event->button.button == GDK_BUTTON_PRIMARY) {
+    restore_pointer_delivery(runtime);
+  }
+  return FALSE;
+}
+
+static void validate_selection_gesture(TerminalRuntime *runtime) {
+  if (!selecting(runtime)) return;
+  auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  boxrig_font_effective_metrics metrics{};
+  boxrig_ui_layout_result layout{};
+  const auto connection = terminal_connection_state(runtime->connection);
+  bool valid = boxrig_gtk3_terminal_widget_get_effective_metrics(runtime->widget, &metrics) == BOXRIG_FONT_CATALOG_OK &&
+      boxrig_ui_view_get_layout(view, &layout) == BOXRIG_UI_OK &&
+      metrics.layout_revision == runtime->selection_metrics_revision && layout.rows == runtime->selection_grid_rows &&
+      layout.columns == runtime->selection_grid_columns && connection.generation == runtime->selection_connection_generation &&
+      connection.phase == runtime->selection_connection_phase && connection.carrier_losses == runtime->selection_carrier_losses;
+  if (runtime->selection_phase == SelectionPhase::dragging) {
+    boxrig_ui_selection selection{};
+    valid = valid && boxrig_ui_view_get_selection(view, &selection) && !selection.stale;
+  } else {
+    std::size_t count = 0;
+    const auto status = boxrig_ui_view_query_text_annotation_hits(view, &runtime->selection_press.hit,
+        BOXRIG_UI_ANNOTATION_HIT_ALL, nullptr, 0, &count, nullptr);
+    valid = valid && (status == BOXRIG_UI_OK || status == BOXRIG_UI_LIMIT_EXCEEDED);
+  }
+  if (!valid) cancel_selection_gesture(runtime);
+}
+
+static gboolean selection_focus_left(GtkWidget *, GdkEventFocus *, gpointer context) {
+  cancel_selection_gesture(static_cast<TerminalRuntime *>(context));
+  return FALSE;
+}
+
+static gboolean selection_grab_broken(GtkWidget *, GdkEventGrabBroken *, gpointer context) {
+  cancel_selection_gesture(static_cast<TerminalRuntime *>(context));
+  return FALSE;
+}
+
+static void selection_unmapped(GtkWidget *, gpointer context) {
+  cancel_selection_gesture(static_cast<TerminalRuntime *>(context));
+}
+
+static void schedule_selection_scroll(TerminalRuntime *runtime);
+
 static int pointer_dip(boxrig_ui_fixed coordinate, int scale) {
   return static_cast<int>(std::clamp<boxrig_ui_fixed>(coordinate / BOXRIG_UI_FIXED_ONE / scale,
       std::numeric_limits<int>::min(), std::numeric_limits<int>::max()));
 }
 
 static boxrig_ui_status finish_selection(TerminalRuntime *runtime) {
+  stop_selection_scroll(runtime);
   runtime->selection_phase = SelectionPhase::idle;
   runtime->selection_scroll_pending = false;
   runtime->selection_release_pending = false;
@@ -195,9 +282,7 @@ static boxrig_ui_status update_selection_endpoint(TerminalRuntime *runtime) {
   if (!endpoint.text_position_valid) return BOXRIG_UI_OK;
   status = boxrig_ui_view_update_selection(view, &endpoint);
   if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) {
-    runtime->selection_phase = runtime->selection_release_pending ? SelectionPhase::idle : SelectionPhase::cancelled;
-    runtime->selection_release_pending = false;
-    runtime->selection_scroll_pending = false;
+    cancel_selection_gesture(runtime);
     return BOXRIG_UI_OK;
   }
   return status;
@@ -214,6 +299,7 @@ static bool update_scrolled_selection(TerminalRuntime *runtime) {
   runtime->selection_scroll_pending = false;
   if (update_selection_endpoint(runtime) != BOXRIG_UI_OK) return false;
   if (runtime->selection_release_pending && finish_selection(runtime) != BOXRIG_UI_OK) return false;
+  schedule_selection_scroll(runtime);
   request_frame(runtime);
   return true;
 }
@@ -227,10 +313,50 @@ static boxrig_ui_status scroll_selection(TerminalRuntime *runtime, bool up, std:
   const auto status = boxrig_ui_view_apply_scrollbar_action(boxrig_gtk3_terminal_widget_view(runtime->widget),
       BOXRIG_SCROLLBAR_POSITION, position, &changed);
   if (status == BOXRIG_UI_OK && changed) {
+    stop_selection_scroll(runtime);
     runtime->selection_scroll_pending = true;
     request_frame(runtime);
   }
   return status;
+}
+
+static std::optional<std::pair<bool, std::size_t>> selection_scroll_step(TerminalRuntime *runtime) {
+  if (runtime->selection_phase != SelectionPhase::dragging || runtime->selection_release_pending ||
+      runtime->selection_scroll_pending || !runtime->selection_pointer || runtime->stopped) return std::nullopt;
+  boxrig_ui_layout_result layout{};
+  boxrig_scrollbar_model model{};
+  if (boxrig_ui_view_get_layout(boxrig_gtk3_terminal_widget_view(runtime->widget), &layout) != BOXRIG_UI_OK ||
+      layout.rows == 0 || layout.grid_height <= 0 || boxrig_scrollbar_model_read(runtime->terminal, &model) != 0 ||
+      !model.enabled) return std::nullopt;
+  const auto y = runtime->selection_pointer->second;
+  const bool up = y < 0;
+  if ((!up && y < layout.grid_height) || (up ? model.position == 0 : model.position == model.history_rows)) return std::nullopt;
+  const auto cell_height = layout.grid_height / static_cast<boxrig_ui_fixed>(layout.rows);
+  const auto distance = up ? -std::max(y, -layout.grid_height) : std::min(y - layout.grid_height, layout.grid_height);
+  const auto rows = std::clamp<std::size_t>(1 + distance / cell_height, 1, 6);
+  return std::pair{up, rows};
+}
+
+static gboolean selection_scroll_tick(gpointer context) {
+  auto *runtime = static_cast<TerminalRuntime *>(context);
+  runtime->selection_scroll_source = 0;
+  validate_selection_gesture(runtime);
+  if (const auto step = selection_scroll_step(runtime)) {
+    const auto status = scroll_selection(runtime, step->first, step->second);
+    if (status != BOXRIG_UI_OK) {
+      g_warning("boxrig selection scroll failed: %d", status);
+      cancel_selection_gesture(runtime);
+    }
+  }
+  // A successful move resumes scheduling from its presentation notification.
+  // At a history boundary there is no further source to remove or poll.
+  return G_SOURCE_REMOVE;
+}
+
+static void schedule_selection_scroll(TerminalRuntime *runtime) {
+  if (!selection_scroll_step(runtime)) stop_selection_scroll(runtime);
+  else if (!runtime->selection_scroll_source)
+    runtime->selection_scroll_source = g_timeout_add_full(G_PRIORITY_DEFAULT, 50, selection_scroll_tick, runtime, nullptr);
 }
 
 static std::optional<TerminalHyperlinkResolution> released_link(
@@ -255,10 +381,19 @@ static boxrig_input_mouse_route route_mouse(
     void *context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  const bool press = event->action == BOXRIG_MOUSE_PRESS && event->button == BOXRIG_MOUSE_BUTTON_LEFT;
+  const bool release = event->action == BOXRIG_MOUSE_RELEASE && event->button == BOXRIG_MOUSE_BUTTON_LEFT;
+  if (press && runtime->selection_release_pending) cancel_selection_gesture(runtime);
+  if (press) runtime->selection_left_down = true;
+  if (release) runtime->selection_left_down = false;
+  const bool other_button = event->button == BOXRIG_MOUSE_BUTTON_MIDDLE || event->button == BOXRIG_MOUSE_BUTTON_RIGHT;
+  if (other_button && event->action == BOXRIG_MOUSE_PRESS) cancel_selection_gesture(runtime);
   if (runtime->selection_phase == SelectionPhase::cancelled) {
-    if (event->action == BOXRIG_MOUSE_RELEASE && event->button == BOXRIG_MOUSE_BUTTON_LEFT)
+    // Focus loss may prevent delivery of the old release. A fresh press is
+    // a new physical gesture; motion alone can never resume the cancelled one.
+    if (release || press)
       runtime->selection_phase = SelectionPhase::idle;
-    return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
+    if (!press && !other_button) return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
   }
   const bool wheel = event->action == BOXRIG_MOUSE_PRESS &&
       (event->button == BOXRIG_MOUSE_BUTTON_WHEEL_UP || event->button == BOXRIG_MOUSE_BUTTON_WHEEL_DOWN);
@@ -275,8 +410,6 @@ static boxrig_input_mouse_route route_mouse(
     runtime->pointer_position = {hit->x, hit->y};
     update_link_cursor(runtime, *hit);
   }
-  const bool release = event->action == BOXRIG_MOUSE_RELEASE &&
-                       event->button == BOXRIG_MOUSE_BUTTON_LEFT;
   if (runtime->selection_release_pending && event->action == BOXRIG_MOUSE_MOTION)
     return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
   if (runtime->selection_phase == SelectionPhase::pending) {
@@ -322,6 +455,7 @@ static boxrig_input_mouse_route route_mouse(
         return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
       }
     }
+    schedule_selection_scroll(runtime);
     request_frame(runtime);
     return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
   }
@@ -331,6 +465,17 @@ static boxrig_input_mouse_route route_mouse(
   if (boxrig_terminal_mouse_reporting_enabled(runtime->terminal) && !override)
     return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
   if (event->button == BOXRIG_MOUSE_BUTTON_LEFT && hit->text_position_valid) {
+    boxrig_font_effective_metrics metrics{};
+    boxrig_ui_layout_result layout{};
+    if (boxrig_gtk3_terminal_widget_get_effective_metrics(runtime->widget, &metrics) != BOXRIG_FONT_CATALOG_OK ||
+        boxrig_ui_view_get_layout(view, &layout) != BOXRIG_UI_OK) return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+    runtime->selection_metrics_revision = metrics.layout_revision;
+    runtime->selection_grid_rows = layout.rows;
+    runtime->selection_grid_columns = layout.columns;
+    const auto connection = terminal_connection_state(runtime->connection);
+    runtime->selection_connection_generation = connection.generation;
+    runtime->selection_connection_phase = connection.phase;
+    runtime->selection_carrier_losses = connection.carrier_losses;
     runtime->selection_pointer = {hit->x, hit->y};
     runtime->selection_scroll_pending = false;
     runtime->selection_release_pending = false;
@@ -394,6 +539,7 @@ static bool ui_result(boxrig_ui_status status, const char *operation) {
 }
 
 static void fail_ui(TerminalRuntime *runtime) {
+  cancel_selection_gesture(runtime);
   boxrig_ui_component_diagnostic diagnostic{};
   if (boxrig_gtk3_terminal_widget_get_diagnostic(runtime->widget, &diagnostic) == BOXRIG_UI_OK)
     g_warning("boxrig component failed: reason=%d input=%zu/%zu authority=%d",
@@ -818,6 +964,7 @@ static gboolean dispatch_frame(gpointer context) {
     if (boxrig_gtk3_terminal_widget_hit_test(runtime->widget, runtime->pointer_position->first,
         runtime->pointer_position->second, &hit) == BOXRIG_UI_OK) update_link_cursor(runtime, hit);
   }
+  validate_selection_gesture(runtime);
   if (!update_scrolled_selection(runtime)) {
     fail_ui(runtime);
     return G_SOURCE_REMOVE;
@@ -925,6 +1072,7 @@ static bool attach_widget(TerminalRuntime *runtime) {
   }
   g_object_ref_sink(scroll);
   if (previous_widget) {
+    cancel_selection_gesture(runtime);
     if (runtime->links) terminal_links_attach_view(runtime->links.get(), nullptr);
     g_signal_handlers_disconnect_by_data(previous_widget, runtime);
     gtk_widget_destroy(GTK_WIDGET(previous_widget));
@@ -944,6 +1092,7 @@ static bool attach_widget(TerminalRuntime *runtime) {
   runtime->selection_pointer.reset();
   runtime->selection_scroll_pending = false;
   runtime->selection_release_pending = false;
+  runtime->selection_left_down = false;
   runtime->widget_allocated = false;
   runtime->pending_input = runtime->applied_input;
   gtk_box_pack_start(runtime->attachment, scroll, TRUE, TRUE, 0);
@@ -951,6 +1100,10 @@ static bool attach_widget(TerminalRuntime *runtime) {
   g_signal_connect_after(widget, "draw", G_CALLBACK(drawn), runtime);
   gtk_widget_add_events(GTK_WIDGET(widget), GDK_LEAVE_NOTIFY_MASK);
   g_signal_connect(widget, "leave-notify-event", G_CALLBACK(pointer_left), runtime);
+  g_signal_connect(widget, "event", G_CALLBACK(selection_native_event), runtime);
+  g_signal_connect(widget, "focus-out-event", G_CALLBACK(selection_focus_left), runtime);
+  g_signal_connect(widget, "grab-broken-event", G_CALLBACK(selection_grab_broken), runtime);
+  g_signal_connect(widget, "unmap", G_CALLBACK(selection_unmapped), runtime);
   g_signal_connect(widget, "size-allocate", G_CALLBACK(terminal_allocated), runtime);
   size_t rows = 0, columns = 0;
   boxrig_terminal_size(runtime->terminal, &rows, &columns);
@@ -1003,6 +1156,7 @@ TerminalRuntime *create_terminal_runtime(GtkWindow *window, GtkBox *content, Gtk
 void destroy_terminal_runtime(TerminalRuntime *runtime) {
   if (!runtime) return;
   runtime->stopped = true;
+  cancel_selection_gesture(runtime);
   runtime->links.reset();
   runtime->macros.reset();
   if (runtime->frame_source) g_source_remove(runtime->frame_source);
@@ -1040,11 +1194,7 @@ boxrig_input_key_route terminal_runtime_route_selection_key(TerminalRuntime *run
   if (!boxrig_ui_view_get_selection(view, &selection) && !selecting(runtime))
     return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
   if (boxrig_ui_view_clear_selection(view) != BOXRIG_UI_OK) return BOXRIG_INPUT_KEY_ROUTE_ERROR;
-  if (selecting(runtime)) runtime->selection_phase = runtime->selection_release_pending ? SelectionPhase::idle : SelectionPhase::cancelled;
-  runtime->selection_press = {};
-  runtime->selection_pointer.reset();
-  runtime->selection_scroll_pending = false;
-  runtime->selection_release_pending = false;
+  cancel_selection_gesture(runtime);
   request_frame(runtime);
   return BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
 }
@@ -1170,6 +1320,7 @@ bool terminal_runtime_connect_transport(TerminalRuntime *runtime, TerminalTransp
 }
 
 cardio::promise<void> terminal_runtime_disconnect(TerminalRuntime *runtime) {
+  cancel_selection_gesture(runtime);
   runtime->pending_connection.reset();
   runtime->recovery_request.reset();
   runtime->recovery_stop.cancel();
@@ -1323,6 +1474,7 @@ bool terminal_runtime_send_break(TerminalRuntime *runtime, TerminalBreakRequest 
 }
 
 void terminal_runtime_request_input_enabled(TerminalRuntime *runtime, bool enabled) {
+  if (!enabled) cancel_selection_gesture(runtime);
   runtime->input_allowed = enabled;
   request_frame(runtime);
 }
