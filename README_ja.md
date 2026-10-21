@@ -228,12 +228,14 @@ Material Iconsは「図柄の色」で黒または白を選べます。背景は
 X11ではGTKへ複数サイズの画像を渡し、Waylandでは公開APIと`xdg-toplevel-icon-v1`に対応する環境へ送信します。
 対応しない環境でもタイトルバーと接続一覧を利用できます。
 ドックなどでの表示はデスクトップ環境にも依存します。[GTKのアイコン仕様](https://docs.gtk.org/gtk3/method.Window.set_icon_list.html)も参照してください。
-Ubuntu GNOME 46の確認では、起動中に画像だけを適用してもドックが以前の画像を保持する場合がありました。
-その場合は設定を保存して接続を開き直してください。初回表示と再起動時の反映を確認しています。
+Ubuntu GNOME 46では、画像変更後の最初の起動でも、接続を開き直さずにドック画像が更新されることを確認しています。
+[GNOMEのキャッシュ更新](https://github.com/GNOME/gnome-shell/blob/46.0/src/shell-app-cache.c)を待つ間は、数秒ほど以前の画像が表示される場合があります。
+更新前の画像参照がGNOMEに残っている場合は、この修正を導入した直後の1回だけ接続ウインドウを開き直してください。
+以後の画像変更では、開き直す必要はありません。
 
-ドック連携用のファイルは、`$XDG_DATA_HOME/applications/`と`$XDG_DATA_HOME/elder-terms/connection-icons/`へ生成します。
+ドック連携用のファイルは、`$XDG_DATA_HOME/applications/`と`$XDG_DATA_HOME/icons/hicolor/256x256/apps/`へ生成します。
 `XDG_DATA_HOME`が未指定なら、通常は`~/.local/share/`が保存先です。
-実行中のウインドウやドックへの固定を保つため、古い画像と生成したdesktopファイルは接続の削除後も残します。
+実行中のウインドウやドックへの固定を保つため、生成した画像とdesktopファイルは接続の削除後も残します。
 削除済み接続の固定アイコンから起動するとエラーになり、同名の別接続を開くことはありません。
 
 INIファイルの`[general] icon`には、次の形式で指定します。

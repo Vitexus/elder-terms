@@ -1,6 +1,7 @@
 #include <elder-terms/connection-desktop.h>
 
 #include <gio/gio.h>
+#include <algorithm>
 #include <map>
 #include <stdexcept>
 #include <utility>
@@ -69,9 +70,8 @@ static std::string desktop_command(const std::vector<std::string> &arguments) {
   return command;
 }
 
-static cardio::promise<std::string> check_managed_entry_async(
-    std::filesystem::path path, const std::string &id,
-    cardio::cancellation cancellation) {
+static cardio::promise<std::shared_ptr<GBytes>> load_file_async(
+    std::filesystem::path path, cardio::cancellation cancellation) {
   auto file = std::shared_ptr<GFile>(g_file_new_for_path(path.c_str()), g_object_unref);
   auto pending = cardio::gio::submit<GBytes *>(
       [file](GCancellable *signal, GAsyncReadyCallback callback, gpointer data) {
@@ -80,14 +80,20 @@ static cardio::promise<std::string> check_managed_entry_async(
       [file](GObject *, GAsyncResult *result, GError **error) {
         return g_file_load_bytes_finish(file.get(), result, nullptr, error);
       }, cancellation);
-  std::shared_ptr<GBytes> contents;
   try {
-    contents = {co_await pending, g_bytes_unref};
+    co_return std::shared_ptr<GBytes>(co_await pending, g_bytes_unref);
   } catch (const cardio::gio::gio_error &error) {
     if (error.domain() == G_IO_ERROR && error.code() == G_IO_ERROR_NOT_FOUND)
-      co_return std::string();
+      co_return std::shared_ptr<GBytes>();
     throw;
   }
+}
+
+static cardio::promise<std::string> check_managed_entry_async(
+    std::filesystem::path path, const std::string &id,
+    cardio::cancellation cancellation) {
+  const auto contents = co_await load_file_async(path, cancellation);
+  if (!contents) co_return std::string();
   auto key_file = std::shared_ptr<GKeyFile>(g_key_file_new(), g_key_file_unref);
   gsize size = 0;
   const auto *data = static_cast<const gchar *>(g_bytes_get_data(contents.get(), &size));
@@ -98,6 +104,38 @@ static cardio::promise<std::string> check_managed_entry_async(
   if (!managed_id || id != managed_id.get())
     throw std::runtime_error("Desktop entry is not managed by elder-terms");
   co_return std::string(data, size);
+}
+
+static cardio::promise<void> invalidate_icon_theme_async(
+    std::filesystem::path path, cardio::cancellation cancellation) {
+  auto file = std::shared_ptr<GFile>(g_file_new_for_path(path.c_str()), g_object_unref);
+  auto query = cardio::gio::submit<GFileInfo *>(
+      [file](GCancellable *signal, GAsyncReadyCallback callback, gpointer data) {
+        g_file_query_info_async(file.get(), G_FILE_ATTRIBUTE_TIME_MODIFIED,
+            G_FILE_QUERY_INFO_NONE, G_PRIORITY_DEFAULT, signal, callback, data);
+      },
+      [file](GObject *, GAsyncResult *result, GError **error) {
+        return g_file_query_info_finish(file.get(), result, error);
+      }, cancellation);
+  auto info = std::shared_ptr<GFileInfo>(co_await query, g_object_unref);
+  // GTK and GNOME compare the theme root's mtime in whole seconds. Advance it
+  // even for rapid edits; replacing a PNG in a nested directory is insufficient.
+  const auto previous = g_file_info_get_attribute_uint64(info.get(), G_FILE_ATTRIBUTE_TIME_MODIFIED);
+  const auto now = static_cast<guint64>(g_get_real_time() / G_USEC_PER_SEC);
+  g_file_info_set_attribute_uint64(info.get(), G_FILE_ATTRIBUTE_TIME_MODIFIED,
+      std::max(now, previous + 1));
+  auto update = cardio::gio::submit<gboolean>(
+      [file, info](GCancellable *signal, GAsyncReadyCallback callback, gpointer data) {
+        g_file_set_attributes_async(file.get(), info.get(), G_FILE_QUERY_INFO_NONE,
+            G_PRIORITY_DEFAULT, signal, callback, data);
+      },
+      [file](GObject *, GAsyncResult *result, GError **error) {
+        GFileInfo *updated = nullptr;
+        const auto success = g_file_set_attributes_finish(file.get(), result, &updated, error);
+        g_clear_object(&updated);
+        return success;
+      }, cancellation);
+  (void)co_await update;
 }
 
 cardio::promise<ConnectionDesktopEntry> publish_connection_desktop_async(
@@ -117,7 +155,8 @@ cardio::promise<ConnectionDesktopEntry> publish_connection_desktop_async(
   const auto exec = desktop_command(command);
   const auto data_root = std::filesystem::path(g_get_user_data_dir());
   const auto applications = data_root / "applications";
-  const auto images = data_root / "elder-terms" / "connection-icons";
+  const auto theme = data_root / "icons" / "hicolor";
+  const auto images = theme / "256x256" / "apps";
   const auto desktop_path = applications / (app_id + ".desktop");
   const auto previous = co_await check_managed_entry_async(desktop_path, id, cancellation);
 
@@ -132,25 +171,36 @@ cardio::promise<ConnectionDesktopEntry> publish_connection_desktop_async(
   auto png_bytes = std::shared_ptr<GBytes>(g_bytes_new_take(png, png_size), g_bytes_unref);
   auto digest = std::unique_ptr<gchar, decltype(&g_free)>(
       g_compute_checksum_for_bytes(G_CHECKSUM_SHA256, png_bytes.get()), g_free);
-  const auto icon_path = images / (id + "-" + digest.get() + ".png");
+  const auto icon_path = images / (app_id + ".png");
   co_await ensure_data_directory_async(images, cancellation);
   co_await ensure_data_directory_async(applications, cancellation);
-  co_await replace_desktop_file_async(icon_path, png_bytes, cancellation);
+  const auto previous_image = co_await load_file_async(icon_path, cancellation);
+  const bool image_changed = !previous_image || !g_bytes_equal(previous_image.get(), png_bytes.get());
+  if (image_changed)
+    co_await replace_desktop_file_async(icon_path, png_bytes, cancellation);
 
   auto entry = std::shared_ptr<GKeyFile>(g_key_file_new(), g_key_file_unref);
   g_key_file_set_string(entry.get(), "Desktop Entry", "Type", "Application");
   g_key_file_set_string(entry.get(), "Desktop Entry", "Name", name.c_str());
   g_key_file_set_string(entry.get(), "Desktop Entry", "Exec", exec.c_str());
-  g_key_file_set_string(entry.get(), "Desktop Entry", "Icon", icon_path.c_str());
+  // Keep the themed icon name stable so running ShellApps can refresh their
+  // retained GIcon when the theme changes, without reopening the window.
+  g_key_file_set_string(entry.get(), "Desktop Entry", "Icon", app_id.c_str());
   g_key_file_set_string(entry.get(), "Desktop Entry", "StartupWMClass", app_id.c_str());
   g_key_file_set_boolean(entry.get(), "Desktop Entry", "NoDisplay", TRUE);
   g_key_file_set_boolean(entry.get(), "Desktop Entry", "Terminal", FALSE);
   g_key_file_set_string(entry.get(), "Desktop Entry", "X-ElderTerms-ConnectionId", id.c_str());
+  // An icon-only edit must also notify desktop-entry monitors to rescan themes.
+  g_key_file_set_string(entry.get(), "Desktop Entry", "X-ElderTerms-IconDigest", digest.get());
   gsize entry_size = 0;
   auto *entry_data = g_key_file_to_data(entry.get(), &entry_size, nullptr);
   auto entry_bytes = std::shared_ptr<GBytes>(g_bytes_new_take(entry_data, entry_size), g_bytes_unref);
-  if (previous != std::string(entry_data, entry_size))
+  const bool entry_changed = previous != std::string(entry_data, entry_size);
+  // Also retry invalidation if a previous publication stopped after writing PNG.
+  if (image_changed || entry_changed) {
+    co_await invalidate_icon_theme_async(theme, cancellation);
     co_await replace_desktop_file_async(desktop_path, entry_bytes, cancellation);
+  }
   co_return {app_id, desktop_path, icon_path};
 }
 

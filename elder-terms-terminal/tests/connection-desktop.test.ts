@@ -52,9 +52,17 @@ it('uses a saved connection identity and prepares its desktop entry before showi
         expect(entry).toContain('Name=Desktop icon test');
         expect(entry).toContain('NoDisplay=true');
         expect(entry).toContain(`StartupWMClass=${appId}`);
-        const iconPath = entry.match(/^Icon=(.+)$/mu)?.[1];
-        expect(iconPath).toBeDefined();
-        const firstImage = await readFile(iconPath!);
+        const iconName = entry.match(/^Icon=(.+)$/mu)?.[1];
+        expect(iconName).toBe(appId);
+        const iconPath = join(
+          data,
+          'icons',
+          'hicolor',
+          '256x256',
+          'apps',
+          `${iconName}.png`
+        );
+        const firstImage = await readFile(iconPath);
         expect(firstImage.subarray(1, 4).toString()).toBe('PNG');
         const exported = PNG.sync.read(firstImage);
         expect([exported.width, exported.height]).toEqual([256, 256]);
@@ -86,10 +94,8 @@ it('uses a saved connection identity and prepares its desktop entry before showi
             join(data, 'applications', `${appId}.desktop`),
             'utf8'
           );
-          const updatedPath = updated.match(/^Icon=(.+)$/mu)?.[1];
-          expect(updatedPath).toBeDefined();
-          expect(updatedPath).not.toBe(iconPath);
-          expect((await readFile(updatedPath!)).equals(firstImage)).toBe(false);
+          expect(updated.match(/^Icon=(.+)$/mu)?.[1]).toBe(iconName);
+          expect((await readFile(iconPath)).equals(firstImage)).toBe(false);
         });
       },
       { env: { XDG_DATA_HOME: data, XDG_CONFIG_HOME: directory } }

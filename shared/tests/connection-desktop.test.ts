@@ -1,5 +1,12 @@
 import { execFile } from 'node:child_process';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  mkdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,7 +20,18 @@ const driver = fileURLToPath(
 );
 const id = 'f724d380-7b23-49c3-8a5b-4213723af440';
 
-it('publishes distinct images and preserves literal desktop command arguments', async () => {
+it('refreshes an already cached desktop icon without reopening the connection', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'elder-desktop-cache-'));
+  try {
+    await exec('xvfb-run', ['-a', driver, '--check-cached-icon'], {
+      env: { ...process.env, XDG_DATA_HOME: directory, GDK_BACKEND: 'x11' },
+    });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+it('updates connection artwork and preserves literal desktop command arguments', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'elder desktop '));
   const env = { ...process.env, XDG_DATA_HOME: directory };
   try {
@@ -57,7 +75,7 @@ it('publishes distinct images and preserves literal desktop command arguments', 
     );
     const [sameDesktop, secondIcon] = updated.stdout.trimEnd().split('\n');
     expect(sameDesktop).toBe(desktop);
-    expect(secondIcon).not.toBe(firstIcon);
+    expect(secondIcon).toBe(firstIcon);
     expect(await readFile(desktop, 'utf8')).toContain('Name=Renamed');
     expect(await readFile(desktop, 'utf8')).toContain('NoDisplay=true');
     const second = PNG.sync.read(await readFile(secondIcon));
@@ -67,7 +85,14 @@ it('publishes distinct images and preserves literal desktop command arguments', 
         (128 * second.width + 128) * 4 + 4
       ),
     ]).toEqual([0, 0, 255, 255]);
-    expect(PNG.sync.read(await readFile(firstIcon)).data).toEqual(first.data);
+    const desktopBefore = await stat(desktop);
+    const iconBefore = await stat(secondIcon);
+    await exec(driver, [id, 'Renamed', '0000ffff', ...command], { env });
+    expect((await stat(desktop)).mtimeMs).toBe(desktopBefore.mtimeMs);
+    expect((await stat(secondIcon)).mtimeMs).toBe(iconBefore.mtimeMs);
+    await rm(secondIcon);
+    await exec(driver, [id, 'Renamed', '0000ffff', ...command], { env });
+    expect(PNG.sync.read(await readFile(secondIcon)).data).toEqual(second.data);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

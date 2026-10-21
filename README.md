@@ -266,13 +266,15 @@ it sends icons when the public API and `xdg-toplevel-icon-v1` are available.
 The title-bar and connection-list icons remain available in unsupported environments.
 Dock presentation also depends on the desktop environment; see the
 [GTK icon documentation](https://docs.gtk.org/gtk3/method.Window.set_icon_list.html).
-Testing on Ubuntu GNOME 46 found that applying an icon change to a running window
-can leave the previous image in the dock. Save the setting and reopen the
-connection in that case. Initial display and updates after relaunch were verified.
+Testing on Ubuntu GNOME 46 confirmed that the dock updates on the first launch
+after an icon change without reopening the connection. The previous image may
+remain for a few seconds while [GNOME refreshes its cache](https://github.com/GNOME/gnome-shell/blob/46.0/src/shell-app-cache.c).
+If GNOME still holds an image reference from before this fix, reopen the connection
+window once after upgrading. Subsequent icon changes do not require reopening it.
 
 Dock integration generates files in `$XDG_DATA_HOME/applications/` and
-`$XDG_DATA_HOME/elder-terms/connection-icons/`, normally under `~/.local/share/`
-when `XDG_DATA_HOME` is unset. Old images and generated desktop files are retained,
+`$XDG_DATA_HOME/icons/hicolor/256x256/apps/`, normally under `~/.local/share/`
+when `XDG_DATA_HOME` is unset. Generated images and desktop files are retained,
 including after deleting a connection, to preserve running windows and pinned entries.
 Launching a pinned entry for a deleted connection reports an error; it cannot
 open a different connection created with the same name.
