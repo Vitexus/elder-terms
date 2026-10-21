@@ -2645,7 +2645,7 @@ msgid "Transparent background: frosted glass is unavailable"
 msgstr "透過表示: すりガラスを利用できません"
 
 msgid "Color filter"
-msgstr "明暗差の補正"
+msgstr "色フィルタ"
 
 msgid "No correction"
 msgstr "補正しない"

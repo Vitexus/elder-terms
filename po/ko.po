@@ -2535,3 +2535,21 @@ msgstr "가시성 개선 (Oklch)"
 
 msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
 msgstr "회색을 포함한 모든 글자색의 낮은 대비를 개선합니다. 색조를 유지하고 배경은 변경하지 않습니다."
+
+msgid "Reverse lightness (A)"
+msgstr "명도 반전 (A)"
+
+msgid "Reverse contrast (B)"
+msgstr "대비를 유지하며 반전 (B)"
+
+msgid "Reverse text and background (C)"
+msgstr "텍스트와 배경에 맞춰 반전 (C)"
+
+msgid "Reverse appearance (D, CAM16)"
+msgstr "색 지각을 보정하여 반전 (D, CAM16)"
+
+msgid "Reverse optimized palette (E)"
+msgstr "최적화한 팔레트 반전 (E)"
+
+msgid "Choose a visibility correction or a background reversal. Only one color filter is applied."
+msgstr "가시성 보정 또는 배경 반전을 선택하세요. 색상 필터는 하나만 적용됩니다."

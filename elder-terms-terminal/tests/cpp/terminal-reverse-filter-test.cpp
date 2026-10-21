@@ -152,6 +152,11 @@ static void test_palette() {
   config.rows = 2; config.columns = 20;
   boxrig_terminal *terminal = nullptr;
   assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+  // boxrig's standard background is #101010; establish the exact black
+  // reference before testing OSC-driven transitions to another background.
+  const char initial_background[] = "\033]11;#000000\a";
+  std::size_t consumed = 0;
+  assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(initial_background), std::strlen(initial_background), &consumed) == BOXRIG_STATUS_OK);
   TerminalColorFilterContext context{std::nullopt, TerminalColorFilter::reverse_palette};
   const auto revision = boxrig_terminal_color_revision(terminal);
   assert(prepare_terminal_color_filter(&context, terminal));
@@ -163,7 +168,7 @@ static void test_palette() {
     boxrig_ui_color_filter_input input{};
     input.target = BOXRIG_UI_COLOR_CELL;
     input.colors.foreground = value;
-    input.colors.background = {0, 0, 0};
+    assert(boxrig_terminal_get_dynamic_color(terminal, BOXRIG_DYNAMIC_COLOR_BACKGROUND, &input.colors.background) == BOXRIG_STATUS_OK);
     input.foreground_source.role = BOXRIG_UI_COLOR_RGB;
     input.background_source.role = BOXRIG_UI_COLOR_DEFAULT_BACKGROUND;
     return filter_terminal_colors(&input, &context);
@@ -171,10 +176,12 @@ static void test_palette() {
   assert(equal(sample({255, 255, 255}).foreground, {0, 0, 0}));
   assert(equal(sample({255, 255, 255}).background, {255, 255, 255}));
   std::vector<boxrig_rgb> baseline;
+  std::vector<boxrig_rgb> original_colors;
   int distinct = 0;
   for (int i = 0; i < 256; i++) {
     boxrig_rgb color{};
     assert(boxrig_terminal_get_palette_color(terminal, static_cast<uint8_t>(i), &color) == BOXRIG_STATUS_OK);
+    original_colors.push_back(color);
     const auto result = sample(color);
     baseline.push_back(result.foreground);
     assert(contrast(result.foreground, result.background) >= 4.5);
@@ -201,7 +208,6 @@ static void test_palette() {
   }
   assert(boxrig_terminal_color_revision(terminal) == revision);
   const char update[] = "\033]4;1;#f0a020\a\033]10;#e08030\a";
-  std::size_t consumed = 0;
   assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(update), std::strlen(update), &consumed) == BOXRIG_STATUS_OK);
   assert(consumed == std::strlen(update));
   assert(prepare_terminal_color_filter(&context, terminal));
@@ -209,8 +215,21 @@ static void test_palette() {
   boxrig_rgb changed{};
   assert(boxrig_terminal_get_palette_color(terminal, 1, &changed) == BOXRIG_STATUS_OK);
   assert(equal(changed, {240, 160, 32}));
+  int changed_mappings = 0;
+  for (std::size_t i = 0; i < original_colors.size(); i++)
+    if (!equal(sample(original_colors[i]).foreground, baseline[i])) changed_mappings++;
+  assert(changed_mappings > 0);
   const auto after = context.reverse_palette;
   assert(prepare_terminal_color_filter(&context, terminal) && context.reverse_palette == after);
+  const char scroll[] = "text\r\ntext\r\ntext\r\ntext\r\n";
+  assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(scroll), std::strlen(scroll), &consumed) == BOXRIG_STATUS_OK);
+  assert(prepare_terminal_color_filter(&context, terminal) && context.reverse_palette == after);
+  const char background_update[] = "\033]11;#202020\a";
+  assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(background_update), std::strlen(background_update), &consumed) == BOXRIG_STATUS_OK);
+  assert(prepare_terminal_color_filter(&context, terminal) && context.reverse_palette != after);
+  const auto new_background = sample({255, 255, 255});
+  assert(equal(new_background.background, {223, 223, 223}));
+  assert(contrast(new_background.foreground, new_background.background) >= 4.5);
   context.filter = TerminalColorFilter::none;
   assert(prepare_terminal_color_filter(&context, terminal) && !context.reverse_palette);
   boxrig_terminal_destroy(terminal);

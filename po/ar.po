@@ -2553,3 +2553,21 @@ msgstr "تحسين الوضوح (Oklch)"
 
 msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
 msgstr "يحسن النص منخفض التباين بجميع الألوان، بما فيها الرمادي. يحافظ على درجة اللون ولا يغير الخلفيات."
+
+msgid "Reverse lightness (A)"
+msgstr "عكس الإضاءة (A)"
+
+msgid "Reverse contrast (B)"
+msgstr "العكس مع الحفاظ على التباين (B)"
+
+msgid "Reverse text and background (C)"
+msgstr "عكس النص والخلفية (C)"
+
+msgid "Reverse appearance (D, CAM16)"
+msgstr "العكس مع تعويض إدراك الألوان (D, CAM16)"
+
+msgid "Reverse optimized palette (E)"
+msgstr "عكس لوحة الألوان المحسّنة (E)"
+
+msgid "Choose a visibility correction or a background reversal. Only one color filter is applied."
+msgstr "اختر تحسين الوضوح أو عكس الخلفية. يُطبّق مرشح ألوان واحد فقط."

@@ -2534,3 +2534,21 @@ msgstr "दृश्यता सुधारें (Oklch)"
 
 msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
 msgstr "धूसर सहित सभी रंगों के कम कंट्रास्ट वाले पाठ को सुधारता है। रंगत बनाए रखता है और पृष्ठभूमि नहीं बदलता।"
+
+msgid "Reverse lightness (A)"
+msgstr "प्रकाशमानता उलटें (A)"
+
+msgid "Reverse contrast (B)"
+msgstr "कंट्रास्ट बनाए रखते हुए उलटें (B)"
+
+msgid "Reverse text and background (C)"
+msgstr "पाठ और पृष्ठभूमि के अनुसार उलटें (C)"
+
+msgid "Reverse appearance (D, CAM16)"
+msgstr "रंग अनुभूति सुधारकर उलटें (D, CAM16)"
+
+msgid "Reverse optimized palette (E)"
+msgstr "अनुकूलित रंग पैलेट उलटें (E)"
+
+msgid "Choose a visibility correction or a background reversal. Only one color filter is applied."
+msgstr "दृश्यता सुधार या पृष्ठभूमि उलटना चुनें। एक समय में केवल एक रंग फ़िल्टर लागू होता है।"

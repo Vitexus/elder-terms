@@ -2557,3 +2557,21 @@ msgstr "Mejorar la visibilidad (Oklch)"
 
 msgid "Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."
 msgstr "Mejora el texto de bajo contraste de todos los colores, incluido el gris. Conserva el tono y no modifica los fondos."
+
+msgid "Reverse lightness (A)"
+msgstr "Invertir la luminosidad (A)"
+
+msgid "Reverse contrast (B)"
+msgstr "Invertir conservando el contraste (B)"
+
+msgid "Reverse text and background (C)"
+msgstr "Invertir texto y fondo (C)"
+
+msgid "Reverse appearance (D, CAM16)"
+msgstr "Invertir compensando la apariencia (D, CAM16)"
+
+msgid "Reverse optimized palette (E)"
+msgstr "Invertir la paleta optimizada (E)"
+
+msgid "Choose a visibility correction or a background reversal. Only one color filter is applied."
+msgstr "Elija una corrección de visibilidad o una inversión del fondo. Solo se aplica un filtro de color."
