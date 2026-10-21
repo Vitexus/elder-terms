@@ -38,7 +38,9 @@ ELDER_TERMS_API const std::vector<ConnectionIconPreset> &connection_icon_presets
 /**
  * Decodes one bundled preset at the requested square thumbnail size.
  *
- * @param specification Stable `noto:id` or `material:id` catalog value.
+ * @param specification Stable `noto:id` or `material:id` catalog value, or
+ * `material:white:id` for a white Material glyph. Material icons have a
+ * transparent background and an opposite-color outline.
  * @param pixel_size Width and height in pixels, from 1 through 256.
  * @returns Owned RGBA thumbnail, or null for an unknown value or invalid size.
  * @remarks Callers may cache but must not mutate the returned pixels.

@@ -53,6 +53,7 @@ if package_build_tools == ''
   subdir('material-icon-sources')
   elder_terms_material_convert = find_program('convert')
   elder_terms_material_resource_compiler = find_program('glib-compile-resources')
+  elder_terms_material_thumbnailer = find_program('gdk-pixbuf-thumbnailer')
   elder_terms_material_preset_resources = custom_target('elder-terms-material-presets',
     input: 'connection-icon-material.gresource.xml',
     output: 'elder-terms-material-presets.c',
@@ -64,6 +65,7 @@ if package_build_tools == ''
       meson.current_build_dir() / 'material-presets-rendered',
       elder_terms_material_convert,
       elder_terms_material_resource_compiler,
+      elder_terms_material_thumbnailer,
     ],
     depend_files: material_icon_svg_sources,
   )

@@ -74,6 +74,7 @@ await run(
     renderedIcons,
     'convert',
     'glib-compile-resources',
+    'gdk-pixbuf-thumbnailer',
   ],
   root
 );

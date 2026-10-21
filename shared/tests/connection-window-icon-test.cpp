@@ -108,6 +108,9 @@ int main(int argc, char **argv) {
   set_connection_window_icon(GTK_WINDOW(window), GTK_IMAGE(image), "material:action/home", 20);
   const auto home = connection_icon_preset_thumbnail("material:action/home", 256);
   wait_until([&] { return matches_full_image(window, home.get()); });
+  set_connection_window_icon(GTK_WINDOW(window), GTK_IMAGE(image), "material:white:action/home", 20);
+  const auto white_home = connection_icon_preset_thumbnail("material:white:action/home", 256);
+  wait_until([&] { return matches_full_image(window, white_home.get()); });
 
   // Pending file work must not keep a destroyed window alive or overwrite a newer choice.
   set_connection_window_icon(GTK_WINDOW(window), GTK_IMAGE(image), "file:" + path, 20);

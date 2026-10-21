@@ -33,7 +33,7 @@ ELDER_TERMS_API std::shared_ptr<GdkPixbuf> default_connection_icon();
  * Resolves a saved connection icon without blocking the caller on file I/O.
  *
  * @param specification Saved `default`, `file:/absolute/path`, `noto:id`, or
- * `material:id` specification.
+ * `material:id` (black glyph), or `material:white:id` specification.
  * @param cancellation Cancellation signal for file I/O.
  * @returns A 256-pixel square image and fallback diagnosis. Unsupported
  * presets and invalid or unavailable files retain the saved specification but

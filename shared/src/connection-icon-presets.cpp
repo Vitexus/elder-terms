@@ -52,17 +52,21 @@ const std::vector<ConnectionIconPreset> &connection_icon_presets() {
 std::shared_ptr<GdkPixbuf> connection_icon_preset_thumbnail(
     const std::string &specification, int pixel_size) {
   if (pixel_size <= 0 || pixel_size > 256) return nullptr;
+  const bool white = specification.starts_with("material:white:");
+  const auto catalog_specification = white
+      ? "material:" + specification.substr(15) : specification;
   const auto &presets = connection_icon_presets();
   const auto found = std::find_if(presets.begin(), presets.end(),
-      [&specification](const ConnectionIconPreset &preset) {
-        return preset.specification == specification;
+      [&catalog_specification](const ConnectionIconPreset &preset) {
+        return preset.specification == catalog_specification;
       });
   if (found == presets.end()) return nullptr;
   std::string resource_path = preset_resource_root;
   if (found->family == ConnectionIconFamily::Noto) {
     resource_path += "noto/" + specification.substr(5) + ".png";
   } else {
-    resource_path += "material/" + specification.substr(9) + ".png";
+    resource_path += std::string(white ? "material-white/" : "material/") +
+                     catalog_specification.substr(9) + ".png";
   }
   GError *error = nullptr;
   auto *raw = gdk_pixbuf_new_from_resource_at_scale(resource_path.c_str(),

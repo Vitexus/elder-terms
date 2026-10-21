@@ -107,7 +107,7 @@ const notoXml = [
 ].join('\n');
 await writeFile(join(import.meta.dirname, '..', 'shared', 'connection-icon-noto.gresource.xml'), notoXml);
 const materialFiles = sorted.filter((entry) => entry.family === 'material')
-  .map((entry) => entry.file);
+  .flatMap((entry) => [entry.file, entry.file.replace(/^material\//, 'material-white/')]);
 const materialXml = [
   '<?xml version="1.0" encoding="UTF-8"?>',
   '<gresources>',
@@ -138,7 +138,7 @@ await writeFile(join(outputRoot, 'SOURCES.md'), [
   '# Connection icon artwork',
   '',
   `- Noto Color Emoji: [googlefonts/noto-emoji](https://github.com/googlefonts/noto-emoji/tree/${notoRevision}/2D/png/128), revision \`${notoRevision}\`, original 128-pixel PNG files. See [NOTO-LICENSE](NOTO-LICENSE) and [NOTO-FLAGS-NOTICE](NOTO-FLAGS-NOTICE).`,
-  `- Classic Material Icons filled: [google/material-design-icons](https://github.com/google/material-design-icons/tree/${materialRevision}/src), revision \`${materialRevision}\`, original \`src/*/*/materialicons/24px.svg\` files. The build renders 256-pixel PNG images on a light rounded badge from the bundled SVG originals. See [MATERIAL-LICENSE](MATERIAL-LICENSE).`,
+  `- Classic Material Icons filled: [google/material-design-icons](https://github.com/google/material-design-icons/tree/${materialRevision}/src), revision \`${materialRevision}\`, original \`src/*/*/materialicons/24px.svg\` files. The build renders transparent 256-pixel PNG images with black or white glyphs and an 8-pixel outline in the opposite color. See [MATERIAL-LICENSE](MATERIAL-LICENSE).`,
   `- Emoji names: [Unicode Emoji 18.0 emoji-test.txt](https://www.unicode.org/Public/18.0.0/emoji/emoji-test.txt), SHA-256 \`${emojiTestSha256}\`. See [UNICODE-LICENSE](UNICODE-LICENSE).`,
   '- Japanese source documentation: [接続アイコンの素材とライセンス](../../docs/ja/connection-icon-artwork.md).',
   '',

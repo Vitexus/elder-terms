@@ -347,29 +347,39 @@ container_image_for_target debian trixie riscv64
       `#include <gdk-pixbuf/gdk-pixbuf.h>
 
 int main(void) {
-  GError *error = NULL;
-  GdkPixbuf *image = gdk_pixbuf_new_from_resource(
-      "/net/kekyo/elder-terms/presets/material/action/home.png", &error);
-  if (image == NULL) {
-    if (error != NULL) g_error_free(error);
-    return 1;
-  }
-  const int width = gdk_pixbuf_get_width(image);
-  const int height = gdk_pixbuf_get_height(image);
-  const int stride = gdk_pixbuf_get_rowstride(image);
-  const int channels = gdk_pixbuf_get_n_channels(image);
-  if (width != 256 || height != 256 ||
-      !gdk_pixbuf_get_has_alpha(image) || channels != 4) {
+  const char *paths[] = {
+      "/net/kekyo/elder-terms/presets/material/action/home.png",
+      "/net/kekyo/elder-terms/presets/material-white/action/home.png"
+  };
+  for (int variant = 0; variant < 2; ++variant) {
+    GError *error = NULL;
+    GdkPixbuf *image = gdk_pixbuf_new_from_resource(paths[variant], &error);
+    if (image == NULL) {
+      if (error != NULL) g_error_free(error);
+      return 1;
+    }
+    const int width = gdk_pixbuf_get_width(image);
+    const int height = gdk_pixbuf_get_height(image);
+    const int stride = gdk_pixbuf_get_rowstride(image);
+    const int channels = gdk_pixbuf_get_n_channels(image);
+    if (width != 256 || height != 256 ||
+        !gdk_pixbuf_get_has_alpha(image) || channels != 4) {
+      g_object_unref(image);
+      return 2;
+    }
+    const guchar *pixels = gdk_pixbuf_read_pixels(image);
+    const guchar *center = pixels + 128 * stride + 128 * channels;
+    const guchar *padding = pixels + 128 * stride + 32 * channels;
+    const guchar *outline = pixels + 190 * stride + 90 * channels;
+    const int foreground = variant == 0 ? 0 : 255;
+    const int valid = center[0] == foreground && center[1] == foreground &&
+        center[2] == foreground && center[3] == 255 && padding[3] == 0 &&
+        outline[0] == 255 - foreground && outline[1] == 255 - foreground &&
+        outline[2] == 255 - foreground && outline[3] == 255;
     g_object_unref(image);
-    return 2;
+    if (!valid) return 2;
   }
-  const guchar *pixels = gdk_pixbuf_read_pixels(image);
-  const guchar *center = pixels + 128 * stride + 128 * channels;
-  const guchar *badge = pixels + 128 * stride + 32 * channels;
-  const int valid = center[0] < 80 && center[1] < 80 && center[2] < 80 &&
-      badge[0] > 170 && badge[1] > 170 && badge[2] > 170;
-  g_object_unref(image);
-  return valid ? 0 : 2;
+  return 0;
 }
 `
     );
