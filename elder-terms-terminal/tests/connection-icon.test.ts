@@ -1,4 +1,5 @@
-import { writeFile } from 'node:fs/promises';
+import { chmod, open, readFile, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join } from 'node:path';
@@ -45,6 +46,86 @@ const nativeCenterPixel = async (
   expect(pixels[1]).toBe(16);
   return pixels[2 + 8 * 16 + 8]!;
 };
+
+it('keeps receiving local output while choosing icons and accepts input afterward', async (context) => {
+  await withTemporaryDirectory(async (directory) => {
+    const fifo = join(directory, 'output.fifo');
+    const shell = join(directory, 'shell.sh');
+    const received = join(directory, 'input.txt');
+    const config = join(directory, 'connection.ini');
+    const log = join(directory, 'output.log');
+    await promisify(execFile)('mkfifo', [fifo]);
+    // Hold the FIFO open so each write is released by an explicit UI action.
+    // The shell blocks on input rather than relying on timed output or sleeps.
+    const output = await open(fifo, constants.O_RDWR);
+    try {
+      await writeFile(
+        shell,
+        `#!/bin/sh
+IFS= read -r first < "$ELDER_TERMS_ICON_TEST_FIFO"
+printf '%s\\n' "$first"
+IFS= read -r second < "$ELDER_TERMS_ICON_TEST_FIFO"
+printf '%s\\n' "$second"
+IFS= read -r input
+printf '%s' "$input" > "$ELDER_TERMS_ICON_TEST_INPUT"
+exec /bin/sh
+`
+      );
+      await chmod(shell, 0o755);
+      await writeFile(
+        config,
+        `[general]\nauto_close=false\n[log]\nenabled=true\nbase_directory=${directory}\nfile_name_format=output.log\nmode=cooked\n`
+      );
+      await runGtkTest(
+        context,
+        ['-c', config],
+        async (app) => {
+          await openSettings(app);
+          await expectElementKind(
+            await app.getById('settings_general_icon_choose'),
+            'button'
+          ).click();
+          const popup = await app.getById('settings_general_icon_picker');
+          const family = expectElementKind(
+            await app.getById('settings_general_icon_family'),
+            'comboBox'
+          );
+          for (const [index, marker] of [
+            'NOTO_OUTPUT',
+            'MATERIAL_OUTPUT',
+          ].entries()) {
+            await family.selectChildAt(index);
+            await output.write(`${marker}\n`);
+            await waitForResult(async () => {
+              expect((await popup.info()).states).toContain('showing');
+              expect(await readFile(log, 'utf8')).toContain(marker);
+            });
+          }
+          await app.input.pressKey('Escape');
+          await expectElementKind(
+            await app.getById('settings_cancel_button'),
+            'button'
+          ).click();
+          await clickWidget(app, await app.getById('terminal_view'));
+          await app.input.pressKey('x');
+          await app.input.pressKey('Return');
+          await waitForResult(async () => {
+            expect(await readFile(received, 'utf8')).toBe('x');
+          });
+        },
+        {
+          env: {
+            SHELL: shell,
+            ELDER_TERMS_ICON_TEST_FIFO: fifo,
+            ELDER_TERMS_ICON_TEST_INPUT: received,
+          },
+        }
+      );
+    } finally {
+      await output.close();
+    }
+  });
+});
 
 it('shows a saved connection icon at the left of the terminal title bar', async (context) => {
   await withTemporaryDirectory(async (directory) => {
