@@ -28,11 +28,43 @@ elder_terms_shared_include_dir = include_directories('include')
 elder_terms_symbol_map = meson.current_source_dir() / 'elder-terms.map'
 elder_terms_gnome = import('gnome')
 
+install_data(
+  '../data/connection-icons/NOTO-LICENSE',
+  '../data/connection-icons/NOTO-FLAGS-NOTICE',
+  '../data/connection-icons/MATERIAL-LICENSE',
+  '../data/connection-icons/UNICODE-LICENSE',
+  install_dir: get_option('datadir') / 'doc/elder-terms/licenses/connection-icons',
+)
+
 elder_terms_shared_resources = elder_terms_gnome.compile_resources(
   'elder-terms-resources',
   'elder-terms.gresource.xml',
   c_name: 'elder_terms_resources',
   source_dir: meson.project_source_root() / 'data',
+)
+
+elder_terms_noto_preset_resources = elder_terms_gnome.compile_resources(
+  'elder-terms-noto-presets',
+  'connection-icon-noto.gresource.xml',
+  c_name: 'elder_terms_noto_presets',
+  source_dir: meson.project_source_root() / 'data',
+)
+subdir('material-icon-sources')
+elder_terms_material_convert = find_program('convert')
+elder_terms_material_resource_compiler = find_program('glib-compile-resources')
+elder_terms_material_preset_resources = custom_target('elder-terms-material-presets',
+  input: 'connection-icon-material.gresource.xml',
+  output: 'elder-terms-material-presets.c',
+  command: [
+    find_program('node'),
+    files('../scripts/render-material-connection-icons.mts'),
+    meson.project_source_root() / 'data/connection-icons/material-svg',
+    '@INPUT@', '@OUTPUT@',
+    meson.current_build_dir() / 'material-presets-rendered',
+    elder_terms_material_convert,
+    elder_terms_material_resource_compiler,
+  ],
+  depend_files: material_icon_svg_sources,
 )
 
 elder_terms_localization_configuration = configuration_data()
@@ -69,9 +101,10 @@ configure_file(
   configuration: elder_terms_application_version_configuration,
 )
 
-elder_terms_shared_sources = elder_terms_shared_resources + [
+elder_terms_shared_sources = elder_terms_shared_resources + elder_terms_noto_preset_resources + [elder_terms_material_preset_resources] + [
   'src/application-icon.cpp',
   'src/connection-icon.cpp',
+  'src/connection-icon-presets.cpp',
   'src/connection-icon-image.cpp',
   'src/native-window-icon.cpp',
   'src/application-version.cpp',
@@ -106,6 +139,7 @@ elder_terms_shared_sources = elder_terms_shared_resources + [
   'src/settings-widget/settings-presentation.cpp',
   'src/settings-widget/application-settings-widget.cpp',
   'src/settings-widget/connection-icon-editor.cpp',
+  'src/settings-widget/connection-icon-picker.cpp',
   'src/settings-widget/hyperlink-settings-editor.cpp',
   'src/settings-widget/webdav-settings-editor.cpp',
   'src/settings-widget/ssh-proxy-settings-editor.cpp',
@@ -250,6 +284,10 @@ connection_icon_test = executable('connection-icon-test',
   'tests/connection-icon-test.cpp', dependencies: elder_terms_dep)
 test('connection-icon-test', connection_icon_test)
 
+connection_icon_presets_test = executable('connection-icon-presets-test',
+  'tests/connection-icon-presets-test.cpp', dependencies: elder_terms_dep)
+test('connection-icon-presets-test', connection_icon_presets_test)
+
 settings_actions_test = executable('settings-actions-test', 'tests/settings-actions-test.cpp',
   dependencies: [elder_terms_dep])
 test('settings-actions-test', find_program('xvfb-run'), args: ['-a', settings_actions_test],
@@ -258,6 +296,11 @@ test('settings-actions-test', find_program('xvfb-run'), args: ['-a', settings_ac
 settings_icon_test = executable('settings-icon-test', 'tests/settings-icon-test.cpp',
   dependencies: [elder_terms_dep])
 test('settings-icon-test', find_program('xvfb-run'), args: ['-a', settings_icon_test],
+  env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
+
+preset_icon_picker_test = executable('preset-icon-picker-test',
+  'tests/preset-icon-picker-test.cpp', dependencies: [elder_terms_dep])
+test('preset-icon-picker-test', find_program('xvfb-run'), args: ['-a', preset_icon_picker_test],
   env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
 
 settings_tabs_test = executable('settings-tabs-test', 'tests/settings-tabs-test.cpp',

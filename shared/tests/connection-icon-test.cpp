@@ -122,6 +122,15 @@ static cardio::promise<void> test_loading_async(
     expect(elder_terms::default_connection_icon() != nullptr,
            "default image should be directly available");
 
+    for (const char *specification : {
+             "noto:emoji_u1f44d", "material:action/home"}) {
+      auto preset = co_await elder_terms::load_connection_icon_async(
+          specification, {});
+      expect_square(preset);
+      expect(!preset.fallback && preset.error.empty(),
+             "bundled preset should resolve without fallback");
+    }
+
     auto loaded = co_await elder_terms::load_connection_icon_async(
         "file:" + image.string(), {});
     expect_square(loaded);

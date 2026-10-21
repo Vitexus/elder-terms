@@ -1,5 +1,7 @@
 #include "connection-icon-editor.h"
+#include "connection-icon-picker.h"
 #include <elder-terms/connection-icon-image.h>
+#include <elder-terms/connection-icon-presets.h>
 #include <elder-terms/modal-dialog.h>
 #include <elder-terms/settings/general-settings.h>
 #include <memory>
@@ -18,6 +20,7 @@ struct ConnectionIconEditor {
   GtkWidget *selection;
   GtkWidget *status;
   GtkWidget *dialog = nullptr;
+  GtkWidget *picker = nullptr;
   std::shared_ptr<ConnectionIconEditor *> owner;
 };
 
@@ -34,7 +37,12 @@ void sync_connection_icon_editor(ConnectionIconEditor *editor) {
     auto *name = g_path_get_basename(specification.c_str() + 5);
     label = name;
     g_free(name);
-  } else if (specification != "default" && !specification.empty()) label = specification;
+  } else if (specification != "default" && !specification.empty()) {
+    label = specification;
+    for (const auto &preset : connection_icon_presets()) {
+      if (preset.specification == specification) { label = preset.name; break; }
+    }
+  }
   gtk_label_set_text(GTK_LABEL(editor->selection), label.c_str());
   gtk_widget_set_tooltip_text(editor->selection, specification.c_str());
   set_connection_icon_image(GTK_IMAGE(editor->preview), specification, 32,
@@ -99,11 +107,27 @@ static void choose_file(GtkButton *, gpointer data) {
   show_modal_dialog(dialog, parent);
 }
 
+static void choose_icon(GtkButton *button, gpointer data) {
+  auto *editor = static_cast<ConnectionIconEditor *>(data);
+  if (!editor->picker) {
+    editor->picker = create_connection_icon_picker(GTK_WIDGET(button), editor->prefix,
+        [owner = editor->owner](std::string specification) {
+          if (auto *editor = *owner) set_selection(editor, std::move(specification));
+        }, [owner = editor->owner] {
+          if (auto *editor = *owner) choose_file(nullptr, editor);
+        });
+    g_signal_connect(editor->picker, "destroy", G_CALLBACK(+[](GtkWidget *, gpointer data) {
+      static_cast<ConnectionIconEditor *>(data)->picker = nullptr;
+    }), editor);
+  }
+  gtk_widget_show(editor->picker);
+}
+
 ConnectionIconEditor *create_connection_icon_editor(SettingsStore *store,
     std::string prefix, std::function<void()> changed) {
   auto *editor = new ConnectionIconEditor{store, std::move(prefix), std::move(changed),
       gtk_box_new(GTK_ORIENTATION_VERTICAL, 4), gtk_image_new(), gtk_label_new(nullptr),
-      gtk_label_new(nullptr), nullptr, {}};
+      gtk_label_new(nullptr), nullptr, nullptr, {}};
   editor->owner = std::make_shared<ConnectionIconEditor *>(editor);
   auto *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   identify(editor->preview, editor->prefix + "_general_icon_preview");
@@ -117,7 +141,7 @@ ConnectionIconEditor *create_connection_icon_editor(SettingsStore *store,
   gtk_box_pack_start(GTK_BOX(row), editor->selection, TRUE, TRUE, 0);
   auto *choose = gtk_button_new_with_label(_("Choose icon…"));
   identify(choose, editor->prefix + "_general_icon_choose");
-  g_signal_connect(choose, "clicked", G_CALLBACK(choose_file), editor);
+  g_signal_connect(choose, "clicked", G_CALLBACK(choose_icon), editor);
   gtk_box_pack_start(GTK_BOX(row), choose, FALSE, FALSE, 0);
   auto *reset = gtk_button_new_with_label(_("Default icon"));
   identify(reset, editor->prefix + "_general_icon_reset");
@@ -140,6 +164,7 @@ GtkWidget *connection_icon_editor_root(ConnectionIconEditor *editor) { return ed
 void destroy_connection_icon_editor(ConnectionIconEditor *editor) {
   if (!editor) return;
   *editor->owner = nullptr;
+  if (editor->picker) gtk_widget_destroy(editor->picker);
   if (editor->dialog) gtk_widget_destroy(editor->dialog);
   delete editor;
 }

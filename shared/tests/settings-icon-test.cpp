@@ -97,6 +97,12 @@ int main(int argc, char **argv) {
   assert(!settings_widget_is_dirty(state));
 
   gtk_button_clicked(GTK_BUTTON(choose));
+  GtkWidget *popup = nullptr;
+  gtk_container_forall(GTK_CONTAINER(window), +[](GtkWidget *child, gpointer data) {
+    if (GTK_IS_POPOVER(child)) *static_cast<GtkWidget **>(data) = child;
+  }, &popup);
+  assert(popup);
+  gtk_button_clicked(GTK_BUTTON(find(popup, "settings_general_icon_file")));
   auto *dialog = chooser();
   assert(dialog && gtk_widget_get_visible(dialog) && !gtk_widget_get_sensitive(window));
   assert(gtk_file_chooser_set_filename(GTK_FILE_CHOOSER(dialog), path.c_str()));
@@ -128,6 +134,7 @@ int main(int argc, char **argv) {
       std::strlen(gtk_label_get_text(GTK_LABEL(status))) != 0; });
   assert(settings_widget_is_valid(state) && icon(settings_widget_draft_store(state)) == "file:" + path + ".missing");
   gtk_button_clicked(GTK_BUTTON(choose));
+  gtk_button_clicked(GTK_BUTTON(find(popup, "settings_general_icon_file")));
   assert(chooser());
   gtk_widget_destroy(window);
   assert(!chooser());
@@ -137,7 +144,6 @@ int main(int argc, char **argv) {
   global.mode = SettingsWidgetMode::global_defaults;
   auto *defaults = create_settings_widget(std::move(global));
   assert(!find(settings_widget_root(defaults), "settings_general_icon_choose"));
-  gtk_widget_destroy(settings_widget_root(defaults));
   destroy_settings_widget(defaults);
   g_remove(path.c_str());
   g_rmdir(directory);

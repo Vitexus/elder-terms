@@ -93,3 +93,57 @@ it('shows a saved connection icon at the left of the terminal title bar', async 
     });
   });
 });
+
+for (const preset of [
+  {
+    name: 'Noto Color Emoji',
+    specification: 'noto:emoji_u1f44d',
+    expected: ([red, green, blue]: ReturnType<typeof capturePixel>) => {
+      expect(red).toBeGreaterThan(180);
+      expect(green).toBeGreaterThan(100);
+      expect(blue).toBeLessThan(100);
+    },
+    sample: [0.4, 0.5] as const,
+    badge: false,
+  },
+  {
+    name: 'Material Icons',
+    specification: 'material:action/home',
+    expected: ([red, green, blue]: ReturnType<typeof capturePixel>) => {
+      expect(red).toBeLessThan(80);
+      expect(green).toBeLessThan(80);
+      expect(blue).toBeLessThan(80);
+    },
+    sample: [0.5, 0.5] as const,
+    badge: true,
+  },
+]) {
+  it(`shows saved ${preset.name} artwork in the terminal title bar`, async (context) => {
+    await withTemporaryDirectory(async (directory) => {
+      const config = join(directory, 'connection.ini');
+      await writeFile(config, `[general]\nicon=${preset.specification}\n`);
+      await runGtkTest(
+        context,
+        ['--test-fixture', '-c', config],
+        async (app) => {
+          const titleIcon = expectElementKind(
+            await app.getById('header_connection_icon'),
+            'image'
+          );
+          await waitForResult(async () => {
+            const captured = await titleIcon.capture();
+            preset.expected(
+              capturePixel(captured, preset.sample[0], preset.sample[1])
+            );
+            if (preset.badge) {
+              const [red, green, blue] = capturePixel(captured, 0.15, 0.5);
+              expect(red).toBeGreaterThan(170);
+              expect(green).toBeGreaterThan(170);
+              expect(blue).toBeGreaterThan(170);
+            }
+          });
+        }
+      );
+    });
+  });
+}

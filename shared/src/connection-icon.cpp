@@ -1,4 +1,5 @@
 #include <elder-terms/connection-icon.h>
+#include <elder-terms/connection-icon-presets.h>
 
 #include <algorithm>
 #include <cmath>
@@ -211,8 +212,11 @@ load_connection_icon_async(std::string specification,
   if (specification.empty() || specification == "default")
     co_return {default_connection_icon(), false, {}};
   if (specification.starts_with("noto:") ||
-      specification.starts_with("material:"))
+      specification.starts_with("material:")) {
+    auto image = connection_icon_preset_thumbnail(specification, icon_size);
+    if (image != nullptr) co_return {std::move(image), false, {}};
     co_return fallback_icon(_("Icon preset is unavailable"));
+  }
   if (!specification.starts_with("file:"))
     co_return fallback_icon(_("Icon specification is not supported"));
   auto path = specification.substr(5);
