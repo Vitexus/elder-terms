@@ -2645,7 +2645,7 @@ msgid "Transparent background: frosted glass is unavailable"
 msgstr "透過表示: すりガラスを利用できません"
 
 msgid "Color filter"
-msgstr "明暗差の補正"
+msgstr "色フィルタ"
 
 msgid "No correction"
 msgstr "補正しない"
@@ -2706,3 +2706,21 @@ msgstr "保存済みの接続はありません"
 
 msgid "The saved connection has changed. Reopen the Connections menu."
 msgstr "保存済みの接続が変更されています。「接続」メニューを開き直してください。"
+
+msgid "Reverse lightness (A)"
+msgstr "明度を反転 (A)"
+
+msgid "Choose a visibility correction or a background reversal. Only one color filter is applied."
+msgstr "明暗差の補正または背景の反転を選びます。色フィルタは一つだけ適用されます。"
+
+msgid "Reverse contrast (B)"
+msgstr "コントラスト比を保って反転 (B)"
+
+msgid "Reverse text and background (C)"
+msgstr "文字と背景に合わせて反転 (C)"
+
+msgid "Reverse appearance (D, CAM16)"
+msgstr "見え方を補償して反転 (D, CAM16)"
+
+msgid "Reverse optimized palette (E)"
+msgstr "配色を最適化して反転 (E)"

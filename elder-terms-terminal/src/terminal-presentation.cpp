@@ -30,9 +30,11 @@ struct TerminalPresentation {
 
 static bool apply_colors(TerminalPresentation *presentation, TerminalColorFilterContext context) {
   auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(presentation->window->runtime));
+  context.reverse_palette.reset();
+  if (!prepare_terminal_color_filter(&context, boxrig_ui_model_terminal(boxrig_ui_view_model(view)))) return false;
   const auto previous = presentation->colors;
   presentation->colors = context;
-  const bool enabled = context.background.has_value() || context.visibility_correction ||
+  const bool enabled = context.background.has_value() || context.filter != TerminalColorFilter::none ||
       (context.color_vision != TerminalColorVision::none && context.color_vision_strength > 0);
   const auto status = boxrig_ui_view_set_color_filter(view, enabled ? filter_terminal_colors : nullptr,
       enabled ? &presentation->colors : nullptr);
@@ -40,6 +42,18 @@ static bool apply_colors(TerminalPresentation *presentation, TerminalColorFilter
   // Registration invalidates colors and requests a frame, including when the
   // pointers are unchanged. Do not invalidate a second time for the same edit.
   return true;
+}
+
+static void prepare_colors(TerminalPresentation *presentation) {
+  if (presentation->colors.filter != TerminalColorFilter::reverse_palette) return;
+  auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(presentation->window->runtime));
+  const auto previous = presentation->colors.reverse_palette;
+  if (!prepare_terminal_color_filter(&presentation->colors, boxrig_ui_model_terminal(boxrig_ui_view_model(view)))) {
+    g_printerr("Failed to prepare terminal color palette\n");
+    return;
+  }
+  if (previous != presentation->colors.reverse_palette && boxrig_ui_view_invalidate_colors(view) != BOXRIG_UI_OK)
+    g_printerr("Failed to invalidate terminal color palette\n");
 }
 
 static bool apply_cursor(TerminalPresentation *presentation, const TerminalCursorSettings &settings) {
@@ -164,6 +178,7 @@ TerminalPresentation *create_terminal_presentation(MainWindow *window, TestOptio
 }
 
 void attach_terminal_presentation(TerminalPresentation *presentation) {
+  terminal_runtime_set_prepare_frame_callback(presentation->window->runtime, [presentation] { prepare_colors(presentation); });
   const auto status = boxrig_gtk3_terminal_widget_set_key_router(
       terminal_runtime_widget(presentation->window->runtime), route_key, presentation);
   if (status != BOXRIG_UI_OK) g_printerr("Terminal shortcuts: %d\n", status);
@@ -204,7 +219,7 @@ bool apply_terminal_presentation(TerminalPresentation *presentation, const Setti
   const auto display = terminal_display_settings(settings);
   const auto vision = terminal_color_vision_settings(settings);
   if (!apply_colors(presentation, {general_color_settings(settings).background,
-      terminal_color_filter(settings) == TerminalColorFilter::oklch, vision.profile, vision.strength / 100.0})) return false;
+      terminal_color_filter(settings), vision.profile, vision.strength / 100.0})) return false;
   if (!apply_cursor(presentation, terminal_cursor_settings(settings))) return false;
   if (!apply_terminal_background(presentation->background, settings, std::move(image))) return false;
   const auto accessibility_status = boxrig_gtk3_terminal_widget_set_accessibility_enabled(
@@ -313,6 +328,8 @@ void refresh_terminal_presentation(TerminalPresentation *presentation) {
 }
 
 void destroy_terminal_presentation(TerminalPresentation *presentation) {
+  if (presentation && presentation->window->runtime)
+    terminal_runtime_set_prepare_frame_callback(presentation->window->runtime, {});
   if (presentation) {
     auto *widget = terminal_runtime_widget(presentation->window->runtime);
     if (widget) boxrig_ui_view_set_color_filter(boxrig_gtk3_terminal_widget_view(widget), nullptr, nullptr);

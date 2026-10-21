@@ -1,4 +1,6 @@
 #include <elder-terms/terminal-color-filter.h>
+#include "color-appearance.h"
+#include "terminal-color-palette.h"
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -182,6 +184,74 @@ RgbColor correct_color_vision(RgbColor color, TerminalColorVision profile, doubl
   return encode(rgb);
 }
 
+static RgbColor color_at_luminance(Oklch color, double target) {
+  const double radians = color.hue * std::numbers::pi / 180;
+  const double cosine = std::cos(radians), sine = std::sin(radians);
+  double low = 0, high = 1;
+  for (int iteration = 0; iteration < 24; iteration++) {
+    const auto middle = (low + high) / 2;
+    if (luminance(gamut_map(middle, color.chroma, cosine, sine)) < target) low = middle;
+    else high = middle;
+  }
+  return encode(gamut_map((low + high) / 2, color.chroma, cosine, sine));
+}
+
+static boxrig_rgb reverse_color(boxrig_rgb value, TerminalColorFilter filter) {
+  auto color = srgb_to_oklch({value.red, value.green, value.blue});
+  color.lightness = 1 - color.lightness;
+  if (value.red == value.green && value.green == value.blue) color.chroma = 0;
+  // Yoon-Buck's continuous luminance involution preserves all pairwise WCAG
+  // ratios. Here we find that Y in Oklch instead of HSL; eight-bit rounding
+  // introduces a small measurable error. No visibility floor belongs in B.
+  // https://jordan.yoonbuck.com/post/contrast-preserving-inversion/derivation/
+  const auto y = luminance(linear_rgb({value.red, value.green, value.blue}));
+  const auto result = filter == TerminalColorFilter::reverse_contrast
+      ? color_at_luminance(color, (1 - y) / (1 + 20 * y)) : oklch_to_srgb(color);
+  return {result.red, result.green, result.blue};
+}
+
+static double reverse_tone(double lightness) {
+  // Reflect the encoded neutral axis, then return to perceptual lightness.
+  // This maps near-black backgrounds near white without an RGB equality test.
+  const auto y = std::pow(std::clamp(lightness, 0.0, 1.0), 3);
+  const auto encoded = y <= .0031308 ? 12.92 * y : 1.055 * std::pow(y, 1 / 2.4) - .055;
+  return std::cbrt(linear_channel(255 * (1 - encoded)));
+}
+
+static boxrig_rgb reverse_background(boxrig_rgb value, TerminalColorFilter filter) {
+  auto color = srgb_to_oklch({value.red, value.green, value.blue});
+  color.lightness = reverse_tone(color.lightness);
+  auto result = oklch_to_srgb(color);
+  if (filter == TerminalColorFilter::reverse_cam16)
+    result = compensate_color_appearance({value.red, value.green, value.blue}, result);
+  return {result.red, result.green, result.blue};
+}
+
+static boxrig_rgb reverse_foreground(boxrig_rgb value, boxrig_rgb background, TerminalColorFilter filter) {
+  auto color = srgb_to_oklch({value.red, value.green, value.blue});
+  const RgbColor bg{background.red, background.green, background.blue};
+  const auto y = luminance(linear_rgb(bg));
+  const bool dark = contrast(0, y) >= contrast(1, y);
+  const double target = std::min(4.6, 4.5 + (contrast(dark ? 0 : 1, y) - 4.5) / 2);
+  const double limit_y = dark ? (y + .05) / target - .05 : (y + .05) * target - .05;
+  const auto boundary = srgb_to_oklch(color_at_luminance(color, limit_y)).lightness;
+  const auto limit = dark ? boundary : 1 - boundary;
+  const auto distance = dark ? color.lightness : 1 - color.lightness;
+  // A soft knee leaves dark chromatic ink unchanged, then compresses bright
+  // shades into the readable range without flattening all of them at 4.5:1.
+  const auto knee = .7 * limit;
+  const auto compressed = distance <= knee ? distance :
+      limit - (limit - knee) * std::exp(-(distance - knee) / std::max(1e-6, limit - knee));
+  auto amount = std::clamp(color.chroma / .08, 0.0, 1.0);
+  amount = amount * amount * (3 - 2 * amount);
+  color.lightness = std::lerp(reverse_tone(color.lightness), dark ? compressed : 1 - compressed, amount);
+  auto candidate = oklch_to_srgb(color);
+  if (filter == TerminalColorFilter::reverse_cam16)
+    candidate = compensate_color_appearance({value.red, value.green, value.blue}, candidate);
+  const auto result = improve_color_visibility(candidate, bg);
+  return {result.red, result.green, result.blue};
+}
+
 boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filter_input *input, void *data) {
   const auto &context = *static_cast<const TerminalColorFilterContext *>(data);
   auto result = boxrig_ui_color_filter_result_default(input);
@@ -217,7 +287,38 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
         result.underline = recolor(result.underline, input->underline_source.role);
     } else result.marker = recolor(result.marker, input->marker_source.role);
   }
-  if (!context.visibility_correction) return result;
+  if (context.filter == TerminalColorFilter::reverse_lightness || context.filter == TerminalColorFilter::reverse_contrast) {
+    if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
+        input->target == BOXRIG_UI_COLOR_SURFACE) {
+      result.background = reverse_color(result.background, context.filter);
+      result.foreground = reverse_color(result.foreground, context.filter);
+      if (!result.underline_follows_foreground) result.underline = reverse_color(result.underline, context.filter);
+    } else result.marker = reverse_color(result.marker, context.filter);
+    return result;
+  }
+  if (context.filter == TerminalColorFilter::reverse_roles || context.filter == TerminalColorFilter::reverse_cam16 ||
+      context.filter == TerminalColorFilter::reverse_palette) {
+    const auto foreground = [&](boxrig_rgb value, boxrig_rgb background) {
+      const auto candidate = reverse_foreground(value, background, context.filter);
+      if (context.filter != TerminalColorFilter::reverse_palette || !context.reverse_palette) return candidate;
+      const auto adjusted = apply_reverse_palette({value.red, value.green, value.blue},
+          {candidate.red, candidate.green, candidate.blue}, {background.red, background.green, background.blue}, *context.reverse_palette);
+      return boxrig_rgb{adjusted.red, adjusted.green, adjusted.blue};
+    };
+    if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
+        input->target == BOXRIG_UI_COLOR_SURFACE) {
+      result.background = reverse_background(result.background, context.filter);
+      result.foreground = foreground(result.foreground, result.background);
+      if (!result.underline_follows_foreground)
+        result.underline = foreground(result.underline, result.background);
+    } else {
+      // Marker underlays are display colors, already filtered exactly once.
+      const auto background = input->underlay_valid ? input->underlay.background : reverse_background(result.background, context.filter);
+      result.marker = foreground(result.marker, background);
+    }
+    return result;
+  }
+  if (context.filter != TerminalColorFilter::oklch) return result;
   const auto correct = [](boxrig_rgb foreground, boxrig_rgb background) {
     const auto color = improve_color_visibility({foreground.red, foreground.green, foreground.blue},
         {background.red, background.green, background.blue});

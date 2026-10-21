@@ -1,0 +1,245 @@
+#include <elder-terms/terminal-color-filter.h>
+#include <boxrig/ui.h>
+#include <algorithm>
+#include <cassert>
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <vector>
+
+using namespace elder_terms;
+
+static bool equal(boxrig_rgb a, boxrig_rgb b) {
+  return a.red == b.red && a.green == b.green && a.blue == b.blue;
+}
+
+static boxrig_ui_color_filter_result cell(TerminalColorFilter filter, boxrig_rgb foreground,
+    boxrig_rgb background, uint32_t attributes = 0) {
+  TerminalColorFilterContext context{std::nullopt, filter};
+  boxrig_ui_color_filter_input input{};
+  input.target = BOXRIG_UI_COLOR_CELL;
+  input.colors = {foreground, background, foreground, {}, true};
+  input.foreground_source.role = input.background_source.role = BOXRIG_UI_COLOR_RGB;
+  input.attributes = attributes;
+  return filter_terminal_colors(&input, &context);
+}
+
+static void test_lightness() {
+  constexpr auto filter = TerminalColorFilter::reverse_lightness;
+  const auto normal = cell(filter, {255, 255, 255}, {0, 0, 0});
+  assert(equal(normal.foreground, {0, 0, 0}));
+  assert(equal(normal.background, {255, 255, 255}));
+  const auto inverse = cell(filter, {0, 0, 0}, {255, 255, 255}, BOXRIG_CELL_INVERSE);
+  assert(equal(inverse.foreground, normal.background));
+  assert(equal(inverse.background, normal.foreground));
+  // Independently calculated reference samples from the Oklab D65 matrices.
+  const auto red = cell(filter, {255, 0, 0}, {32, 32, 32});
+  assert(equal(red.foreground, {126, 0, 0}));
+  assert(equal(red.background, {176, 176, 176}));
+  const auto near = cell(filter, {254, 253, 254}, {1, 1, 1});
+  assert(near.foreground.red < 3 && near.foreground.green < 3 && near.foreground.blue < 3);
+  assert(equal(near.background, {233, 233, 233}));
+  for (int value = 0; value < 255; value++) {
+    const auto v = static_cast<uint8_t>(value), next = static_cast<uint8_t>(value + 1);
+    const auto pair = cell(filter, {v, v, v}, {next, next, next});
+    assert(pair.foreground.red >= pair.background.red);
+    assert(pair.foreground.red == pair.foreground.green && pair.foreground.green == pair.foreground.blue);
+  }
+  for (const auto target : {BOXRIG_UI_COLOR_SURFACE, BOXRIG_UI_COLOR_IME, BOXRIG_UI_COLOR_CURSOR,
+      BOXRIG_UI_COLOR_SELECTION_MARKER, BOXRIG_UI_COLOR_SEARCH_MARKER, BOXRIG_UI_COLOR_HOVER_MARKER, BOXRIG_UI_COLOR_IME_MARKER}) {
+    TerminalColorFilterContext context{std::nullopt, filter};
+    boxrig_ui_color_filter_input input{};
+    input.target = target;
+    input.colors = {{255, 255, 255}, {0, 0, 0}, {255, 255, 255}, {255, 255, 255}, false};
+    input.underlay_valid = true;
+    input.underlay.background = {255, 255, 255};
+    const auto result = filter_terminal_colors(&input, &context);
+    if (target == BOXRIG_UI_COLOR_SURFACE || target == BOXRIG_UI_COLOR_IME) {
+      assert(equal(result.background, {255, 255, 255}));
+      if (target == BOXRIG_UI_COLOR_IME) assert(equal(result.underline, {0, 0, 0}));
+    } else assert(equal(result.marker, {0, 0, 0}));
+    assert(equal(input.underlay.background, {255, 255, 255}));
+  }
+}
+
+static double luminance(boxrig_rgb rgb) {
+  const auto channel = [](double value) {
+    value /= 255;
+    return value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4);
+  };
+  return .2126 * channel(rgb.red) + .7152 * channel(rgb.green) + .0722 * channel(rgb.blue);
+}
+
+static double contrast(boxrig_rgb a, boxrig_rgb b) {
+  const double x = luminance(a) + .05, y = luminance(b) + .05;
+  return std::max(x, y) / std::min(x, y);
+}
+
+static void test_contrast() {
+  constexpr auto filter = TerminalColorFilter::reverse_contrast;
+  const auto reversed = cell(filter, {255, 255, 255}, {0, 0, 0});
+  assert(equal(reversed.foreground, {0, 0, 0}) && equal(reversed.background, {255, 255, 255}));
+  for (int r = 0; r <= 255; r += 17) for (int g = 0; g <= 255; g += 17) for (int b = 0; b <= 255; b += 17) {
+    const boxrig_rgb source{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b)};
+    const auto transformed = cell(filter, source, {53, 82, 113});
+    const auto y = luminance(source);
+    const auto expected = (1 - y) / (1 + 20 * y);
+    assert(std::abs(luminance(transformed.foreground) - expected) < .0045);
+    const auto original = contrast(source, {53, 82, 113});
+    assert(std::abs(contrast(transformed.foreground, transformed.background) / original - 1) < .025);
+    const auto again = cell(filter, transformed.foreground, {0, 0, 0});
+    assert(std::abs(luminance(again.foreground) - y) < .025);
+  }
+  // B preserves poor contrast too; it must not silently become Oklch or C.
+  const auto poor = cell(filter, {128, 128, 128}, {120, 120, 120});
+  assert(contrast(poor.foreground, poor.background) < 1.2);
+}
+
+static void test_roles() {
+  constexpr auto filter = TerminalColorFilter::reverse_roles;
+  const auto normal = cell(filter, {255, 255, 255}, {0, 0, 0});
+  assert(equal(normal.foreground, {0, 0, 0}) && equal(normal.background, {255, 255, 255}));
+  const auto near = cell(filter, {252, 253, 252}, {2, 1, 2});
+  assert(std::max({near.foreground.red, near.foreground.green, near.foreground.blue}) < 10);
+  assert(std::min({near.background.red, near.background.green, near.background.blue}) > 245);
+  const auto dark = cell(filter, {128, 128, 0}, {0, 0, 0});
+  const auto bright = cell(filter, {255, 255, 0}, {0, 0, 0});
+  assert(!equal(dark.foreground, bright.foreground));
+  assert(luminance(bright.foreground) > luminance(dark.foreground));
+  // Hue should still say yellow, even though it must be darker on white.
+  assert(bright.foreground.red > 80 && bright.foreground.green > 80 && bright.foreground.blue < 30);
+  for (const boxrig_rgb background : {boxrig_rgb{0, 0, 0}, boxrig_rgb{32, 32, 32}, boxrig_rgb{255, 255, 255},
+      boxrig_rgb{90, 20, 110}, boxrig_rgb{128, 128, 128}}) {
+    for (int r = 0; r <= 255; r += 51) for (int g = 0; g <= 255; g += 51) for (int b = 0; b <= 255; b += 51) {
+      const boxrig_rgb source{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b)};
+      const auto result = cell(filter, source, background);
+      assert(contrast(result.foreground, result.background) >= 4.5);
+      assert(equal(result.foreground, cell(filter, source, background, BOXRIG_CELL_INVERSE).foreground));
+    }
+  }
+  for (const auto target : {BOXRIG_UI_COLOR_CURSOR, BOXRIG_UI_COLOR_SELECTION_MARKER, BOXRIG_UI_COLOR_SEARCH_MARKER,
+      BOXRIG_UI_COLOR_HOVER_MARKER, BOXRIG_UI_COLOR_IME_MARKER}) {
+    TerminalColorFilterContext context{std::nullopt, filter};
+    boxrig_ui_color_filter_input input{};
+    input.target = target;
+    input.colors.marker = {255, 255, 0};
+    input.underlay_valid = true;
+    input.underlay.background = {240, 240, 240};
+    const auto result = filter_terminal_colors(&input, &context);
+    assert(contrast(result.marker, input.underlay.background) >= 4.5);
+    assert(equal(input.underlay.background, {240, 240, 240}));
+  }
+}
+
+static void test_cam16() {
+  constexpr auto filter = TerminalColorFilter::reverse_cam16;
+  const auto neutral = cell(filter, {255, 255, 255}, {0, 0, 0});
+  assert(equal(neutral.foreground, {0, 0, 0}) && equal(neutral.background, {255, 255, 255}));
+  int different = 0;
+  for (int r = 0; r <= 255; r += 51) for (int g = 0; g <= 255; g += 51) for (int b = 0; b <= 255; b += 51) {
+    const boxrig_rgb source{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b)};
+    for (const boxrig_rgb bg : {boxrig_rgb{0, 0, 0}, boxrig_rgb{32, 32, 32}, boxrig_rgb{80, 128, 80}}) {
+      const auto result = cell(filter, source, bg);
+      assert(contrast(result.foreground, result.background) >= 4.5);
+      if (!equal(result.foreground, cell(TerminalColorFilter::reverse_roles, source, bg).foreground)) different++;
+    }
+  }
+  assert(different > 100);
+}
+
+static void test_palette() {
+  auto config = boxrig_terminal_config_default();
+  config.rows = 2; config.columns = 20;
+  boxrig_terminal *terminal = nullptr;
+  assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+  // boxrig's standard background is #101010; establish the exact black
+  // reference before testing OSC-driven transitions to another background.
+  const char initial_background[] = "\033]11;#000000\a";
+  std::size_t consumed = 0;
+  assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(initial_background), std::strlen(initial_background), &consumed) == BOXRIG_STATUS_OK);
+  TerminalColorFilterContext context{std::nullopt, TerminalColorFilter::reverse_palette};
+  const auto revision = boxrig_terminal_color_revision(terminal);
+  assert(prepare_terminal_color_filter(&context, terminal));
+  assert(context.reverse_palette);
+  const auto prepared = context.reverse_palette;
+  assert(prepare_terminal_color_filter(&context, terminal));
+  assert(context.reverse_palette == prepared);
+  const auto sample = [&](boxrig_rgb value) {
+    boxrig_ui_color_filter_input input{};
+    input.target = BOXRIG_UI_COLOR_CELL;
+    input.colors.foreground = value;
+    assert(boxrig_terminal_get_dynamic_color(terminal, BOXRIG_DYNAMIC_COLOR_BACKGROUND, &input.colors.background) == BOXRIG_STATUS_OK);
+    input.foreground_source.role = BOXRIG_UI_COLOR_RGB;
+    input.background_source.role = BOXRIG_UI_COLOR_DEFAULT_BACKGROUND;
+    return filter_terminal_colors(&input, &context);
+  };
+  assert(equal(sample({255, 255, 255}).foreground, {0, 0, 0}));
+  assert(equal(sample({255, 255, 255}).background, {255, 255, 255}));
+  std::vector<boxrig_rgb> baseline;
+  std::vector<boxrig_rgb> original_colors;
+  int distinct = 0;
+  for (int i = 0; i < 256; i++) {
+    boxrig_rgb color{};
+    assert(boxrig_terminal_get_palette_color(terminal, static_cast<uint8_t>(i), &color) == BOXRIG_STATUS_OK);
+    original_colors.push_back(color);
+    const auto result = sample(color);
+    baseline.push_back(result.foreground);
+    assert(contrast(result.foreground, result.background) >= 4.5);
+    if (!equal(result.foreground, cell(TerminalColorFilter::reverse_roles, color, {0, 0, 0}).foreground)) distinct++;
+  }
+  assert(distinct > 40);
+  // Gradient samples must interpolate, not snap to palette entries.
+  auto previous = sample({50, 100, 0}).foreground;
+  int changes = 0;
+  for (int blue = 1; blue <= 255; blue++) {
+    const auto current = sample({50, 100, static_cast<uint8_t>(blue)}).foreground;
+    const auto a = srgb_to_oklch({previous.red, previous.green, previous.blue});
+    const auto b = srgb_to_oklch({current.red, current.green, current.blue});
+    assert(std::abs(a.lightness - b.lightness) < .025);
+    if (!equal(current, previous)) changes++;
+    previous = current;
+  }
+  assert(changes > 100);
+  // Callback order and unrelated output cannot alter the prepared mapping.
+  for (int i = 255; i >= 0; i--) {
+    boxrig_rgb color{};
+    assert(boxrig_terminal_get_palette_color(terminal, static_cast<uint8_t>(i), &color) == BOXRIG_STATUS_OK);
+    assert(equal(sample(color).foreground, baseline[i]));
+  }
+  assert(boxrig_terminal_color_revision(terminal) == revision);
+  const char update[] = "\033]4;1;#f0a020\a\033]10;#e08030\a";
+  assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(update), std::strlen(update), &consumed) == BOXRIG_STATUS_OK);
+  assert(consumed == std::strlen(update));
+  assert(prepare_terminal_color_filter(&context, terminal));
+  assert(context.reverse_palette != prepared);
+  boxrig_rgb changed{};
+  assert(boxrig_terminal_get_palette_color(terminal, 1, &changed) == BOXRIG_STATUS_OK);
+  assert(equal(changed, {240, 160, 32}));
+  int changed_mappings = 0;
+  for (std::size_t i = 0; i < original_colors.size(); i++)
+    if (!equal(sample(original_colors[i]).foreground, baseline[i])) changed_mappings++;
+  assert(changed_mappings > 0);
+  const auto after = context.reverse_palette;
+  assert(prepare_terminal_color_filter(&context, terminal) && context.reverse_palette == after);
+  const char scroll[] = "text\r\ntext\r\ntext\r\ntext\r\n";
+  assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(scroll), std::strlen(scroll), &consumed) == BOXRIG_STATUS_OK);
+  assert(prepare_terminal_color_filter(&context, terminal) && context.reverse_palette == after);
+  const char background_update[] = "\033]11;#202020\a";
+  assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(background_update), std::strlen(background_update), &consumed) == BOXRIG_STATUS_OK);
+  assert(prepare_terminal_color_filter(&context, terminal) && context.reverse_palette != after);
+  const auto new_background = sample({255, 255, 255});
+  assert(equal(new_background.background, {223, 223, 223}));
+  assert(contrast(new_background.foreground, new_background.background) >= 4.5);
+  context.filter = TerminalColorFilter::none;
+  assert(prepare_terminal_color_filter(&context, terminal) && !context.reverse_palette);
+  boxrig_terminal_destroy(terminal);
+}
+
+int main() {
+  test_lightness();
+  test_contrast();
+  test_roles();
+  test_cam16();
+  test_palette();
+  std::puts("reverse color filters passed");
+}

@@ -773,6 +773,35 @@ background_image_fit=cover
 color_filter=oklch
 ```
 
+## Reversing Background and Text Polarity
+
+Choose one of five modes under "Color filter" on the "Terminal appearance" tab. They turn white text on black into black text on white and continuously transform nearby colors as well. Use "Compare colors" to choose a mode that suits your usual palette.
+
+A palette maps color numbers to RGB values. CAM16, used in D, is a model of color appearance under different viewing conditions.
+
+| Choice | Configuration value | Behavior |
+|---|---|---|
+| Reverse lightness (A) | `reverse-lightness` | Reflects perceptual lightness while preserving hue. Bright yellow and green become nearly black |
+| Reverse contrast (B) | `reverse-contrast` | Approximately preserves the original contrast ratios, including poorly readable combinations |
+| Reverse text and background (C) | `reverse-roles` | Reverses backgrounds and adjusts chromatic text for readability while retaining hue and tone differences |
+| Reverse appearance (D, CAM16) | `reverse-cam16` | Compensates for changes in color appearance under assumed dark-to-light viewing conditions |
+| Reverse optimized palette (E) | `reverse-palette` | Adjusts color separation across the terminal palette and smoothly extends the result to directly specified RGB colors |
+
+C, D, and E adjust text, underlines, and markers to at least 4.5:1 contrast against the transformed solid background. D uses fixed viewing assumptions; it does not measure room lighting. E follows terminal palette changes and does not change colors merely because you scroll. Unused palette entries can also influence E's adjustments.
+
+E's preview uses the standard palette. The actual display can differ when the connected application changes that palette.
+
+Only one color filter can be selected, so reversal and the existing Oklch filter are mutually exclusive. Color discrimination assistance can be combined with every mode and is applied before reversal. Logical terminal colors, text, communication, copied text, and logs remain unchanged.
+
+Background images, the desktop behind transparent windows, Kitty images, and intrinsic color-emoji pixels are not reversed. Check the actual display when combining reversal with transparency or images. See [boxrig's supported filtering scope](https://github.com/kekyo/boxrig/blob/0.4.0/docs/en/color-filters.md).
+
+```ini
+[terminal]
+color_filter=reverse-roles
+```
+
+Use `none` to disable the filter or `oklch` for the existing visibility correction. Global and per-connection settings, inheritance, Apply, Save, and Cancel work as with other display preferences.
+
 ## Helping Distinguish Colors
 
 Select Protan (P), Deutan (D), or Tritan (T) under "Color discrimination" on the "Terminal appearance" tab.

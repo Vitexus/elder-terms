@@ -1,6 +1,7 @@
 #pragma once
 #include <boxrig/ui/color.h>
 #include <elder-terms/settings/terminal-settings.h>
+#include <memory>
 
 namespace elder_terms {
 /** Perceptual color in D65 Oklch, used for display correction. */
@@ -32,13 +33,23 @@ ELDER_TERMS_API RgbColor correct_color_vision(RgbColor color, TerminalColorVisio
  * @returns Simulated sRGB with gamut clipping; exact neutrals are preserved.
  * @remarks A simulation is an evaluation aid and does not establish individual usability. */
 ELDER_TERMS_API RgbColor simulate_color_vision(RgbColor color, TerminalColorVision profile);
+/** Immutable precomputed palette and interpolation data for filter E. */
+struct ReversePalette;
 /** Stable application-owned color hook context. */
 struct TerminalColorFilterContext {
   std::optional<RgbColor> background; /**< Connection override for the default background. */
-  bool visibility_correction = false; /**< Enable Oklch correction after default-color resolution. */
+  TerminalColorFilter filter = TerminalColorFilter::none; /**< Exclusive correction after default-color resolution. */
   TerminalColorVision color_vision = TerminalColorVision::none; /**< Independent recoloring profile. */
   double color_vision_strength = 1; /**< Recoloring amount from zero through one. */
+  std::shared_ptr<const ReversePalette> reverse_palette{}; /**< Prepared outside the display callback. */
 };
+/** Prepares the palette filter when settings or the terminal's color revision change.
+ * @param context Application-owned context, outside a rendering callback.
+ * @param terminal Terminal supplying palette/default colors, or nullptr for the preview's standard palette.
+ * @returns Whether preparation succeeded; an unchanged palette retains its shared pointer.
+ * @remarks Call before rendering. If the pointer changes, invalidate view colors.
+ * Other modes release the precomputed data. Logical terminal colors are never modified. */
+ELDER_TERMS_API bool prepare_terminal_color_filter(TerminalColorFilterContext *context, const boxrig_terminal *terminal);
 /** Pure boxrig display-color callback; never changes the terminal or its underlay.
  * @param input Original resolved colors and already-filtered underlay.
  * @param context Borrowed TerminalColorFilterContext, valid throughout registration.

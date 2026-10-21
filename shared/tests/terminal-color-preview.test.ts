@@ -139,3 +139,60 @@ for (const [profile, reference] of [
     );
   });
 }
+
+for (const filter of [
+  'reverse-lightness',
+  'reverse-contrast',
+  'reverse-roles',
+  'reverse-cam16',
+  'reverse-palette',
+]) {
+  it(`previews reversed text and the entire background for ${filter}`, async (context) => {
+    await runSharedGtkTest(
+      context,
+      [
+        '--page=terminal_appearance',
+        `--connection=terminal.color_filter=${filter}`,
+        '--connection=general.background=#000000',
+      ],
+      async ({ app }) => {
+        const scroll = expectElementKind(
+          await app.getById('settings_terminal_appearance_page_scrollbar'),
+          'scrollbar'
+        );
+        await scroll.setValue((await scroll.valueInfo()).maximum);
+        await expectElementKind(
+          await app.getById('settings_terminal_color_preview'),
+          'expander'
+        ).expand();
+        const background = expectElementKind(
+          await app.getById('settings_terminal_color_preview_background'),
+          'comboBox'
+        );
+        await background.selectChildAt(2);
+        const before = expectElementKind(
+          await app.getById('settings_terminal_color_preview_before'),
+          'label'
+        );
+        const after = expectElementKind(
+          await app.getById('settings_terminal_color_preview_after'),
+          'label'
+        );
+        await waitForResult(async () => {
+          await scroll.setValue((await scroll.valueInfo()).maximum);
+          const original = PNG.sync.read((await before.capture()).image);
+          const reversed = PNG.sync.read((await after.capture()).image);
+          // The corner is padding, outside Pango spans: the whole surface must reverse.
+          expect(original.data.subarray(0, 3).toString('hex')).toBe('000000');
+          expect(reversed.data.subarray(0, 3).toString('hex')).toBe('ffffff');
+          let black = 0;
+          for (let i = 0; i < reversed.data.length; i += 4)
+            if (reversed.data.subarray(i, i + 3).toString('hex') === '000000')
+              black++;
+          expect(black).toBeGreaterThan(40);
+          expect(await before.text()).toBe(await after.text());
+        });
+      }
+    );
+  });
+}

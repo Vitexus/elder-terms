@@ -25,7 +25,7 @@ static void test_color_vision_hook() {
   const RgbColor connection{70, 20, 80};
   for (const auto profile : {TerminalColorVision::none, TerminalColorVision::protan, TerminalColorVision::deutan, TerminalColorVision::tritan}) {
     for (const double strength : {0.0, .5, 1.0}) for (const bool oklch : {false, true}) {
-      TerminalColorFilterContext context{connection, oklch, profile, strength};
+      TerminalColorFilterContext context{connection, oklch ? TerminalColorFilter::oklch : TerminalColorFilter::none, profile, strength};
       const auto recolor = [&](boxrig_rgb value) { return correct_color_vision(rgb(value), profile, strength); };
       for (const auto target : {BOXRIG_UI_COLOR_CELL, BOXRIG_UI_COLOR_IME}) {
         boxrig_ui_color_filter_input input{};
@@ -124,7 +124,7 @@ int main() {
       if (contrast(color, background) >= 4.5) assert(equal(adjusted, color));
     }
   }
-  TerminalColorFilterContext context{RgbColor{255, 255, 255}, false};
+  TerminalColorFilterContext context{RgbColor{255, 255, 255}, TerminalColorFilter::none};
   boxrig_ui_color_filter_input input{};
   input.target = BOXRIG_UI_COLOR_CELL;
   input.foreground_source.role = BOXRIG_UI_COLOR_DEFAULT_FOREGROUND;
@@ -135,7 +135,7 @@ int main() {
   input.attributes = BOXRIG_CELL_INVERSE;
   result = filter_terminal_colors(&input, &context);
   assert(equal(rgb(result.foreground), {255, 255, 255}) && equal(rgb(result.background), {0, 0, 0}));
-  context = {std::nullopt, true};
+  context = {std::nullopt, TerminalColorFilter::oklch};
   input = {};
   input.colors = {{128, 0, 0}, {0, 0, 0}, {0, 96, 0}, {80, 80, 80}, false};
   input.foreground_source.role = input.underline_source.role = input.marker_source.role = BOXRIG_UI_COLOR_RGB;
@@ -161,7 +161,7 @@ int main() {
   }
   input.target = BOXRIG_UI_COLOR_SURFACE;
   assert(equal(rgb(filter_terminal_colors(&input, &context).background), {0, 0, 0}));
-  context.visibility_correction = false;
+  context.filter = TerminalColorFilter::none;
   assert(equal(rgb(filter_terminal_colors(&input, &context).foreground), rgb(input.colors.foreground)));
 
   auto config = boxrig_terminal_config_default();
@@ -205,10 +205,16 @@ int main() {
   };
   const auto before_text = text();
   const auto color_revision = boxrig_terminal_color_revision(terminal);
-  context = {std::nullopt, true};
+  context = {std::nullopt, TerminalColorFilter::oklch};
   assert(boxrig_ui_view_set_color_filter(view, filter_terminal_colors, &context) == BOXRIG_UI_OK);
+  for (const auto filter : {TerminalColorFilter::oklch, TerminalColorFilter::reverse_lightness,
+      TerminalColorFilter::reverse_contrast, TerminalColorFilter::reverse_roles, TerminalColorFilter::reverse_cam16,
+      TerminalColorFilter::reverse_palette}) {
+  context.filter = filter;
+  const bool readable = filter != TerminalColorFilter::reverse_lightness && filter != TerminalColorFilter::reverse_contrast;
   for (const auto profile : {TerminalColorVision::none, TerminalColorVision::protan, TerminalColorVision::deutan, TerminalColorVision::tritan}) {
     context.color_vision = profile;
+    assert(prepare_terminal_color_filter(&context, terminal));
     assert(boxrig_ui_view_set_color_filter(view, filter_terminal_colors, &context) == BOXRIG_UI_OK);
     for (const bool focused : {true, false}) {
     assert(boxrig_ui_view_set_focused(view, focused) == BOXRIG_UI_OK);
@@ -219,14 +225,15 @@ int main() {
       input.state_flags = BOXRIG_UI_COLOR_SELECTED | BOXRIG_UI_COLOR_SEARCH_MATCH | BOXRIG_UI_COLOR_HYPERLINK_HOVER |
           (focused ? BOXRIG_UI_COLOR_FOCUSED : 0);
       assert(boxrig_ui_view_resolve_colors(view, &input, &result) == BOXRIG_UI_OK);
-      assert(contrast(rgb(result.foreground), rgb(result.background)) >= 4.5);
+      if (readable) assert(contrast(rgb(result.foreground), rgb(result.background)) >= 4.5);
       if (column < 6) assert(equal(rgb(result.underline), rgb(result.foreground)));
-      else assert(contrast(rgb(result.underline), rgb(result.background)) >= 4.5);
+      else if (readable) assert(contrast(rgb(result.underline), rgb(result.background)) >= 4.5);
       boxrig_cell_view unchanged{};
       assert(boxrig_terminal_get_cell(terminal, 0, column, &unchanged) == BOXRIG_STATUS_OK);
       assert(unchanged.foreground.kind == cell.foreground.kind && unchanged.background.kind == cell.background.kind);
     }
     }
+  }
   }
   boxrig_rgb palette{}, dynamic{};
   assert(boxrig_terminal_get_palette_color(terminal, 4, &palette) == BOXRIG_STATUS_OK && equal(rgb(palette), {0, 0, 128}));

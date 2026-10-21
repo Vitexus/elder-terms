@@ -134,6 +134,12 @@ bool terminal_runtime_is_settled(const TerminalRuntime *runtime);
 void terminal_runtime_set_changed_callback(
     TerminalRuntime *runtime, void (*callback)(void *), void *context);
 
+/** Prepares application-owned presentation data before a component frame.
+ * @param runtime Live runtime.
+ * @param callback Runs on the GTK thread after received input and model synchronization;
+ * an empty function removes it. The callback must not render or destroy the runtime. */
+void terminal_runtime_set_prepare_frame_callback(TerminalRuntime *runtime, std::function<void()> callback);
+
 /**
  * Schedules model synchronization and a frame after application-side UI changes.
  * @param runtime Live runtime whose core, font, colors or chrome changed.

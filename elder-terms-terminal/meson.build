@@ -149,6 +149,16 @@ color_filter_test = executable('terminal-color-filter-test',
   dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
 test('terminal-color-filter-test', color_filter_test)
 
+reverse_filter_test = executable('terminal-reverse-filter-test',
+  ['tests/cpp/terminal-reverse-filter-test.cpp'],
+  dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
+test('terminal-reverse-filter-test', reverse_filter_test)
+
+color_appearance_test = executable('color-appearance-test',
+  ['tests/cpp/color-appearance-test.cpp', '../shared/src/color-appearance.cpp'],
+  dependencies: elder_terms_dep)
+test('color-appearance-test', color_appearance_test)
+
 color_vision_test = executable('terminal-color-vision-test',
   ['tests/cpp/terminal-color-vision-test.cpp'],
   dependencies: [elder_terms_dep, boxrig_deps['boxrig-ui']])
