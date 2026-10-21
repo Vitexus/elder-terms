@@ -12,7 +12,7 @@ struct TerminalColorPreview {
   GtkWidget *root;
   GtkWidget *background;
   std::array<GtkWidget *, 2> labels;
-  GtkCssProvider *style;
+  std::array<GtkCssProvider *, 2> styles;
 };
 
 static void identify(GtkWidget *widget, const std::string &id) {
@@ -71,19 +71,26 @@ void sync_terminal_color_preview(TerminalColorPreview *preview) {
   const auto background = selected == 1 ? RgbColor{255, 255, 255} : selected == 2
       ? general_color_settings(*preview->store).background.value_or(RgbColor{0, 0, 0}) : RgbColor{32, 32, 32};
   const auto vision = terminal_color_vision_settings(*preview->store);
-  TerminalColorFilterContext before{background, false};
-  TerminalColorFilterContext after{background, terminal_color_filter(*preview->store) == TerminalColorFilter::oklch,
+  TerminalColorFilterContext before{background, TerminalColorFilter::none};
+  TerminalColorFilterContext after{background, terminal_color_filter(*preview->store),
       vision.profile, vision.strength / 100.0};
   gtk_label_set_markup(GTK_LABEL(preview->labels[0]), samples(before).c_str());
   gtk_label_set_markup(GTK_LABEL(preview->labels[1]), samples(after).c_str());
-  char css[128];
-  std::snprintf(css, sizeof(css), "label { background-color: #%02x%02x%02x; padding: 6px; }",
-      background.red, background.green, background.blue);
-  gtk_css_provider_load_from_data(preview->style, css, -1, nullptr);
+  for (int index = 0; index < 2; index++) {
+    boxrig_ui_color_filter_input input{};
+    input.target = BOXRIG_UI_COLOR_SURFACE;
+    input.background_source.role = BOXRIG_UI_COLOR_DEFAULT_BACKGROUND;
+    const auto surface = filter_terminal_colors(&input, index == 0 ? &before : &after).background;
+    char css[128];
+    std::snprintf(css, sizeof(css), "label { background-color: #%02x%02x%02x; padding: 6px; }",
+        surface.red, surface.green, surface.blue);
+    gtk_css_provider_load_from_data(preview->styles[index], css, -1, nullptr);
+  }
 }
 
 TerminalColorPreview *create_terminal_color_preview(SettingsStore *store, const std::string &prefix) {
-  auto *preview = new TerminalColorPreview{store, gtk_expander_new(_("Compare colors")), gtk_combo_box_text_new(), {}, gtk_css_provider_new()};
+  auto *preview = new TerminalColorPreview{store, gtk_expander_new(_("Compare colors")), gtk_combo_box_text_new(), {},
+      {gtk_css_provider_new(), gtk_css_provider_new()}};
   g_object_ref_sink(preview->root);
   identify(preview->root, prefix + "_terminal_color_preview");
   auto *body = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
@@ -106,7 +113,7 @@ TerminalColorPreview *create_terminal_color_preview(SettingsStore *store, const 
     auto *label = gtk_label_new(nullptr);
     gtk_label_set_xalign(GTK_LABEL(label), 0);
     identify(label, prefix + (index == 0 ? "_terminal_color_preview_before" : "_terminal_color_preview_after"));
-    gtk_style_context_add_provider(gtk_widget_get_style_context(label), GTK_STYLE_PROVIDER(preview->style), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+    gtk_style_context_add_provider(gtk_widget_get_style_context(label), GTK_STYLE_PROVIDER(preview->styles[index]), GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
     preview->labels[index] = label;
     gtk_grid_attach(GTK_GRID(comparison), label, index, 1, 1, 1);
   }
@@ -125,7 +132,7 @@ void destroy_terminal_color_preview(TerminalColorPreview *preview) {
   if (!preview) return;
   gtk_widget_destroy(preview->root);
   g_object_unref(preview->root);
-  g_object_unref(preview->style);
+  for (auto *style : preview->styles) g_object_unref(style);
   delete preview;
 }
 }

@@ -15,6 +15,7 @@ namespace elder_terms {
 /** Display-only correction; terminal bytes and logical colors are preserved. */
 enum class TerminalColorFilter {
   none,  /**< Preserve the terminal colors after connection defaults. */
+  reverse_lightness, /**< Reflect Oklab lightness while preserving hue (A). */
   oklch, /**< Improve low-contrast text and markers of any hue, including neutrals, in Oklch. */
 };
 /** Color-vision profile used for display recoloring, not a diagnosis. */

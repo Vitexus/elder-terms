@@ -866,7 +866,7 @@ static void test_terminal_color_filter_settings() {
   expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "oklch" &&
       setting_value_source(loaded.store, key) == SettingValueSource::global, "color correction should inherit");
   expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "inherited filter should stay inherited");
-  for (const auto *value : {"none", "oklch"}) {
+  for (const auto *value : {"none", "oklch", "reverse-lightness"}) {
     expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}) &&
         save_settings(loaded.store, path).saved, "selected correction should save");
     loaded = load_settings(options, 1.0);
@@ -898,7 +898,7 @@ static void test_terminal_color_vision_settings() {
   expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "inherited recoloring should stay inherited");
   for (const auto *value : {"none", "protan", "deutan", "tritan"}) {
     for (const gint64 strength : {0, 25, 100}) {
-      for (const auto *filter : {"none", "oklch"}) {
+      for (const auto *filter : {"none", "oklch", "reverse-lightness"}) {
         expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}) &&
             set_explicit_setting_value(&loaded.store, amount, elder_terms::SettingValue{strength}) &&
             set_explicit_setting_value(&loaded.store, contrast, elder_terms::SettingValue{std::string(filter)}) &&

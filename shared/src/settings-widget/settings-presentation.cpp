@@ -198,6 +198,7 @@ static constexpr std::array setting_choices{
     SettingChoiceEntry{"terminal", "cursor_shape", "block", N_("Full box")},
     SettingChoiceEntry{"terminal", "color_filter", "none", N_("No correction")},
     SettingChoiceEntry{"terminal", "color_filter", "oklch", N_("Improve visibility (Oklch)")},
+    SettingChoiceEntry{"terminal", "color_filter", "reverse-lightness", N_("Reverse lightness (A)")},
     SettingChoiceEntry{"terminal", "color_vision", "none", N_("No correction")},
     SettingChoiceEntry{"terminal", "color_vision", "protan", N_("Protan (P)")},
     SettingChoiceEntry{"terminal", "color_vision", "deutan", N_("Deutan (D)")},

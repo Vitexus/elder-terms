@@ -182,6 +182,14 @@ RgbColor correct_color_vision(RgbColor color, TerminalColorVision profile, doubl
   return encode(rgb);
 }
 
+static boxrig_rgb reverse_color(boxrig_rgb value) {
+  auto color = srgb_to_oklch({value.red, value.green, value.blue});
+  color.lightness = 1 - color.lightness;
+  if (value.red == value.green && value.green == value.blue) color.chroma = 0;
+  const auto result = oklch_to_srgb(color);
+  return {result.red, result.green, result.blue};
+}
+
 boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filter_input *input, void *data) {
   const auto &context = *static_cast<const TerminalColorFilterContext *>(data);
   auto result = boxrig_ui_color_filter_result_default(input);
@@ -217,7 +225,16 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
         result.underline = recolor(result.underline, input->underline_source.role);
     } else result.marker = recolor(result.marker, input->marker_source.role);
   }
-  if (!context.visibility_correction) return result;
+  if (context.filter == TerminalColorFilter::reverse_lightness) {
+    if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
+        input->target == BOXRIG_UI_COLOR_SURFACE) {
+      result.background = reverse_color(result.background);
+      result.foreground = reverse_color(result.foreground);
+      if (!result.underline_follows_foreground) result.underline = reverse_color(result.underline);
+    } else result.marker = reverse_color(result.marker);
+    return result;
+  }
+  if (context.filter != TerminalColorFilter::oklch) return result;
   const auto correct = [](boxrig_rgb foreground, boxrig_rgb background) {
     const auto color = improve_color_visibility({foreground.red, foreground.green, foreground.blue},
         {background.red, background.green, background.blue});

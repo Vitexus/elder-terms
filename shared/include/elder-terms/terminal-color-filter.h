@@ -35,7 +35,7 @@ ELDER_TERMS_API RgbColor simulate_color_vision(RgbColor color, TerminalColorVisi
 /** Stable application-owned color hook context. */
 struct TerminalColorFilterContext {
   std::optional<RgbColor> background; /**< Connection override for the default background. */
-  bool visibility_correction = false; /**< Enable Oklch correction after default-color resolution. */
+  TerminalColorFilter filter = TerminalColorFilter::none; /**< Exclusive correction after default-color resolution. */
   TerminalColorVision color_vision = TerminalColorVision::none; /**< Independent recoloring profile. */
   double color_vision_strength = 1; /**< Recoloring amount from zero through one. */
 };

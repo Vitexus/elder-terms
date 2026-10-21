@@ -11,7 +11,7 @@ using namespace elder_terms;
 struct Fixture {
   TerminalRuntime *runtime = nullptr;
   GtkWidget *window = nullptr;
-  TerminalColorFilterContext filter{RgbColor{32, 32, 32}, false, TerminalColorVision::protan, 1};
+  TerminalColorFilterContext filter{RgbColor{32, 32, 32}, TerminalColorFilter::none, TerminalColorVision::protan, 1};
   boxrig_gtk_render_backend backend = BOXRIG_GTK_RENDER_BACKEND_OPENGL;
   std::vector<boxrig_rgb> expected;
   unsigned int targets = 0;
@@ -82,7 +82,7 @@ static void prepare_scenario(Fixture *fixture) {
   auto *view = boxrig_gtk3_terminal_widget_view(widget);
   const auto phase = fixture->scenario % 4;
   fixture->filter.color_vision = static_cast<TerminalColorVision>(1 + fixture->scenario / 8);
-  fixture->filter.visibility_correction = fixture->scenario % 8 >= 4;
+  fixture->filter.filter = fixture->scenario % 8 >= 4 ? TerminalColorFilter::oklch : TerminalColorFilter::none;
   fixture->expected.clear();
   fixture->targets = 0;
   boxrig_composition_event cancel{};

@@ -25,7 +25,7 @@ static void test_color_vision_hook() {
   const RgbColor connection{70, 20, 80};
   for (const auto profile : {TerminalColorVision::none, TerminalColorVision::protan, TerminalColorVision::deutan, TerminalColorVision::tritan}) {
     for (const double strength : {0.0, .5, 1.0}) for (const bool oklch : {false, true}) {
-      TerminalColorFilterContext context{connection, oklch, profile, strength};
+      TerminalColorFilterContext context{connection, oklch ? TerminalColorFilter::oklch : TerminalColorFilter::none, profile, strength};
       const auto recolor = [&](boxrig_rgb value) { return correct_color_vision(rgb(value), profile, strength); };
       for (const auto target : {BOXRIG_UI_COLOR_CELL, BOXRIG_UI_COLOR_IME}) {
         boxrig_ui_color_filter_input input{};
@@ -124,7 +124,7 @@ int main() {
       if (contrast(color, background) >= 4.5) assert(equal(adjusted, color));
     }
   }
-  TerminalColorFilterContext context{RgbColor{255, 255, 255}, false};
+  TerminalColorFilterContext context{RgbColor{255, 255, 255}, TerminalColorFilter::none};
   boxrig_ui_color_filter_input input{};
   input.target = BOXRIG_UI_COLOR_CELL;
   input.foreground_source.role = BOXRIG_UI_COLOR_DEFAULT_FOREGROUND;
@@ -135,7 +135,7 @@ int main() {
   input.attributes = BOXRIG_CELL_INVERSE;
   result = filter_terminal_colors(&input, &context);
   assert(equal(rgb(result.foreground), {255, 255, 255}) && equal(rgb(result.background), {0, 0, 0}));
-  context = {std::nullopt, true};
+  context = {std::nullopt, TerminalColorFilter::oklch};
   input = {};
   input.colors = {{128, 0, 0}, {0, 0, 0}, {0, 96, 0}, {80, 80, 80}, false};
   input.foreground_source.role = input.underline_source.role = input.marker_source.role = BOXRIG_UI_COLOR_RGB;
@@ -161,7 +161,7 @@ int main() {
   }
   input.target = BOXRIG_UI_COLOR_SURFACE;
   assert(equal(rgb(filter_terminal_colors(&input, &context).background), {0, 0, 0}));
-  context.visibility_correction = false;
+  context.filter = TerminalColorFilter::none;
   assert(equal(rgb(filter_terminal_colors(&input, &context).foreground), rgb(input.colors.foreground)));
 
   auto config = boxrig_terminal_config_default();
@@ -205,7 +205,7 @@ int main() {
   };
   const auto before_text = text();
   const auto color_revision = boxrig_terminal_color_revision(terminal);
-  context = {std::nullopt, true};
+  context = {std::nullopt, TerminalColorFilter::oklch};
   assert(boxrig_ui_view_set_color_filter(view, filter_terminal_colors, &context) == BOXRIG_UI_OK);
   for (const auto profile : {TerminalColorVision::none, TerminalColorVision::protan, TerminalColorVision::deutan, TerminalColorVision::tritan}) {
     context.color_vision = profile;
