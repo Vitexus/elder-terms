@@ -1810,6 +1810,8 @@ const captureTransferProgress = async (
 ): Promise<void> => {
   const { transferCase } = noticeCase;
   const indeterminate = transferCase.protocol === 'xmodem';
+  const unpacedZmodemSend =
+    transferCase.protocol === 'zmodem' && transferCase.direction === 'send';
   const recordingName = `${transferCase.protocol}-${transferCase.direction}-progress`;
   const notice = await app.getById('transfer_progress_notice');
   const capture = await notice.capture();
@@ -1908,11 +1910,30 @@ const captureTransferProgress = async (
     while (pending.length >= frameSize) {
       const frame = pending.subarray(0, frameSize);
       frameNumber++;
-      const matches = (ratio: number, rgb: readonly number[]) => {
-        const offset = (row * area.width + column(ratio)) * 4;
+      const matchesColumn = (x: number, rgb: readonly number[]) => {
+        const offset = (row * area.width + x) * 4;
         return rgb.every(
           (value, channel) => Math.abs(frame[offset + 2 - channel] - value) <= 8
         );
+      };
+      const matches = (ratio: number, rgb: readonly number[]) =>
+        matchesColumn(column(ratio), rgb);
+      // An unpaced ZMODEM send can cross the 45–55% interval between frames.
+      // A partial bar still has a continuous filled prefix and empty suffix.
+      const partialZmodemSendVisible = () => {
+        if (!matches(0.05, filled) || !matches(0.95, empty)) return false;
+        let phase: 'filled' | 'boundary' | 'empty' = 'filled';
+        for (let x = column(0.05); x <= column(0.95); x++) {
+          if (matchesColumn(x, filled)) {
+            if (phase !== 'filled') return false;
+          } else if (matchesColumn(x, empty)) {
+            phase = 'empty';
+          } else {
+            if (phase === 'empty') return false;
+            phase = 'boundary';
+          }
+        }
+        return phase === 'empty';
       };
       // XMODEM has no total size, so retain a visible indeterminate pulse.
       // A filled prefix and empty suffix distinguish 45–55% progress from
@@ -1921,8 +1942,10 @@ const captureTransferProgress = async (
       const progressVisible = indeterminate
         ? pulsePositions.some((ratio) => matches(ratio, filled)) &&
           pulsePositions.some((ratio) => matches(ratio, empty))
-        : [0.05, 0.25, 0.45].every((ratio) => matches(ratio, filled)) &&
-          [0.55, 0.75, 0.95].every((ratio) => matches(ratio, empty));
+        : unpacedZmodemSend
+          ? partialZmodemSendVisible()
+          : [0.05, 0.25, 0.45].every((ratio) => matches(ratio, filled)) &&
+            [0.55, 0.75, 0.95].every((ratio) => matches(ratio, empty));
       if (peerStarted && progressFrame === undefined && progressVisible)
         progressFrame = frameNumber;
       pending = pending.subarray(frameSize);
@@ -1984,6 +2007,18 @@ const captureTransferProgress = async (
       maxDiffPixels: noticeCase.maxDiffPixels,
       maxDiffRatio: indeterminate ? 0.03 : 0.02,
       threshold: indeterminate ? 0.08 : 0.03,
+      ...(unpacedZmodemSend
+        ? {
+            masks: [
+              {
+                x: bar.x - area.x,
+                y: bar.y - area.y,
+                width: bar.width,
+                height: bar.height,
+              },
+            ],
+          }
+        : {}),
     }
   );
   return;
