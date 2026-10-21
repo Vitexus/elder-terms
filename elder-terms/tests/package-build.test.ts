@@ -100,6 +100,7 @@ const createPackageStage = (
     'usr/share/doc/elder-terms/docs/ja',
     'usr/share/doc/elder-terms/docs/en',
     'usr/share/doc/elder-terms/licenses/boxrig',
+    'usr/share/doc/elder-terms/licenses/connection-icons',
     'usr/share/icons/hicolor/256x256/apps',
     'usr/share/locale/ja/LC_MESSAGES',
   ];
@@ -186,6 +187,17 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     textFiles.set(
       `usr/share/doc/elder-terms/licenses/boxrig/${name}`,
       'license fixture\n'
+    );
+  }
+  for (const name of [
+    'NOTO-LICENSE',
+    'NOTO-FLAGS-NOTICE',
+    'MATERIAL-LICENSE',
+    'UNICODE-LICENSE',
+  ]) {
+    textFiles.set(
+      `usr/share/doc/elder-terms/licenses/connection-icons/${name}`,
+      'icon license fixture\n'
     );
   }
   for (const [relativePath, contents] of textFiles) {
@@ -328,6 +340,64 @@ container_image_for_target debian trixie riscv64
     );
     const relocated = join(temporaryRoot, 'relocated-tools');
     renameSync(prepared, relocated);
+    const resourceDriver = join(temporaryRoot, 'material-resource-driver.c');
+    const resourceExecutable = join(temporaryRoot, 'material-resource-driver');
+    writeFileSync(
+      resourceDriver,
+      `#include <gdk-pixbuf/gdk-pixbuf.h>
+
+int main(void) {
+  GError *error = NULL;
+  GdkPixbuf *image = gdk_pixbuf_new_from_resource(
+      "/net/kekyo/elder-terms/presets/material/action/home.png", &error);
+  if (image == NULL) {
+    if (error != NULL) g_error_free(error);
+    return 1;
+  }
+  const int width = gdk_pixbuf_get_width(image);
+  const int height = gdk_pixbuf_get_height(image);
+  const int stride = gdk_pixbuf_get_rowstride(image);
+  const int channels = gdk_pixbuf_get_n_channels(image);
+  if (width != 256 || height != 256 ||
+      !gdk_pixbuf_get_has_alpha(image) || channels != 4) {
+    g_object_unref(image);
+    return 2;
+  }
+  const guchar *pixels = gdk_pixbuf_read_pixels(image);
+  const guchar *center = pixels + 128 * stride + 128 * channels;
+  const guchar *badge = pixels + 128 * stride + 32 * channels;
+  const int valid = center[0] < 80 && center[1] < 80 && center[2] < 80 &&
+      badge[0] > 170 && badge[1] > 170 && badge[2] > 170;
+  g_object_unref(image);
+  return valid ? 0 : 2;
+}
+`
+    );
+    const pixbufFlags = run('pkg-config', [
+      '--cflags',
+      '--libs',
+      'gdk-pixbuf-2.0',
+      'gio-2.0',
+    ]);
+    expectSuccess(pixbufFlags, 'GResource test compiler flags unavailable');
+    expectSuccess(
+      run('cc', [
+        '-std=c99',
+        '-Wall',
+        '-Wextra',
+        '-Werror',
+        resourceDriver,
+        join(relocated, 'elder-terms-material-presets.c'),
+        '-o',
+        resourceExecutable,
+        ...pixbufFlags.stdout.trim().split(/\s+/u),
+      ]),
+      'relocated Material icon resource did not compile'
+    );
+    expectSuccess(
+      run(resourceExecutable, []),
+      'relocated Material icon resource did not decode into the chosen artwork'
+    );
     const commands = join(temporaryRoot, 'target-commands');
     mkdirSync(commands);
     writeExecutable(
@@ -716,6 +786,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       'libegl-dev',
       'libssh-dev',
       'libudev-dev',
+      'libsystemd-dev',
       'liburing-dev',
       'libxkbcommon-dev',
       'meson',
@@ -931,6 +1002,14 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         'WHATWG-Encoding-LICENSE',
         'Wayland-protocols-NOTICES.md',
       ].map((name) => `usr/share/doc/elder-terms/licenses/boxrig/${name}`),
+      ...[
+        'NOTO-LICENSE',
+        'NOTO-FLAGS-NOTICE',
+        'MATERIAL-LICENSE',
+        'UNICODE-LICENSE',
+      ].map(
+        (name) => `usr/share/doc/elder-terms/licenses/connection-icons/${name}`
+      ),
     ]) {
       const name = missingPath.replace(/\//g, '-');
       const stage = join(temporaryRoot, `missing-${name}-stage`);

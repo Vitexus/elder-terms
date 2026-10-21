@@ -49,23 +49,27 @@ elder_terms_noto_preset_resources = elder_terms_gnome.compile_resources(
   c_name: 'elder_terms_noto_presets',
   source_dir: meson.project_source_root() / 'data',
 )
-subdir('material-icon-sources')
-elder_terms_material_convert = find_program('convert')
-elder_terms_material_resource_compiler = find_program('glib-compile-resources')
-elder_terms_material_preset_resources = custom_target('elder-terms-material-presets',
-  input: 'connection-icon-material.gresource.xml',
-  output: 'elder-terms-material-presets.c',
-  command: [
-    find_program('node'),
-    files('../scripts/render-material-connection-icons.mts'),
-    meson.project_source_root() / 'data/connection-icons/material-svg',
-    '@INPUT@', '@OUTPUT@',
-    meson.current_build_dir() / 'material-presets-rendered',
-    elder_terms_material_convert,
-    elder_terms_material_resource_compiler,
-  ],
-  depend_files: material_icon_svg_sources,
-)
+if package_build_tools == ''
+  subdir('material-icon-sources')
+  elder_terms_material_convert = find_program('convert')
+  elder_terms_material_resource_compiler = find_program('glib-compile-resources')
+  elder_terms_material_preset_resources = custom_target('elder-terms-material-presets',
+    input: 'connection-icon-material.gresource.xml',
+    output: 'elder-terms-material-presets.c',
+    command: [
+      find_program('node'),
+      files('../scripts/render-material-connection-icons.mts'),
+      meson.project_source_root() / 'data/connection-icons/material-svg',
+      '@INPUT@', '@OUTPUT@',
+      meson.current_build_dir() / 'material-presets-rendered',
+      elder_terms_material_convert,
+      elder_terms_material_resource_compiler,
+    ],
+    depend_files: material_icon_svg_sources,
+  )
+else
+  elder_terms_material_preset_resources = package_build_tools / 'elder-terms-material-presets.c'
+endif
 
 elder_terms_localization_configuration = configuration_data()
 elder_terms_localization_configuration.set_quoted(

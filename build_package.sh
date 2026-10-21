@@ -428,6 +428,10 @@ validate_deb_package() {
 		usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
 		usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
 		usr/share/doc/elder-terms/licenses/boxrig/Wayland-protocols-NOTICES.md \
+		usr/share/doc/elder-terms/licenses/connection-icons/NOTO-LICENSE \
+		usr/share/doc/elder-terms/licenses/connection-icons/NOTO-FLAGS-NOTICE \
+		usr/share/doc/elder-terms/licenses/connection-icons/MATERIAL-LICENSE \
+		usr/share/doc/elder-terms/licenses/connection-icons/UNICODE-LICENSE \
 		usr/share/doc/elder-terms/copyright; do
 		assert_file "$tmp_dir/$required_file"
 	done
