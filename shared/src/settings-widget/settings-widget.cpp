@@ -3387,7 +3387,7 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
     const auto key = terminal_color_filter_setting_key();
     const auto fallback = std::get<std::string>(setting_fallback_value(state->draft_store, key, std::string("none")));
     std::vector<ComboOption> options;
-    for (const auto *filter : {"none", "oklch", "reverse-lightness", "reverse-contrast"}) options.push_back({filter, setting_choice_label(key, filter)});
+    for (const auto *filter : {"none", "oklch", "reverse-lightness", "reverse-contrast", "reverse-roles"}) options.push_back({filter, setting_choice_label(key, filter)});
     populate_inheritable_combo(state->terminal_color_filter_combo, state->draft_store, key,
         setting_choice_label(key, fallback), options, setting_string_value_or_default(state->draft_store, key, "none"));
   }

@@ -208,6 +208,43 @@ static boxrig_rgb reverse_color(boxrig_rgb value, TerminalColorFilter filter) {
   return {result.red, result.green, result.blue};
 }
 
+static double reverse_tone(double lightness) {
+  // Reflect the encoded neutral axis, then return to perceptual lightness.
+  // This maps near-black backgrounds near white without an RGB equality test.
+  const auto y = std::pow(std::clamp(lightness, 0.0, 1.0), 3);
+  const auto encoded = y <= .0031308 ? 12.92 * y : 1.055 * std::pow(y, 1 / 2.4) - .055;
+  return std::cbrt(linear_channel(255 * (1 - encoded)));
+}
+
+static boxrig_rgb reverse_background(boxrig_rgb value) {
+  auto color = srgb_to_oklch({value.red, value.green, value.blue});
+  color.lightness = reverse_tone(color.lightness);
+  const auto result = oklch_to_srgb(color);
+  return {result.red, result.green, result.blue};
+}
+
+static boxrig_rgb reverse_foreground(boxrig_rgb value, boxrig_rgb background) {
+  auto color = srgb_to_oklch({value.red, value.green, value.blue});
+  const RgbColor bg{background.red, background.green, background.blue};
+  const auto y = luminance(linear_rgb(bg));
+  const bool dark = contrast(0, y) >= contrast(1, y);
+  const double target = std::min(4.6, 4.5 + (contrast(dark ? 0 : 1, y) - 4.5) / 2);
+  const double limit_y = dark ? (y + .05) / target - .05 : (y + .05) * target - .05;
+  const auto boundary = srgb_to_oklch(color_at_luminance(color, limit_y)).lightness;
+  const auto limit = dark ? boundary : 1 - boundary;
+  const auto distance = dark ? color.lightness : 1 - color.lightness;
+  // A soft knee leaves dark chromatic ink unchanged, then compresses bright
+  // shades into the readable range without flattening all of them at 4.5:1.
+  const auto knee = .7 * limit;
+  const auto compressed = distance <= knee ? distance :
+      limit - (limit - knee) * std::exp(-(distance - knee) / std::max(1e-6, limit - knee));
+  auto amount = std::clamp(color.chroma / .08, 0.0, 1.0);
+  amount = amount * amount * (3 - 2 * amount);
+  color.lightness = std::lerp(reverse_tone(color.lightness), dark ? compressed : 1 - compressed, amount);
+  const auto result = improve_color_visibility(oklch_to_srgb(color), bg);
+  return {result.red, result.green, result.blue};
+}
+
 boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filter_input *input, void *data) {
   const auto &context = *static_cast<const TerminalColorFilterContext *>(data);
   auto result = boxrig_ui_color_filter_result_default(input);
@@ -250,6 +287,20 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
       result.foreground = reverse_color(result.foreground, context.filter);
       if (!result.underline_follows_foreground) result.underline = reverse_color(result.underline, context.filter);
     } else result.marker = reverse_color(result.marker, context.filter);
+    return result;
+  }
+  if (context.filter == TerminalColorFilter::reverse_roles) {
+    if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
+        input->target == BOXRIG_UI_COLOR_SURFACE) {
+      result.background = reverse_background(result.background);
+      result.foreground = reverse_foreground(result.foreground, result.background);
+      if (!result.underline_follows_foreground)
+        result.underline = reverse_foreground(result.underline, result.background);
+    } else {
+      // Marker underlays are display colors, already filtered exactly once.
+      const auto background = input->underlay_valid ? input->underlay.background : reverse_background(result.background);
+      result.marker = reverse_foreground(result.marker, background);
+    }
     return result;
   }
   if (context.filter != TerminalColorFilter::oklch) return result;

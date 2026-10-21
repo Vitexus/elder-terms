@@ -2715,3 +2715,6 @@ msgstr "明暗差の補正または背景の反転を選びます。色フィル
 
 msgid "Reverse contrast (B)"
 msgstr "コントラスト比を保って反転 (B)"
+
+msgid "Reverse text and background (C)"
+msgstr "文字と背景に合わせて反転 (C)"

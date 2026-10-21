@@ -93,8 +93,45 @@ static void test_contrast() {
   assert(contrast(poor.foreground, poor.background) < 1.2);
 }
 
+static void test_roles() {
+  constexpr auto filter = TerminalColorFilter::reverse_roles;
+  const auto normal = cell(filter, {255, 255, 255}, {0, 0, 0});
+  assert(equal(normal.foreground, {0, 0, 0}) && equal(normal.background, {255, 255, 255}));
+  const auto near = cell(filter, {252, 253, 252}, {2, 1, 2});
+  assert(std::max({near.foreground.red, near.foreground.green, near.foreground.blue}) < 10);
+  assert(std::min({near.background.red, near.background.green, near.background.blue}) > 245);
+  const auto dark = cell(filter, {128, 128, 0}, {0, 0, 0});
+  const auto bright = cell(filter, {255, 255, 0}, {0, 0, 0});
+  assert(!equal(dark.foreground, bright.foreground));
+  assert(luminance(bright.foreground) > luminance(dark.foreground));
+  // Hue should still say yellow, even though it must be darker on white.
+  assert(bright.foreground.red > 80 && bright.foreground.green > 80 && bright.foreground.blue < 30);
+  for (const boxrig_rgb background : {boxrig_rgb{0, 0, 0}, boxrig_rgb{32, 32, 32}, boxrig_rgb{255, 255, 255},
+      boxrig_rgb{90, 20, 110}, boxrig_rgb{128, 128, 128}}) {
+    for (int r = 0; r <= 255; r += 51) for (int g = 0; g <= 255; g += 51) for (int b = 0; b <= 255; b += 51) {
+      const boxrig_rgb source{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b)};
+      const auto result = cell(filter, source, background);
+      assert(contrast(result.foreground, result.background) >= 4.5);
+      assert(equal(result.foreground, cell(filter, source, background, BOXRIG_CELL_INVERSE).foreground));
+    }
+  }
+  for (const auto target : {BOXRIG_UI_COLOR_CURSOR, BOXRIG_UI_COLOR_SELECTION_MARKER, BOXRIG_UI_COLOR_SEARCH_MARKER,
+      BOXRIG_UI_COLOR_HOVER_MARKER, BOXRIG_UI_COLOR_IME_MARKER}) {
+    TerminalColorFilterContext context{std::nullopt, filter};
+    boxrig_ui_color_filter_input input{};
+    input.target = target;
+    input.colors.marker = {255, 255, 0};
+    input.underlay_valid = true;
+    input.underlay.background = {240, 240, 240};
+    const auto result = filter_terminal_colors(&input, &context);
+    assert(contrast(result.marker, input.underlay.background) >= 4.5);
+    assert(equal(input.underlay.background, {240, 240, 240}));
+  }
+}
+
 int main() {
   test_lightness();
   test_contrast();
+  test_roles();
   std::puts("reverse color filters passed");
 }
