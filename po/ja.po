@@ -590,6 +590,9 @@ msgstr "ローカル"
 msgid "Terminal"
 msgstr "端末"
 
+msgid "Terminal appearance"
+msgstr "端末の外観"
+
 #: shared/src/settings-widget/settings-presentation.cpp:238
 msgid "Macro"
 msgstr "マクロ"

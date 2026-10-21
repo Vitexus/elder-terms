@@ -1496,6 +1496,7 @@ describe('elder-terms main window', () => {
               'WebDAV',
               'SSH proxy',
               'Terminal',
+              'Terminal appearance',
               'Transfer',
               'Logging',
             ]

@@ -192,7 +192,8 @@ process.stdout.write('\\x1b]12;#ffffff\\x07\\x1b[48;2;0;0;0m\\x1b[2J\\x1b[H\\x1b
             );
             for (let i = 0; i < (await notebook.getChildCount()); i++) {
               if (
-                (await (await notebook.childAt(i))?.info())?.name === 'Terminal'
+                (await (await notebook.childAt(i))?.info())?.name ===
+                'Terminal appearance'
               ) {
                 await notebook.selectChildAt(i);
                 break;

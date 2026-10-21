@@ -154,13 +154,15 @@ it('renders missing glyphs with the third ordered family and tolerates unavailab
               for (let tab = 0; tab < (await notebook.getChildCount()); tab++) {
                 if (
                   (await (await notebook.childAt(tab))?.info())?.name ===
-                  'Terminal'
+                  'Terminal appearance'
                 ) {
                   await notebook.selectChildAt(tab);
                   break;
                 }
               }
-              for (const id of ['settings_terminal_page_scrollbar']) {
+              for (const id of [
+                'settings_terminal_appearance_page_scrollbar',
+              ]) {
                 const scrollbar = expectElementKind(
                   await app.getById(id),
                   'scrollbar'

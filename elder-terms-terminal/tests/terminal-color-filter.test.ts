@@ -146,13 +146,15 @@ for (const backend of ['cairo', 'opengl'])
               for (let index = 0; index < (await tabs.getChildCount()); index++)
                 if (
                   (await (await tabs.childAt(index))?.info())?.name ===
-                  'Terminal'
+                  'Terminal appearance'
                 ) {
                   await tabs.selectChildAt(index);
                   break;
                 }
               const scroll = expectElementKind(
-                await app.getById('settings_terminal_page_scrollbar'),
+                await app.getById(
+                  'settings_terminal_appearance_page_scrollbar'
+                ),
                 'scrollbar'
               );
               await scroll.setValue((await scroll.valueInfo()).maximum);

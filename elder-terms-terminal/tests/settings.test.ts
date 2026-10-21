@@ -268,6 +268,16 @@ const showTerminalSettingsPage = async (app: GtkApp): Promise<void> => {
   );
 };
 
+const showTerminalAppearanceSettingsPage = async (
+  app: GtkApp
+): Promise<void> => {
+  await selectSettingsNotebookTab(
+    app,
+    'Terminal appearance',
+    'settings_terminal_font_size_dip_entry'
+  );
+};
+
 const showGeneralSettingsPage = async (
   app: GtkApp
 ): Promise<GtkWidgetElement> =>
@@ -1355,6 +1365,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
               'entry'
             ).text()
           ).toBe('');
+          await showTerminalAppearanceSettingsPage(app);
           expect(
             await numericEntryValue(
               expectElementKind(
@@ -1363,6 +1374,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
               )
             )
           ).toBeCloseTo(16.25);
+          await showTerminalSettingsPage(app);
           await expectSelectedComboValue(
             app,
             'settings_terminal_backspace_code_combo',
@@ -2146,11 +2158,13 @@ describe.concurrent('elder-terms-terminal settings', () => {
       ['--test-fixture'],
       async (app, evidence) => {
         await openSettingsDialog(app);
-        await showTerminalSettingsPage(app);
+        await showTerminalAppearanceSettingsPage(app);
 
-        const terminalPage = await app.getById('settings_terminal_page');
+        const terminalPage = await app.getById(
+          'settings_terminal_appearance_page'
+        );
         const scrollbar = expectElementKind(
-          await app.getById('settings_terminal_page_scrollbar'),
+          await app.getById('settings_terminal_appearance_page_scrollbar'),
           'scrollbar'
         );
         const topCapture = await evidence.captureEvidence(
@@ -2427,6 +2441,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
           'entry'
         ).text()
       ).toBe('');
+      await showTerminalAppearanceSettingsPage(app);
       expect(
         await expectElementKind(
           await app.getById('settings_terminal_font_size_dip_entry'),
@@ -2457,7 +2472,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expect((await endBorder.info()).states).not.toContain('showing');
 
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
       await expectSelectedComboValue(
         app,
         'settings_terminal_show_border_combo',
@@ -2502,7 +2517,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expectWindowCellSize(borderedLayout, defaultColumns, defaultRows);
 
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
       await expectSelectedComboValue(
         app,
         'settings_terminal_show_border_combo',
@@ -2533,7 +2548,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expectWindowCellSize(widenedLayout, defaultColumns, defaultRows);
 
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
       await expectSelectedComboValue(
         app,
         'settings_terminal_show_border_combo',
@@ -2894,7 +2909,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       });
 
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
       expect(
         await numericEntryValue(
           expectElementKind(
@@ -3241,7 +3256,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
   it('does not apply runtime terminal font size changes when cancelled', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app, evidence) => {
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
 
       await expectElementKind(
         await app.getById('settings_terminal_font_size_dip_entry'),
@@ -3438,7 +3453,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
   it('applies runtime terminal font size changes', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app, evidence) => {
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
 
       const zoom = expectElementKind(
         await app.getById('settings_terminal_font_size_dip_entry'),

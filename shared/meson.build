@@ -248,6 +248,11 @@ settings_actions_test = executable('settings-actions-test', 'tests/settings-acti
 test('settings-actions-test', find_program('xvfb-run'), args: ['-a', settings_actions_test],
   env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
 
+settings_tabs_test = executable('settings-tabs-test', 'tests/settings-tabs-test.cpp',
+  dependencies: [elder_terms_dep])
+test('settings-tabs-test', find_program('xvfb-run'), args: ['-a', settings_tabs_test],
+  env: ['NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
+
 elder_terms_serial_device_test = executable(
   'elder-terms-serial-device-test',
   'tests/serial-device-test.cpp',

@@ -269,6 +269,8 @@ const char *settings_ui_text(SettingsUiText text) {
     return _("FTP");
   case SettingsUiText::terminal_tab:
     return _("Terminal");
+  case SettingsUiText::terminal_appearance_tab:
+    return _("Terminal appearance");
   case SettingsUiText::macro_tab:
     return _("Macro");
   case SettingsUiText::links_tab:

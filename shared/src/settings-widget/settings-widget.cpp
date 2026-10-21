@@ -142,7 +142,7 @@ struct SettingsWidgetState {
   GtkWidget *general_indicator_color_button = nullptr;
   GtkWidget *general_indicator_off_color_mode_combo = nullptr;
   GtkWidget *general_indicator_off_color_button = nullptr;
-  GtkWidget *terminal_page_surface = nullptr;
+  GtkWidget *terminal_appearance_page_surface = nullptr;
   GtkWidget *terminal_font_pending_scroll = nullptr;
   GtkWidget *terminal_fonts_mode_combo = nullptr;
   GtkWidget *terminal_fonts_rows_box = nullptr;
@@ -4249,14 +4249,14 @@ static void on_terminal_fonts_add_clicked(GtkButton *, gpointer data) {
   notify_changed(state);
 }
 
-static void on_terminal_page_size_allocate(GtkWidget *scroller, GtkAllocation *, gpointer data) {
+static void on_terminal_appearance_page_size_allocate(GtkWidget *scroller, GtkAllocation *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
   auto *entry = state->terminal_font_pending_scroll;
   if (entry == nullptr) return;
   // The scroller's default allocation updates its adjustment bounds first.
   // Scroll only after the new row has received real coordinates, not a timeout.
   gint y = 0;
-  if (gtk_widget_translate_coordinates(entry, state->terminal_page_surface, 0, 0, nullptr, &y)) {
+  if (gtk_widget_translate_coordinates(entry, state->terminal_appearance_page_surface, 0, 0, nullptr, &y)) {
     state->terminal_font_pending_scroll = nullptr;
     gtk_adjustment_clamp_page(gtk_scrolled_window_get_vadjustment(GTK_SCROLLED_WINDOW(scroller)),
         y, y + gtk_widget_get_allocated_height(entry));
@@ -5093,31 +5093,39 @@ static GtkWidget *create_general_page(SettingsWidgetState *state) {
   return page;
 }
 
-static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
-  const std::string page_id = widget_id(state, "terminal_page");
-  const std::string contents_id =
-      widget_id(state, "terminal_page_contents");
-  GtkWidget *page = create_page_grid(contents_id.c_str());
-  gtk_grid_set_row_spacing(GTK_GRID(page), 6);
-  GtkWidget *scroller = gtk_scrolled_window_new(nullptr, nullptr);
-  assign_accessible_id(scroller, page_id.c_str());
-  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
-                                 GTK_POLICY_NEVER,
-                                 GTK_POLICY_AUTOMATIC);
-  gtk_scrolled_window_set_overlay_scrolling(
-      GTK_SCROLLED_WINDOW(scroller), FALSE);
-  gtk_scrolled_window_set_propagate_natural_height(
-      GTK_SCROLLED_WINDOW(scroller), FALSE);
-  assign_accessible_id(
-      gtk_scrolled_window_get_vscrollbar(GTK_SCROLLED_WINDOW(scroller)),
-      widget_id(state, "terminal_page_scrollbar").c_str());
-  // Keep the grid margins inside a painted surface instead of exposing the
-  // implicit GtkViewport window around the direct scroll child.
-  GtkWidget *page_surface = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  state->terminal_page_surface = page_surface;
-  gtk_container_add(GTK_CONTAINER(page_surface), page);
-  gtk_container_add(GTK_CONTAINER(scroller), page_surface);
-  g_signal_connect_after(scroller, "size-allocate", G_CALLBACK(on_terminal_page_size_allocate), state);
+static std::pair<GtkWidget *, GtkWidget *>
+create_terminal_pages(SettingsWidgetState *state) {
+  auto create_scrolled_page = [state](const char *suffix, GtkWidget **grid,
+                                      GtkWidget **surface) {
+    const std::string prefix = std::string(suffix) + "_page";
+    *grid = create_page_grid(widget_id(state, (prefix + "_contents").c_str()).c_str());
+    gtk_grid_set_row_spacing(GTK_GRID(*grid), 6);
+    GtkWidget *scroller = gtk_scrolled_window_new(nullptr, nullptr);
+    assign_accessible_id(scroller, widget_id(state, prefix.c_str()).c_str());
+    gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroller),
+                                   GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_overlay_scrolling(GTK_SCROLLED_WINDOW(scroller), FALSE);
+    gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(scroller), FALSE);
+    assign_accessible_id(
+        gtk_scrolled_window_get_vscrollbar(GTK_SCROLLED_WINDOW(scroller)),
+        widget_id(state, (prefix + "_scrollbar").c_str()).c_str());
+    // Keep the grid margins inside a painted surface instead of exposing the
+    // implicit GtkViewport window around the direct scroll child.
+    *surface = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+    gtk_container_add(GTK_CONTAINER(*surface), *grid);
+    gtk_container_add(GTK_CONTAINER(scroller), *surface);
+    return scroller;
+  };
+  GtkWidget *page = nullptr;
+  GtkWidget *behavior_surface = nullptr;
+  GtkWidget *scroller = create_scrolled_page("terminal", &page, &behavior_surface);
+  GtkWidget *appearance_page = nullptr;
+  GtkWidget *appearance_surface = nullptr;
+  GtkWidget *appearance_scroller = create_scrolled_page(
+      "terminal_appearance", &appearance_page, &appearance_surface);
+  state->terminal_appearance_page_surface = appearance_surface;
+  g_signal_connect_after(appearance_scroller, "size-allocate",
+                         G_CALLBACK(on_terminal_appearance_page_size_allocate), state);
 
   const std::string encoding_combo_id =
       widget_id(state, "terminal_encoding_combo");
@@ -5181,7 +5189,7 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
       create_entry(widget_id(state, "terminal_font_size_dip_entry"));
   g_signal_connect(state->terminal_font_size_dip_entry, "changed",
                    G_CALLBACK(on_terminal_font_size_dip_changed), state);
-  attach_row(page, 7, terminal_font_size_dip_setting_key(),
+  attach_row(appearance_page, 1, terminal_font_size_dip_setting_key(),
              state->terminal_font_size_dip_entry);
 
   const std::string show_border_id =
@@ -5190,14 +5198,14 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
       create_combo_box(show_border_id.c_str());
   g_signal_connect(state->terminal_show_border_combo, "changed",
                    G_CALLBACK(on_terminal_show_border_changed), state);
-  attach_row(page, 8, terminal_show_border_setting_key(),
+  attach_row(appearance_page, 2, terminal_show_border_setting_key(),
              state->terminal_show_border_combo);
 
   state->terminal_border_width_entry =
       create_entry(widget_id(state, "terminal_border_width_entry"));
   g_signal_connect(state->terminal_border_width_entry, "changed",
                    G_CALLBACK(on_terminal_border_width_changed), state);
-  attach_row(page, 9, terminal_border_width_setting_key(),
+  attach_row(appearance_page, 3, terminal_border_width_setting_key(),
              state->terminal_border_width_entry);
 
   state->terminal_bell_sound_entry =
@@ -5216,7 +5224,7 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
                    G_CALLBACK(on_terminal_bell_sound_browse_clicked), state);
   gtk_box_pack_start(GTK_BOX(bell_sound_row), bell_sound_browse, FALSE, FALSE,
                      0);
-  attach_row(page, 10, terminal_bell_sound_setting_key(), bell_sound_row);
+  attach_row(page, 7, terminal_bell_sound_setting_key(), bell_sound_row);
 
   const std::string zoom_in_id =
       widget_id(state, "terminal_zoom_in_key_entry");
@@ -5244,7 +5252,7 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
   gtk_box_pack_start(GTK_BOX(zoom_in_row),
                      state->terminal_zoom_in_key_reset_button, FALSE, FALSE,
                      0);
-  attach_row(page, 11, terminal_zoom_in_key_setting_key(), zoom_in_row);
+  attach_row(page, 8, terminal_zoom_in_key_setting_key(), zoom_in_row);
 
   const std::string zoom_out_id =
       widget_id(state, "terminal_zoom_out_key_entry");
@@ -5272,7 +5280,7 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
   gtk_box_pack_start(GTK_BOX(zoom_out_row),
                      state->terminal_zoom_out_key_reset_button, FALSE, FALSE,
                      0);
-  attach_row(page, 12, terminal_zoom_out_key_setting_key(), zoom_out_row);
+  attach_row(page, 9, terminal_zoom_out_key_setting_key(), zoom_out_row);
 
   const std::string send_break_id =
       widget_id(state, "terminal_send_break_key_entry");
@@ -5302,7 +5310,7 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
   gtk_box_pack_start(GTK_BOX(send_break_row),
                      state->terminal_send_break_key_reset_button, FALSE,
                      FALSE, 0);
-  attach_row(page, 13, terminal_send_break_key_setting_key(),
+  attach_row(page, 10, terminal_send_break_key_setting_key(),
              send_break_row);
 
   auto *font_panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
@@ -5318,26 +5326,26 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
   gtk_box_pack_start(GTK_BOX(font_panel), font_actions, FALSE, FALSE, 0);
   state->terminal_fonts_rows_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   gtk_box_pack_start(GTK_BOX(font_panel), state->terminal_fonts_rows_box, FALSE, FALSE, 0);
-  auto *font_label = attach_row(page, 14, terminal_font_families_setting_key(), font_panel);
+  auto *font_label = attach_row(appearance_page, 0, terminal_font_families_setting_key(), font_panel);
   gtk_widget_set_valign(font_label, GTK_ALIGN_START);
 
   state->terminal_accessibility_enabled_combo = create_combo_box(
       widget_id(state, "terminal_accessibility_enabled_combo").c_str());
   g_signal_connect(state->terminal_accessibility_enabled_combo, "changed",
                    G_CALLBACK(on_terminal_accessibility_enabled_changed), state);
-  attach_row(page, 15, terminal_accessibility_enabled_setting_key(),
+  attach_row(page, 11, terminal_accessibility_enabled_setting_key(),
              state->terminal_accessibility_enabled_combo);
 
   state->terminal_cursor_shape_combo = create_combo_box(widget_id(state, "terminal_cursor_shape_combo").c_str());
   state->terminal_cursor_blink_combo = create_combo_box(widget_id(state, "terminal_cursor_blink_combo").c_str());
   for (auto *combo : {state->terminal_cursor_shape_combo, state->terminal_cursor_blink_combo})
     g_signal_connect(combo, "changed", G_CALLBACK(on_terminal_cursor_changed), state);
-  attach_row(page, 16, terminal_cursor_shape_setting_key(), state->terminal_cursor_shape_combo);
-  attach_row(page, 17, terminal_cursor_blink_setting_key(), state->terminal_cursor_blink_combo);
+  attach_row(appearance_page, 4, terminal_cursor_shape_setting_key(), state->terminal_cursor_shape_combo);
+  attach_row(appearance_page, 5, terminal_cursor_blink_setting_key(), state->terminal_cursor_blink_combo);
   auto *labels = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
   state->terminal_background_editor = create_terminal_background_editor(&state->draft_store, state->id_prefix,
       labels, [state] { notify_changed(state); });
-  gtk_grid_attach(GTK_GRID(page), terminal_background_editor_root(state->terminal_background_editor), 0, 18, 2, 1);
+  gtk_grid_attach(GTK_GRID(appearance_page), terminal_background_editor_root(state->terminal_background_editor), 0, 6, 2, 1);
   state->terminal_color_filter_combo = create_combo_box(widget_id(state, "terminal_color_filter_combo").c_str());
   gtk_widget_set_tooltip_text(state->terminal_color_filter_combo,
       _("Improve low-contrast text in all colors, including gray. Preserve hue and leave backgrounds unchanged."));
@@ -5350,7 +5358,7 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
     else set_explicit_setting_value(&state->draft_store, key, SettingValue{choice});
     notify_changed(state);
   }), state);
-  attach_row(page, 19, terminal_color_filter_setting_key(), state->terminal_color_filter_combo);
+  attach_row(appearance_page, 7, terminal_color_filter_setting_key(), state->terminal_color_filter_combo);
   state->terminal_color_vision_combo = create_combo_box(widget_id(state, "terminal_color_vision_combo").c_str());
   gtk_widget_set_tooltip_text(state->terminal_color_vision_combo,
       _("Recolor text, explicit cell backgrounds and markers to help distinguish colors. Choose the setting that works for you."));
@@ -5363,7 +5371,7 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
     else set_explicit_setting_value(&state->draft_store, key, SettingValue{choice});
     notify_changed(state);
   }), state);
-  attach_row(page, 20, terminal_color_vision_setting_key(), state->terminal_color_vision_combo);
+  attach_row(appearance_page, 8, terminal_color_vision_setting_key(), state->terminal_color_vision_combo);
   state->terminal_color_vision_strength_entry = create_entry(widget_id(state, "terminal_color_vision_strength_entry"));
   gtk_widget_set_tooltip_text(state->terminal_color_vision_strength_entry,
       _("0 disables recoloring; 100 is the strongest adjustment. This value does not measure your color vision."));
@@ -5373,16 +5381,16 @@ static GtkWidget *create_terminal_page(SettingsWidgetState *state) {
     update_terminal_color_vision_strength(state);
     notify_changed(state);
   }), state);
-  attach_row(page, 21, terminal_color_vision_strength_setting_key(), state->terminal_color_vision_strength_entry);
+  attach_row(appearance_page, 9, terminal_color_vision_strength_setting_key(), state->terminal_color_vision_strength_entry);
   state->terminal_color_preview = create_terminal_color_preview(&state->draft_store, state->id_prefix);
-  gtk_grid_attach(GTK_GRID(page), terminal_color_preview_root(state->terminal_color_preview), 0, 22, 2, 1);
-  for (int row = 0; row <= 21; row++) {
-    auto *label = gtk_grid_get_child_at(GTK_GRID(page), 0, row);
+  gtk_grid_attach(GTK_GRID(appearance_page), terminal_color_preview_root(state->terminal_color_preview), 0, 10, 2, 1);
+  for (int row = 0; row <= 9; row++) {
+    auto *label = gtk_grid_get_child_at(GTK_GRID(appearance_page), 0, row);
     if (GTK_IS_LABEL(label)) gtk_size_group_add_widget(labels, label);
   }
   g_object_unref(labels);
 
-  return scroller;
+  return {scroller, appearance_scroller};
 }
 
 static GtkWidget *create_local_page(SettingsWidgetState *state) {
@@ -6465,7 +6473,7 @@ SettingsWidgetState *create_settings_widget(SettingsWidgetOptions options) {
   state->connection_pages.push_back({
       .connection_types = {telnet_connection_type, ssh_connection_type, sftp_connection_type, webdav_connection_type, ftp_connection_type}, .page = proxy_page, .tab_label = proxy_tab});
 
-  GtkWidget *terminal_page = create_terminal_page(state);
+  auto [terminal_page, terminal_appearance_page] = create_terminal_pages(state);
   const std::string terminal_tab_id = widget_id(state, "terminal_tab");
   GtkWidget *terminal_tab = create_tab_label(
       settings_ui_text(SettingsUiText::terminal_tab),
@@ -6481,6 +6489,22 @@ SettingsWidgetState *create_settings_widget(SettingsWidgetOptions options) {
                            serial_connection_type, ssh_connection_type},
       .page = terminal_page,
       .tab_label = terminal_tab,
+  });
+
+  GtkWidget *appearance_tab = create_tab_label(
+      settings_ui_text(SettingsUiText::terminal_appearance_tab),
+      widget_id(state, "terminal_appearance_tab").c_str());
+  gtk_notebook_append_page(GTK_NOTEBOOK(state->notebook),
+                           terminal_appearance_page, appearance_tab);
+  gtk_widget_show_all(terminal_appearance_page);
+  gtk_widget_show_all(appearance_tab);
+  gtk_widget_set_no_show_all(terminal_appearance_page, TRUE);
+  gtk_widget_set_no_show_all(appearance_tab, TRUE);
+  state->connection_pages.push_back({
+      .connection_types = {local_connection_type, telnet_connection_type,
+                           serial_connection_type, ssh_connection_type},
+      .page = terminal_appearance_page,
+      .tab_label = appearance_tab,
   });
 
   GtkWidget *transfer_page = create_transfer_page(state);

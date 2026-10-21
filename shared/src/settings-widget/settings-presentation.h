@@ -15,6 +15,7 @@ enum class SettingsUiText {
   sftp_tab,
   ftp_tab,
   terminal_tab,
+  terminal_appearance_tab,
   macro_tab,
   links_tab,
   transfer_tab,
