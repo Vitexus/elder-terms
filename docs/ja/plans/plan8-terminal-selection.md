@@ -281,6 +281,16 @@ IMEの検証では、直接接続のIBus、fcitx 5、fcitx 4、OpenGLからCairo
 
 製品GUIの選択2件と、既存のリンク・ドライバー・IMEの11件も成功しました。通常ビルドにコンパイラ警告はありません。段階3の完了条件を満たしました。ログは`test-results/plan8-implementation/step3-*.log`です。
 
+### 段階4：表示端とホイール
+
+ポインターが画面外へ出たときは、表示端で新しく文字位置を求めて終点を更新します。選択中のホイールはCtrl付きでも履歴を移動し、モデルの同期と文字配置の確定後に選択を伸ばすよう変更しました。OpenGLの文字配置は描画完了通知から更新を再開し、描画への再入や完了待ちのポーリングは行いません。
+
+修正前には、画面外へのドラッグで終点が表示端へ届かない失敗を確認しました。追加検証で見つかった、ホイール直後の解放を後続のホバー移動が取り消す問題と、解放の完了待ちにESCを押すと次のドラッグを捕捉する問題も、それぞれ失敗を確認してから修正しています。
+
+Cairo／OpenGL、倍率1／2の4件で、表示端、画面の高さを超える選択、矩形の画面外の始点と幅ゼロからの復帰、履歴の上下端と逆方向への移動、解放後のコピーを確認しました。選択中のCtrl＋ホイールで文字サイズが変わらず、完了済みの選択が残るだけならズームできること、代替画面の通常のホイール入力も保つことを検証済みです。
+
+製品GUIでは、両形状と両描画方式の4件が成功しました。選択の灰色画素、履歴位置、文字サイズ、OSのCLIPBOARDへコピーした全文を照合しています。通常ビルドにコンパイラ警告はありません。段階4の完了条件を満たしました。ログは`test-results/plan8-implementation/step4-*.log`です。
+
 [ibus-snooper]: https://github.com/ibus/ibus/blob/1.5.29/client/gtk2/ibusimcontext.c#L643-L752
 [boxrig-text]: https://github.com/kekyo/boxrig/blob/0.5.0/docs/ja/text.md
 [boxrig-view]: https://github.com/kekyo/boxrig/blob/0.5.0/include/boxrig/ui/view.h

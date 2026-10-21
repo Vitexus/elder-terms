@@ -77,6 +77,34 @@ static bool selected(Fixture *fixture) {
   return boxrig_ui_view_get_selection(view(fixture), &selection);
 }
 
+static void wheel(Fixture *fixture, GdkScrollDirection direction, double column, double row, guint modifiers) {
+  auto *widget = terminal_runtime_widget(fixture->window->runtime);
+  boxrig_font_effective_metrics metrics{};
+  expect(boxrig_gtk3_terminal_widget_get_effective_metrics(widget, &metrics) == BOXRIG_FONT_CATALOG_OK, "wheel metrics");
+  const auto scale = gtk_widget_get_scale_factor(GTK_WIDGET(widget));
+  GdkEventScroll event{};
+  event.type = GDK_SCROLL;
+  event.window = gtk_widget_get_window(GTK_WIDGET(widget));
+  event.send_event = TRUE;
+  event.x = column * metrics.cell_width / scale;
+  event.y = row * metrics.cell_height / scale;
+  event.state = modifiers;
+  event.direction = direction;
+  gboolean handled = FALSE;
+  g_signal_emit_by_name(widget, "scroll-event", &event, &handled);
+  expect(handled, "native terminal accepts the wheel event");
+}
+
+static std::string selected_text(Fixture *fixture) {
+  boxrig_text_snapshot *snapshot = nullptr;
+  expect(boxrig_ui_view_create_selection_snapshot(view(fixture), &snapshot) == BOXRIG_UI_OK, "snapshot selected text");
+  std::size_t size = 0;
+  const auto *bytes = boxrig_text_snapshot_data(snapshot, &size);
+  const std::string text(reinterpret_cast<const char *>(bytes), size);
+  boxrig_text_snapshot_destroy(snapshot);
+  return text;
+}
+
 static void select(Fixture *fixture, boxrig_ui_selection_shape shape, bool empty) {
   auto *widget = terminal_runtime_widget(fixture->window->runtime);
   boxrig_font_effective_metrics metrics{};
@@ -263,6 +291,157 @@ static cardio::promise<void> click_scenarios(Fixture *fixture) {
   expect(terminal_runtime_feed(runtime, "\033[?1002l\033[?1006l"), "restore ordinary mouse input");
 }
 
+static cardio::promise<void> scroll_scenarios(Fixture *fixture) {
+  auto *runtime = fixture->window->runtime;
+  for (const auto modifier : {GDK_SHIFT_MASK, GDK_CONTROL_MASK}) {
+    expect(terminal_runtime_feed(runtime, "\033[3J\033[2J\033[Hfirst row\r\nsecond row"), "prepare edge text");
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    for (const bool bottom : {false, true}) {
+      mouse(fixture, GDK_BUTTON_PRESS, 3.1, 1.5, modifier);
+      mouse(fixture, GDK_MOTION_NOTIFY, bottom ? 1000 : -3, bottom ? 1000 : -3, GDK_BUTTON1_MASK);
+      mouse(fixture, GDK_BUTTON_RELEASE, bottom ? 1000 : -3, bottom ? 1000 : -3, GDK_BUTTON1_MASK);
+      co_await barrier(fixture, false);
+      boxrig_ui_layout_result layout{};
+      expect(boxrig_ui_view_get_layout(view(fixture), &layout) == BOXRIG_UI_OK, "edge layout");
+      boxrig_ui_hit_test_result edge{};
+      expect(boxrig_ui_view_hit_test(view(fixture), bottom ? layout.grid_width - 1 : 0,
+          bottom ? layout.grid_height - 1 : 0, &edge) == BOXRIG_UI_OK, "clipped edge position");
+      boxrig_ui_selection selection{};
+      expect(boxrig_ui_view_get_selection(view(fixture), &selection) &&
+          selection.focus.line_id.serial == edge.position.line_id.serial && selection.focus.column == edge.position.column,
+          "outside motion and release extend to the nearest corner of the grid");
+    }
+
+    std::string history = "\033[3J\033[2J\033[H";
+    for (int row = 0; row != 100; ++row) history += std::to_string(1000 + row) + " alpha beta" + (row == 99 ? "" : "\r\n");
+    expect(terminal_runtime_feed(runtime, history), "populate numbered scrollback");
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    boxrig_ui_layout_result layout{};
+    expect(boxrig_ui_view_get_layout(view(fixture), &layout) == BOXRIG_UI_OK, "history layout");
+    boxrig_font_effective_metrics font{};
+    expect(boxrig_gtk3_terminal_widget_get_effective_metrics(terminal_runtime_widget(runtime), &font) == BOXRIG_FONT_CATALOG_OK,
+        "history font before selection");
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, layout.rows - 1.5, modifier);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, layout.rows - 0.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    boxrig_ui_selection anchor{};
+    expect(boxrig_ui_view_get_selection(view(fixture), &anchor), "capture history anchor");
+    boxrig_scrollbar_model initial{};
+    auto *terminal = boxrig_ui_model_terminal(boxrig_ui_view_model(view(fixture)));
+    expect(boxrig_scrollbar_model_read(terminal, &initial) == 0, "history position before wheel");
+    const auto steps = layout.rows / 3 + 4;
+    for (std::size_t step = 0; step != steps; ++step) {
+      wheel(fixture, GDK_SCROLL_UP, 3.9, 0.5, modifier | GDK_BUTTON1_MASK);
+      co_await barrier(fixture, false);
+    }
+    boxrig_scrollbar_model current{};
+    expect(boxrig_scrollbar_model_read(terminal, &current) == 0 &&
+        current.position == initial.position - steps * 3, "held selection wheel scrolls three history rows each time");
+    boxrig_font_effective_metrics after{};
+    expect(boxrig_gtk3_terminal_widget_get_effective_metrics(terminal_runtime_widget(runtime), &after) == BOXRIG_FONT_CATALOG_OK &&
+        after.requested_size_dip == font.requested_size_dip, "Ctrl wheel while selecting never zooms");
+    boxrig_ui_selection selection{};
+    expect(boxrig_ui_view_get_selection(view(fixture), &selection) &&
+        selection.anchor.line_id.serial == anchor.anchor.line_id.serial &&
+        selection.anchor.column == (modifier == GDK_SHIFT_MASK ? 1 : anchor.anchor.column),
+        "wheel selection retains its original logical anchor outside the viewport");
+    const auto first = 100 - layout.rows - steps * 3;
+    std::string expected;
+    for (std::size_t row = first; row <= 98; ++row) {
+      if (!expected.empty()) expected += '\n';
+      auto line = std::to_string(1000 + row);
+      if (modifier == GDK_SHIFT_MASK) {
+        line += " alpha beta";
+        if (row == first) line.erase(0, 3);
+        if (row == 98) line.resize(1);
+      }
+      expected += line;
+    }
+    if (modifier == GDK_CONTROL_MASK) {
+      expect(!selection.anchor_visual_row_valid && selection.row_count > layout.rows,
+          "rectangle query marks the offscreen anchor invalid instead of claiming viewport row zero");
+      expect(selected_text(fixture) == expected, "rectangle includes every row between the offscreen anchor and fresh wheel endpoint");
+      mouse(fixture, GDK_MOTION_NOTIFY, 0.1, 0.5, GDK_BUTTON1_MASK);
+      co_await barrier(fixture, false);
+      expect(boxrig_ui_view_get_selection(view(fixture), &selection) && selection.row_count == 0,
+          "scrolling rectangle can cross zero width without losing its anchor");
+      mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 0.5, GDK_BUTTON1_MASK);
+      co_await barrier(fixture, false);
+      expect(selected_text(fixture) == expected, "empty scrolling rectangle expands back from its original anchor");
+    } else {
+      expect(selected_text(fixture) == expected,
+          "linear selection includes the endpoint and original anchor characters across the fresh viewport");
+    }
+    const auto copy = selected_text(fixture);
+    mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 0.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    expect(co_await clipboard(GDK_SELECTION_PRIMARY) == copy, "release copies the full selection spanning more than a viewport");
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 1.5, modifier);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 2.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    wheel(fixture, GDK_SCROLL_UP, 3.9, 0.5, modifier | GDK_BUTTON1_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 0.5, GDK_BUTTON1_MASK);
+    mouse(fixture, GDK_MOTION_NOTIFY, 20.9, 8.5, 0);
+    co_await barrier(fixture, false);
+    expect(co_await clipboard(GDK_SELECTION_PRIMARY) == selected_text(fixture),
+        "release queued with a wheel copies after layout and ignores later hover motion");
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 1.5, modifier);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 2.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    for (int step = 0; step != 40; ++step) wheel(fixture, GDK_SCROLL_UP, 3.9, 0.5, modifier | GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    expect(boxrig_scrollbar_model_read(terminal, &current) == 0 && current.position == 0,
+        "selection wheel clamps at the oldest history row");
+    for (int step = 0; step != 40; ++step) wheel(fixture, GDK_SCROLL_DOWN, 3.9, 0.5, modifier | GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    expect(boxrig_scrollbar_model_read(terminal, &current) == 0 && current.position == current.history_rows,
+        "reversed selection wheel clamps at live output");
+    mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 0.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 1.5, modifier);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 2.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    const auto retained_copy = co_await clipboard(GDK_SELECTION_PRIMARY);
+    wheel(fixture, GDK_SCROLL_UP, 3.9, 0.5, modifier | GDK_BUTTON1_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 0.5, GDK_BUTTON1_MASK);
+    key(fixture, GDK_KEY_Escape, GDK_KEY_PRESS, 0);
+    key(fixture, GDK_KEY_Escape, GDK_KEY_RELEASE, 0);
+    co_await barrier(fixture, false);
+    expect(!selected(fixture) && co_await clipboard(GDK_SELECTION_PRIMARY) == retained_copy,
+        "Escape cancels a queued release without copying an unfinished endpoint");
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 1.5, modifier);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 2.5, GDK_BUTTON1_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 2.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    expect(selected(fixture), "a cancelled release does not capture the next drag");
+    wheel(fixture, GDK_SCROLL_UP, 3.9, 0.5, GDK_CONTROL_MASK);
+    co_await barrier(fixture, false);
+    expect(boxrig_gtk3_terminal_widget_get_effective_metrics(terminal_runtime_widget(runtime), &after) == BOXRIG_FONT_CATALOG_OK &&
+        after.requested_size_dip > font.requested_size_dip, "completed selection does not intercept ordinary Ctrl wheel zoom");
+    bool changed = false;
+    expect(boxrig_gtk3_terminal_widget_visual_zoom_reset(terminal_runtime_widget(runtime), &changed) == BOXRIG_UI_OK,
+        "restore font after ordinary zoom");
+    terminal_runtime_refresh(runtime);
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  }
+  expect(terminal_runtime_feed(runtime, "\033[?1049h\033[?1007h\033[Halternate selection"), "enter alternate screen");
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, GDK_CONTROL_MASK);
+  mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 0.5, GDK_BUTTON1_MASK | GDK_CONTROL_MASK);
+  co_await barrier(fixture, false);
+  fixture->outgoing.clear();
+  wheel(fixture, GDK_SCROLL_UP, 3.9, 0.5, GDK_CONTROL_MASK | GDK_BUTTON1_MASK);
+  mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(fixture->outgoing == "\r" && co_await clipboard(GDK_SELECTION_PRIMARY) == "alte",
+      "selection wheel is harmless on alternate screens without sending arrows");
+  fixture->outgoing.clear();
+  wheel(fixture, GDK_SCROLL_UP, 3.9, 0.5, 0);
+  co_await barrier(fixture, false);
+  expect(fixture->outgoing.starts_with("\033[A"), "ordinary alternate-screen wheel still reaches the terminal application");
+  expect(terminal_runtime_feed(runtime, "\033[?1049l\033[?1007l"), "restore primary screen");
+}
+
 static cardio::promise<void> scenarios(Fixture *fixture) {
   auto *runtime = fixture->window->runtime;
   TerminalTransportRequest request;
@@ -360,6 +539,7 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
     expect(terminal_runtime_feed(runtime, "\033[?1002l\033[?1006l"), "restore ordinary mouse input");
   }
   co_await click_scenarios(fixture);
+  co_await scroll_scenarios(fixture);
   while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
   select(fixture, BOXRIG_UI_SELECTION_RECTANGULAR, false);
   auto *composition = boxrig_gtk3_terminal_widget_composition(terminal_runtime_widget(runtime));

@@ -23,6 +23,115 @@ const clipboardReader = fileURLToPath(
 
 describe.concurrent('terminal selection presentation', () => {
   for (const backend of ['cairo', 'opengl']) {
+    for (const rectangular of [false, true]) {
+      it(`extends ${rectangular ? 'rectangular' : 'linear'} selection through history with the wheel (${backend})`, async (context) => {
+        await withTemporaryDirectory(async (directory) => {
+          const peer = join(directory, 'history.mjs');
+          const config = join(directory, 'history.ini');
+          const lines = Array.from(
+            { length: 100 },
+            (_, row) => `${1000 + row} alpha beta`
+          );
+          await writeFile(
+            peer,
+            `process.stdin.setRawMode(true); process.stdin.resume();\nprocess.stdout.write(${JSON.stringify('\x1b[?25l\x1b[2J\x1b[H' + lines.join('\r\n'))});`
+          );
+          await writeFile(
+            config,
+            `[local]\ncommand_line=${process.execPath} ${peer}\n`
+          );
+          await runGtkTest(
+            context,
+            ['-c', config],
+            async (app, evidence) => {
+              const layout = await waitForResult(async () =>
+                readWindowCellLayout(app)
+              );
+              await layout.mainWindow.activate();
+              const terminal = await app.getById('terminal_view');
+              const status = expectElementKind(
+                await app.getById('fixture_terminal_state_label'),
+                'label'
+              );
+              await waitForResult(async () =>
+                expect(await status.text()).toContain(
+                  `scroll=${100 - layout.rows}/${100 - layout.rows}`
+                )
+              );
+              const bounds = (await terminal.capture()).bounds;
+              const move = async (column: number, row: number) => {
+                await app.input.moveMouseTo(
+                  Math.trunc(bounds.x + column * layout.cellWidth),
+                  Math.trunc(bounds.y + row * layout.cellHeight)
+                );
+              };
+              const modifier = rectangular ? 'control' : 'shift';
+              await app.input.setModifier(modifier, true);
+              await move(0.1, layout.rows - 1.5);
+              await app.input.setMouseButton('left', true);
+              await move(3.9, 0.5);
+              const steps = Math.floor(layout.rows / 3) + 4;
+              await app.input.scrollWheel(0, -steps);
+              const first = 100 - layout.rows - steps * 3;
+              await waitForResult(async () => {
+                expect(await status.text()).toContain(
+                  `scroll=${first}/${100 - layout.rows}`
+                );
+                const current = await readWindowCellLayout(app);
+                expect([current.cellWidth, current.cellHeight]).toEqual([
+                  layout.cellWidth,
+                  layout.cellHeight,
+                ]);
+                const frame = PNG.sync.read((await terminal.capture()).image);
+                const offset =
+                  (frame.width +
+                    Math.trunc(layout.cellWidth * (rectangular ? 2 : 5) + 1)) *
+                  4;
+                expect(
+                  frame.data.subarray(offset, offset + 3).toString('hex')
+                ).toBe('b3b3b3');
+              });
+              await app.input.setMouseButton('left', false);
+              await app.input.setModifier(modifier, false);
+              await app.input.setModifier('control', true);
+              await app.input.setModifier('shift', true);
+              await app.input.pressKey('c');
+              await app.input.setModifier('shift', false);
+              await app.input.setModifier('control', false);
+              const expected = lines
+                .slice(first, 99)
+                .map((line, index, selected) =>
+                  rectangular
+                    ? line.slice(0, 4)
+                    : index === 0
+                      ? line.slice(3)
+                      : index === selected.length - 1
+                        ? line.slice(0, 1)
+                        : line
+                )
+                .join('\n');
+              await waitForResult(async () => {
+                const result = await execFileAsync(clipboardReader, [], {
+                  env: await app.environment(),
+                });
+                expect(result.stdout).toBe(expected);
+              });
+              await evidence.captureEvidence('history-selection', async () =>
+                terminal.capture()
+              );
+            },
+            {
+              env: {
+                GTK_IM_MODULE: 'gtk-im-context-simple',
+                ...(backend === 'cairo'
+                  ? { GDK_GL: 'disable' }
+                  : { LIBGL_ALWAYS_SOFTWARE: '1' }),
+              },
+            }
+          );
+        });
+      });
+    }
     it(`keeps selected blinking ink hidden while the fill stays visible in recorded frames (${backend})`, async (context) => {
       await withTemporaryDirectory(async (directory) => {
         const peer = join(directory, 'blink.mjs');

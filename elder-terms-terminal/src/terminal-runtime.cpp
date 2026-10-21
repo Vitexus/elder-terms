@@ -81,6 +81,9 @@ struct TerminalRuntime {
   bool notified_settled = false;
   SelectionPhase selection_phase = SelectionPhase::idle;
   PendingSelection selection_press;
+  std::optional<std::pair<boxrig_ui_fixed, boxrig_ui_fixed>> selection_pointer;
+  bool selection_scroll_pending = false;
+  bool selection_release_pending = false;
   std::uint64_t allocation_generation = 0;
   std::uint64_t command_allocation = 0;
   boxrig_ui_layout_action size_command{};
@@ -109,9 +112,13 @@ static void notify_changed(TerminalRuntime *runtime) {
   if (runtime->changed) runtime->changed(runtime->changed_context);
 }
 
+static bool update_scrolled_selection(TerminalRuntime *runtime);
+
 static gboolean observe_presentation(gpointer context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   runtime->presentation_source = 0;
+  if (!runtime->stopped && !update_scrolled_selection(runtime))
+    g_warning("Could not update terminal selection after presentation");
   if (!runtime->stopped && runtime->notified_settled != terminal_runtime_is_settled(runtime))
     notify_changed(runtime);
   return G_SOURCE_REMOVE;
@@ -164,6 +171,68 @@ static int pointer_dip(boxrig_ui_fixed coordinate, int scale) {
       std::numeric_limits<int>::min(), std::numeric_limits<int>::max()));
 }
 
+static boxrig_ui_status finish_selection(TerminalRuntime *runtime) {
+  runtime->selection_phase = SelectionPhase::idle;
+  runtime->selection_scroll_pending = false;
+  runtime->selection_release_pending = false;
+  const boxrig_ui_view_action copy{BOXRIG_UI_VIEW_ACTION_COPY, BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION};
+  const auto status = boxrig_gtk3_terminal_widget_apply_view_action(runtime->widget, &copy);
+  return status == BOXRIG_UI_UNAVAILABLE || status == BOXRIG_UI_STALE ? BOXRIG_UI_OK : status;
+}
+
+static boxrig_ui_status update_selection_endpoint(TerminalRuntime *runtime) {
+  if (!runtime->selection_pointer) return BOXRIG_UI_OK;
+  auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  boxrig_ui_layout_result layout{};
+  auto status = boxrig_ui_view_get_layout(view, &layout);
+  if (status != BOXRIG_UI_OK) return status;
+  if (layout.grid_width <= 0 || layout.grid_height <= 0) return BOXRIG_UI_UNAVAILABLE;
+  boxrig_ui_hit_test_result endpoint{};
+  status = boxrig_gtk3_terminal_widget_hit_test(runtime->widget,
+      std::clamp<boxrig_ui_fixed>(runtime->selection_pointer->first, 0, layout.grid_width - 1),
+      std::clamp<boxrig_ui_fixed>(runtime->selection_pointer->second, 0, layout.grid_height - 1), &endpoint);
+  if (status != BOXRIG_UI_OK) return status;
+  if (!endpoint.text_position_valid) return BOXRIG_UI_OK;
+  status = boxrig_ui_view_update_selection(view, &endpoint);
+  if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) {
+    runtime->selection_phase = runtime->selection_release_pending ? SelectionPhase::idle : SelectionPhase::cancelled;
+    runtime->selection_release_pending = false;
+    runtime->selection_scroll_pending = false;
+    return BOXRIG_UI_OK;
+  }
+  return status;
+}
+
+static bool update_scrolled_selection(TerminalRuntime *runtime) {
+  if (!runtime->selection_scroll_pending) return true;
+  auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  boxrig_gtk_render_state render{};
+  // OpenGL publishes the new row layouts from its native draw callback.
+  // Resume from that notification; never render recursively or poll for it.
+  if (runtime->grid_pending || boxrig_ui_view_frame_requested(view) ||
+      boxrig_gtk3_terminal_widget_get_render_state(runtime->widget, &render) != BOXRIG_UI_OK || render.pending) return true;
+  runtime->selection_scroll_pending = false;
+  if (update_selection_endpoint(runtime) != BOXRIG_UI_OK) return false;
+  if (runtime->selection_release_pending && finish_selection(runtime) != BOXRIG_UI_OK) return false;
+  request_frame(runtime);
+  return true;
+}
+
+static boxrig_ui_status scroll_selection(TerminalRuntime *runtime, bool up, std::size_t rows) {
+  boxrig_scrollbar_model model{};
+  if (boxrig_scrollbar_model_read(runtime->terminal, &model) != 0) return BOXRIG_UI_UNAVAILABLE;
+  const auto position = up ? (model.position > rows ? model.position - rows : 0) :
+      (model.history_rows - model.position > rows ? model.position + rows : model.history_rows);
+  bool changed = false;
+  const auto status = boxrig_ui_view_apply_scrollbar_action(boxrig_gtk3_terminal_widget_view(runtime->widget),
+      BOXRIG_SCROLLBAR_POSITION, position, &changed);
+  if (status == BOXRIG_UI_OK && changed) {
+    runtime->selection_scroll_pending = true;
+    request_frame(runtime);
+  }
+  return status;
+}
+
 static std::optional<TerminalHyperlinkResolution> released_link(
     TerminalRuntime *runtime, const boxrig_ui_hit_test_result &hit) {
   const auto &press = runtime->selection_press;
@@ -191,6 +260,13 @@ static boxrig_input_mouse_route route_mouse(
       runtime->selection_phase = SelectionPhase::idle;
     return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
   }
+  const bool wheel = event->action == BOXRIG_MOUSE_PRESS &&
+      (event->button == BOXRIG_MOUSE_BUTTON_WHEEL_UP || event->button == BOXRIG_MOUSE_BUTTON_WHEEL_DOWN);
+  if (runtime->selection_phase == SelectionPhase::dragging && !runtime->selection_release_pending && wheel) {
+    runtime->selection_pointer = {hit->x, hit->y};
+    return scroll_selection(runtime, event->button == BOXRIG_MOUSE_BUTTON_WHEEL_UP, 3) == BOXRIG_UI_OK ?
+        BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION : BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
+  }
   if (runtime->host.mouse) {
     const auto route = runtime->host.mouse(event, hit);
     if (route != BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL) return route;
@@ -201,6 +277,8 @@ static boxrig_input_mouse_route route_mouse(
   }
   const bool release = event->action == BOXRIG_MOUSE_RELEASE &&
                        event->button == BOXRIG_MOUSE_BUTTON_LEFT;
+  if (runtime->selection_release_pending && event->action == BOXRIG_MOUSE_MOTION)
+    return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
   if (runtime->selection_phase == SelectionPhase::pending) {
     if (event->action != BOXRIG_MOUSE_MOTION && !release) return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
     const auto &press = runtime->selection_press;
@@ -228,27 +306,18 @@ static boxrig_input_mouse_route route_mouse(
     runtime->selection_phase = SelectionPhase::dragging;
   }
   if (runtime->selection_phase == SelectionPhase::dragging) {
-    if ((event->action == BOXRIG_MOUSE_MOTION || release) &&
-        hit->inside_grid && hit->text_position_valid) {
-      const auto status = boxrig_ui_view_update_selection(view, hit);
-      // Output or a connection transition can remove the selection between
-      // queued pointer events. End that drag without failing native input.
-      if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) {
-        runtime->selection_phase = release ? SelectionPhase::idle : SelectionPhase::cancelled;
-        request_frame(runtime);
-        return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
-      }
-      else if (status != BOXRIG_UI_OK) {
+    if (event->action == BOXRIG_MOUSE_MOTION || release) {
+      runtime->selection_pointer = {hit->x, hit->y};
+      runtime->selection_release_pending = release;
+      const auto status = runtime->selection_scroll_pending ? BOXRIG_UI_OK : update_selection_endpoint(runtime);
+      if (status != BOXRIG_UI_OK) {
         g_warning("boxrig selection update failed: %d", status);
         return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
       }
     }
-    if (release) {
-      runtime->selection_phase = SelectionPhase::idle;
-      const boxrig_ui_view_action copy{BOXRIG_UI_VIEW_ACTION_COPY,
-          BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION};
-      const auto status = boxrig_gtk3_terminal_widget_apply_view_action(runtime->widget, &copy);
-      if (status != BOXRIG_UI_OK && status != BOXRIG_UI_UNAVAILABLE && status != BOXRIG_UI_STALE) {
+    if (runtime->selection_release_pending && !runtime->selection_scroll_pending) {
+      const auto status = finish_selection(runtime);
+      if (status != BOXRIG_UI_OK) {
         g_warning("boxrig primary selection failed: %d", status);
         return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
       }
@@ -262,6 +331,9 @@ static boxrig_input_mouse_route route_mouse(
   if (boxrig_terminal_mouse_reporting_enabled(runtime->terminal) && !override)
     return BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL;
   if (event->button == BOXRIG_MOUSE_BUTTON_LEFT && hit->text_position_valid) {
+    runtime->selection_pointer = {hit->x, hit->y};
+    runtime->selection_scroll_pending = false;
+    runtime->selection_release_pending = false;
     boxrig_ui_selection_options options{};
     options.shape = (event->modifiers & BOXRIG_MODIFIER_CONTROL) ?
         BOXRIG_UI_SELECTION_RECTANGULAR : BOXRIG_UI_SELECTION_LINEAR;
@@ -746,6 +818,10 @@ static gboolean dispatch_frame(gpointer context) {
     if (boxrig_gtk3_terminal_widget_hit_test(runtime->widget, runtime->pointer_position->first,
         runtime->pointer_position->second, &hit) == BOXRIG_UI_OK) update_link_cursor(runtime, hit);
   }
+  if (!update_scrolled_selection(runtime)) {
+    fail_ui(runtime);
+    return G_SOURCE_REMOVE;
+  }
   // Synchronization and hover updates can request a frame during this pass.
   // Let GTK paint its prepared image before continuing stream/recognition
   // work; only the component's additional_dispatch needs immediate service.
@@ -865,6 +941,9 @@ static bool attach_widget(TerminalRuntime *runtime) {
   runtime->size_command = {};
   runtime->selection_phase = SelectionPhase::idle;
   runtime->selection_press = {};
+  runtime->selection_pointer.reset();
+  runtime->selection_scroll_pending = false;
+  runtime->selection_release_pending = false;
   runtime->widget_allocated = false;
   runtime->pending_input = runtime->applied_input;
   gtk_box_pack_start(runtime->attachment, scroll, TRUE, TRUE, 0);
@@ -961,8 +1040,11 @@ boxrig_input_key_route terminal_runtime_route_selection_key(TerminalRuntime *run
   if (!boxrig_ui_view_get_selection(view, &selection) && !selecting(runtime))
     return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
   if (boxrig_ui_view_clear_selection(view) != BOXRIG_UI_OK) return BOXRIG_INPUT_KEY_ROUTE_ERROR;
-  if (selecting(runtime)) runtime->selection_phase = SelectionPhase::cancelled;
+  if (selecting(runtime)) runtime->selection_phase = runtime->selection_release_pending ? SelectionPhase::idle : SelectionPhase::cancelled;
   runtime->selection_press = {};
+  runtime->selection_pointer.reset();
+  runtime->selection_scroll_pending = false;
+  runtime->selection_release_pending = false;
   request_frame(runtime);
   return BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
 }
@@ -1045,7 +1127,8 @@ bool terminal_runtime_is_settled(const TerminalRuntime *runtime) {
   boxrig_ui_size_command_state state{};
   boxrig_gtk_render_state render{};
   return !runtime->stopped && !runtime->ui_failed && !runtime->links_pending && !runtime->macros_pending &&
-      !runtime->grid_pending && runtime->frame_source == 0 && !runtime->widget_frame_requested &&
+      !runtime->grid_pending && !runtime->selection_scroll_pending &&
+      runtime->frame_source == 0 && !runtime->widget_frame_requested &&
       runtime->size_command.revision == 0 &&
       boxrig_gtk3_terminal_widget_has_presentation(runtime->widget) &&
       !boxrig_ui_view_frame_requested(boxrig_gtk3_terminal_widget_view(runtime->widget)) &&
