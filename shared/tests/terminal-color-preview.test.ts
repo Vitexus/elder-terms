@@ -140,7 +140,13 @@ for (const [profile, reference] of [
   });
 }
 
-for (const filter of ['reverse-lightness', 'reverse-contrast', 'reverse-roles', 'reverse-cam16']) {
+for (const filter of [
+  'reverse-lightness',
+  'reverse-contrast',
+  'reverse-roles',
+  'reverse-cam16',
+  'reverse-palette',
+]) {
   it(`previews reversed text and the entire background for ${filter}`, async (context) => {
     await runSharedGtkTest(
       context,

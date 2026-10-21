@@ -2721,3 +2721,6 @@ msgstr "文字と背景に合わせて反転 (C)"
 
 msgid "Reverse appearance (D, CAM16)"
 msgstr "見え方を補償して反転 (D, CAM16)"
+
+msgid "Reverse optimized palette (E)"
+msgstr "配色を最適化して反転 (E)"

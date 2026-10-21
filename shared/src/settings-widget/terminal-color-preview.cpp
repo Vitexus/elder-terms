@@ -13,6 +13,7 @@ struct TerminalColorPreview {
   GtkWidget *background;
   std::array<GtkWidget *, 2> labels;
   std::array<GtkCssProvider *, 2> styles;
+  std::shared_ptr<const ReversePalette> palette{};
 };
 
 static void identify(GtkWidget *widget, const std::string &id) {
@@ -73,7 +74,9 @@ void sync_terminal_color_preview(TerminalColorPreview *preview) {
   const auto vision = terminal_color_vision_settings(*preview->store);
   TerminalColorFilterContext before{background, TerminalColorFilter::none};
   TerminalColorFilterContext after{background, terminal_color_filter(*preview->store),
-      vision.profile, vision.strength / 100.0};
+      vision.profile, vision.strength / 100.0, preview->palette};
+  if (!prepare_terminal_color_filter(&after, nullptr)) g_warning("Failed to prepare preview palette");
+  preview->palette = after.reverse_palette;
   gtk_label_set_markup(GTK_LABEL(preview->labels[0]), samples(before).c_str());
   gtk_label_set_markup(GTK_LABEL(preview->labels[1]), samples(after).c_str());
   for (int index = 0; index < 2; index++) {

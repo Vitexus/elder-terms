@@ -1,5 +1,6 @@
 #include <elder-terms/terminal-color-filter.h>
 #include "color-appearance.h"
+#include "terminal-color-palette.h"
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -295,17 +296,25 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
     } else result.marker = reverse_color(result.marker, context.filter);
     return result;
   }
-  if (context.filter == TerminalColorFilter::reverse_roles || context.filter == TerminalColorFilter::reverse_cam16) {
+  if (context.filter == TerminalColorFilter::reverse_roles || context.filter == TerminalColorFilter::reverse_cam16 ||
+      context.filter == TerminalColorFilter::reverse_palette) {
+    const auto foreground = [&](boxrig_rgb value, boxrig_rgb background) {
+      const auto candidate = reverse_foreground(value, background, context.filter);
+      if (context.filter != TerminalColorFilter::reverse_palette || !context.reverse_palette) return candidate;
+      const auto adjusted = apply_reverse_palette({value.red, value.green, value.blue},
+          {candidate.red, candidate.green, candidate.blue}, {background.red, background.green, background.blue}, *context.reverse_palette);
+      return boxrig_rgb{adjusted.red, adjusted.green, adjusted.blue};
+    };
     if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
         input->target == BOXRIG_UI_COLOR_SURFACE) {
       result.background = reverse_background(result.background, context.filter);
-      result.foreground = reverse_foreground(result.foreground, result.background, context.filter);
+      result.foreground = foreground(result.foreground, result.background);
       if (!result.underline_follows_foreground)
-        result.underline = reverse_foreground(result.underline, result.background, context.filter);
+        result.underline = foreground(result.underline, result.background);
     } else {
       // Marker underlays are display colors, already filtered exactly once.
       const auto background = input->underlay_valid ? input->underlay.background : reverse_background(result.background, context.filter);
-      result.marker = reverse_foreground(result.marker, background, context.filter);
+      result.marker = foreground(result.marker, background);
     }
     return result;
   }

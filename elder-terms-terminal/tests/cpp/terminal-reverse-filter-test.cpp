@@ -4,6 +4,8 @@
 #include <cassert>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
+#include <vector>
 
 using namespace elder_terms;
 
@@ -145,10 +147,80 @@ static void test_cam16() {
   assert(different > 100);
 }
 
+static void test_palette() {
+  auto config = boxrig_terminal_config_default();
+  config.rows = 2; config.columns = 20;
+  boxrig_terminal *terminal = nullptr;
+  assert(boxrig_terminal_create(&config, &terminal) == BOXRIG_STATUS_OK);
+  TerminalColorFilterContext context{std::nullopt, TerminalColorFilter::reverse_palette};
+  const auto revision = boxrig_terminal_color_revision(terminal);
+  assert(prepare_terminal_color_filter(&context, terminal));
+  assert(context.reverse_palette);
+  const auto prepared = context.reverse_palette;
+  assert(prepare_terminal_color_filter(&context, terminal));
+  assert(context.reverse_palette == prepared);
+  const auto sample = [&](boxrig_rgb value) {
+    boxrig_ui_color_filter_input input{};
+    input.target = BOXRIG_UI_COLOR_CELL;
+    input.colors.foreground = value;
+    input.colors.background = {0, 0, 0};
+    input.foreground_source.role = BOXRIG_UI_COLOR_RGB;
+    input.background_source.role = BOXRIG_UI_COLOR_DEFAULT_BACKGROUND;
+    return filter_terminal_colors(&input, &context);
+  };
+  assert(equal(sample({255, 255, 255}).foreground, {0, 0, 0}));
+  assert(equal(sample({255, 255, 255}).background, {255, 255, 255}));
+  std::vector<boxrig_rgb> baseline;
+  int distinct = 0;
+  for (int i = 0; i < 256; i++) {
+    boxrig_rgb color{};
+    assert(boxrig_terminal_get_palette_color(terminal, static_cast<uint8_t>(i), &color) == BOXRIG_STATUS_OK);
+    const auto result = sample(color);
+    baseline.push_back(result.foreground);
+    assert(contrast(result.foreground, result.background) >= 4.5);
+    if (!equal(result.foreground, cell(TerminalColorFilter::reverse_roles, color, {0, 0, 0}).foreground)) distinct++;
+  }
+  assert(distinct > 40);
+  // Gradient samples must interpolate, not snap to palette entries.
+  auto previous = sample({50, 100, 0}).foreground;
+  int changes = 0;
+  for (int blue = 1; blue <= 255; blue++) {
+    const auto current = sample({50, 100, static_cast<uint8_t>(blue)}).foreground;
+    const auto a = srgb_to_oklch({previous.red, previous.green, previous.blue});
+    const auto b = srgb_to_oklch({current.red, current.green, current.blue});
+    assert(std::abs(a.lightness - b.lightness) < .025);
+    if (!equal(current, previous)) changes++;
+    previous = current;
+  }
+  assert(changes > 100);
+  // Callback order and unrelated output cannot alter the prepared mapping.
+  for (int i = 255; i >= 0; i--) {
+    boxrig_rgb color{};
+    assert(boxrig_terminal_get_palette_color(terminal, static_cast<uint8_t>(i), &color) == BOXRIG_STATUS_OK);
+    assert(equal(sample(color).foreground, baseline[i]));
+  }
+  assert(boxrig_terminal_color_revision(terminal) == revision);
+  const char update[] = "\033]4;1;#f0a020\a\033]10;#e08030\a";
+  std::size_t consumed = 0;
+  assert(boxrig_terminal_feed(terminal, reinterpret_cast<const uint8_t *>(update), std::strlen(update), &consumed) == BOXRIG_STATUS_OK);
+  assert(consumed == std::strlen(update));
+  assert(prepare_terminal_color_filter(&context, terminal));
+  assert(context.reverse_palette != prepared);
+  boxrig_rgb changed{};
+  assert(boxrig_terminal_get_palette_color(terminal, 1, &changed) == BOXRIG_STATUS_OK);
+  assert(equal(changed, {240, 160, 32}));
+  const auto after = context.reverse_palette;
+  assert(prepare_terminal_color_filter(&context, terminal) && context.reverse_palette == after);
+  context.filter = TerminalColorFilter::none;
+  assert(prepare_terminal_color_filter(&context, terminal) && !context.reverse_palette);
+  boxrig_terminal_destroy(terminal);
+}
+
 int main() {
   test_lightness();
   test_contrast();
   test_roles();
   test_cam16();
+  test_palette();
   std::puts("reverse color filters passed");
 }

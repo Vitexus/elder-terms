@@ -156,6 +156,7 @@ elder_terms_shared_sources = elder_terms_shared_resources + elder_terms_noto_pre
   'src/settings-widget/terminal-background-editor.cpp',
   'src/settings-widget/terminal-color-preview.cpp',
   'src/terminal-color-filter.cpp',
+  'src/terminal-color-palette.cpp',
   'src/color-appearance.cpp',
 ] + [elder_terms_icon_protocol_header, elder_terms_icon_protocol_code,
      elder_terms_xdg_shell_protocol_code]

@@ -210,8 +210,8 @@ static bool validate_terminal_cursor_shape(const SettingValue &value, std::strin
 
 static bool validate_color_filter(const SettingValue &value, std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
-  if (text && (*text == "none" || *text == "oklch" || *text == "reverse-lightness" || *text == "reverse-contrast" || *text == "reverse-roles" || *text == "reverse-cam16")) return true;
-  *reason = "must be none, oklch, reverse-lightness, reverse-contrast, reverse-roles, or reverse-cam16";
+  if (text && (*text == "none" || *text == "oklch" || *text == "reverse-lightness" || *text == "reverse-contrast" || *text == "reverse-roles" || *text == "reverse-cam16" || *text == "reverse-palette")) return true;
+  *reason = "must be none, oklch, reverse-lightness, reverse-contrast, reverse-roles, reverse-cam16, or reverse-palette";
   return false;
 }
 
@@ -319,6 +319,7 @@ SettingKey terminal_cursor_blink_setting_key() { return terminal_key("cursor_bli
 SettingKey terminal_color_filter_setting_key() { return terminal_key("color_filter"); }
 TerminalColorFilter terminal_color_filter(const SettingsStore &store) {
   const auto value = setting_string_value_or_default(store, terminal_color_filter_setting_key(), "none");
+  if (value == "reverse-palette") return TerminalColorFilter::reverse_palette;
   if (value == "reverse-cam16") return TerminalColorFilter::reverse_cam16;
   if (value == "reverse-roles") return TerminalColorFilter::reverse_roles;
   if (value == "reverse-contrast") return TerminalColorFilter::reverse_contrast;

@@ -19,6 +19,7 @@ enum class TerminalColorFilter {
   reverse_contrast, /**< Reverse relative luminance while preserving contrast ratios (B). */
   reverse_roles, /**< Reverse neutrals and adapt chromatic text to its displayed background (C). */
   reverse_cam16, /**< Add CAM16 appearance compensation between fixed viewing conditions (D). */
+  reverse_palette, /**< Optimize the palette jointly and interpolate true colors continuously (E). */
   oklch, /**< Improve low-contrast text and markers of any hue, including neutrals, in Oklch. */
 };
 /** Color-vision profile used for display recoloring, not a diagnosis. */

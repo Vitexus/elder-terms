@@ -82,6 +82,7 @@ struct TerminalRuntime {
   boxrig_ui_window_state window_state = BOXRIG_UI_WINDOW_NORMAL;
   void (*changed)(void *) = nullptr;
   void *changed_context = nullptr;
+  std::function<void()> prepare_frame;
 };
 
 static void request_frame(void *context);
@@ -650,6 +651,7 @@ static gboolean dispatch_frame(gpointer context) {
   // Widget callbacks and received input request component frames,
   // which also publish accessible text; matching alone does not need one.
   if (runtime->widget_frame_requested || !boxrig_gtk3_terminal_widget_has_presentation(runtime->widget)) {
+    if (runtime->prepare_frame) runtime->prepare_frame();
     runtime->widget_frame_requested = false;
     if (!ui_result(boxrig_gtk3_terminal_widget_frame(runtime->widget, &result), "frame") ||
         !process_input_policy(runtime)) {
@@ -921,6 +923,10 @@ bool terminal_runtime_feed(TerminalRuntime *runtime, std::string_view text) {
 void terminal_runtime_set_changed_callback(TerminalRuntime *runtime, void (*callback)(void *), void *context) {
   runtime->changed = callback;
   runtime->changed_context = context;
+}
+
+void terminal_runtime_set_prepare_frame_callback(TerminalRuntime *runtime, std::function<void()> callback) {
+  runtime->prepare_frame = std::move(callback);
 }
 
 boxrig_ui_status terminal_runtime_visual_zoom(TerminalRuntime *runtime, boxrig_font_zoom_direction direction) {

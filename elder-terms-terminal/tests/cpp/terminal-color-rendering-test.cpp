@@ -81,8 +81,15 @@ static void prepare_scenario(Fixture *fixture) {
   auto *widget = terminal_runtime_widget(fixture->runtime);
   auto *view = boxrig_gtk3_terminal_widget_view(widget);
   const auto phase = fixture->scenario % 4;
-  fixture->filter.color_vision = static_cast<TerminalColorVision>(1 + fixture->scenario / 8);
-  fixture->filter.filter = fixture->scenario % 8 >= 4 ? TerminalColorFilter::oklch : TerminalColorFilter::none;
+  if (fixture->scenario < 24) {
+    fixture->filter.color_vision = static_cast<TerminalColorVision>(1 + fixture->scenario / 8);
+    fixture->filter.filter = fixture->scenario % 8 >= 4 ? TerminalColorFilter::oklch : TerminalColorFilter::none;
+  } else {
+    const TerminalColorFilter modes[] = {TerminalColorFilter::reverse_lightness, TerminalColorFilter::reverse_contrast,
+        TerminalColorFilter::reverse_roles, TerminalColorFilter::reverse_cam16, TerminalColorFilter::reverse_palette};
+    fixture->filter.filter = modes[(fixture->scenario - 24) / 16];
+    fixture->filter.color_vision = static_cast<TerminalColorVision>((fixture->scenario - 24) % 16 / 4);
+  }
   fixture->expected.clear();
   fixture->targets = 0;
   boxrig_composition_event cancel{};
@@ -145,7 +152,7 @@ static gboolean observe(gpointer context) {
   assert(boxrig_gtk3_terminal_widget_get_render_state(widget, &render) == BOXRIG_UI_OK);
   assert(render.active_backend == fixture->backend);
   if (fixture->scenario >= 0) check_pixels(fixture);
-  if (++fixture->scenario == 24) gtk_main_quit();
+  if (++fixture->scenario == 104) gtk_main_quit();
   else prepare_scenario(fixture);
   return G_SOURCE_REMOVE;
 }
@@ -162,6 +169,12 @@ int main(int argc, char **argv) {
   gtk_container_add(GTK_CONTAINER(fixture.window), content);
   fixture.runtime = create_terminal_runtime(GTK_WINDOW(fixture.window), GTK_BOX(content), GTK_BOX(content));
   assert(fixture.runtime);
+  terminal_runtime_set_prepare_frame_callback(fixture.runtime, [&fixture] {
+    auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(fixture.runtime));
+    const auto previous = fixture.filter.reverse_palette;
+    assert(prepare_terminal_color_filter(&fixture.filter, boxrig_ui_model_terminal(boxrig_ui_view_model(view))));
+    if (previous != fixture.filter.reverse_palette) assert(boxrig_ui_view_invalidate_colors(view) == BOXRIG_UI_OK);
+  });
   g_signal_connect_after(terminal_runtime_widget(fixture.runtime), "draw",
       G_CALLBACK(+[](GtkWidget *, cairo_t *, gpointer context) -> gboolean {
         auto *fixture = static_cast<Fixture *>(context);
@@ -173,5 +186,5 @@ int main(int argc, char **argv) {
   if (fixture.observation) g_source_remove(fixture.observation);
   destroy_terminal_runtime(fixture.runtime);
   gtk_widget_destroy(fixture.window);
-  std::puts("PASS P/D/T with and without Oklch: background, inverse, underline, selection, search and IME pixels");
+  std::puts("PASS Oklch and five reverse filters with P/D/T: background, inverse, underline, selection, search and IME pixels");
 }
