@@ -570,7 +570,14 @@ describe('WebDAV certificate confirmation', () => {
           expect(server.requests.some((request) => request.authenticated)).toBe(
             true
           );
-          expect(await readFile(configPath, 'utf8')).toBe(settings);
+          const settingsWithIdentity = await waitForResult(async () => {
+            const saved = await readFile(configPath, 'utf8');
+            expect(saved).toMatch(/^connection_id=[0-9a-f-]{36}$/mu);
+            expect(saved.replace(/^connection_id=[0-9a-f-]{36}\n/mu, '')).toBe(
+              settings
+            );
+            return saved;
+          });
           if (scenario === 'changed') {
             const replacement = join(directory, 'replacement.pem');
             await execute('openssl', [
@@ -625,6 +632,9 @@ describe('WebDAV certificate confirmation', () => {
             await waitForResult(async () => {
               expect((await app.output()).exitCode).toBe(0);
             });
+            expect(await readFile(configPath, 'utf8')).toBe(
+              settingsWithIdentity
+            );
             return;
           }
 
@@ -655,6 +665,7 @@ describe('WebDAV certificate confirmation', () => {
               'Ready — Certificate exception active'
             );
           }
+          expect(await readFile(configPath, 'utf8')).toBe(settingsWithIdentity);
           return;
         }
         await waitForResult(async () => {

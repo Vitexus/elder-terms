@@ -260,6 +260,24 @@ const expectFileContent = async (
   });
 };
 
+const expectConnectionIdentityOnly = async (
+  path: string,
+  original: string
+): Promise<string> =>
+  await waitForResult(async () => {
+    const saved = await readFile(path, 'utf8');
+    expect(saved).toMatch(/^connection_id=[0-9a-f-]{36}$/mu);
+    const withoutIdentity = saved.replace(
+      /^connection_id=[0-9a-f-]{36}\n/mu,
+      ''
+    );
+    // The identity adds a general group when the original profile has none.
+    expect(withoutIdentity).toBe(
+      original.startsWith('[general]\n') ? original : `${original}\n[general]\n`
+    );
+    return saved;
+  });
+
 const showTerminalSettingsPage = async (app: GtkApp): Promise<void> => {
   await selectSettingsNotebookTab(
     app,
@@ -1179,6 +1197,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
   });
 
   it('uses the configured terminal grid size from an INI file', async (context) => {
+    const fixtureSource = await readFile(terminalGrid81x25ConfigPath, 'utf8');
     await runGtkTest(
       context,
       ['--test-fixture', '-c', terminalGrid81x25ConfigPath],
@@ -1209,6 +1228,9 @@ describe.concurrent('elder-terms-terminal settings', () => {
           evidence
         );
       }
+    );
+    expect(await readFile(terminalGrid81x25ConfigPath, 'utf8')).toBe(
+      fixtureSource
     );
   });
 
@@ -1733,6 +1755,10 @@ describe.concurrent('elder-terms-terminal settings', () => {
           context,
           ['-c', configPath],
           async (app, evidence) => {
+            const identityConfig = await expectConnectionIdentityOnly(
+              configPath,
+              initialConfig
+            );
             await toPass(
               async () => {
                 expect(acceptedSocket).not.toBeUndefined();
@@ -2134,7 +2160,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
                 masks: [await connectionStatusTextMask(app, runtimeCapture)],
               }
             );
-            await expectFileContent(configPath, initialConfig);
+            await expectFileContent(configPath, identityConfig);
           },
           {
             env: {
@@ -2335,6 +2361,10 @@ describe.concurrent('elder-terms-terminal settings', () => {
         await writeFile(configPath, initialConfig, 'utf8');
 
         await runGtkTest(context, ['-c', configPath], async (app) => {
+          const identityConfig = await expectConnectionIdentityOnly(
+            configPath,
+            initialConfig
+          );
           await toPass(
             async () => {
               expect(acceptedSocket).not.toBeUndefined();
@@ -2351,7 +2381,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
           expect((await logItem.info()).states).not.toContain('checked');
           await toggleLogRecordingMenuItem(app, logItem);
           await waitForActivityIndicatorImageState(app, 'log', 'on');
-          await expectFileContent(configPath, initialConfig);
+          await expectFileContent(configPath, identityConfig);
 
           acceptedSocket?.write('MENU_LOGGED\r\n');
           await toPass(
@@ -3221,6 +3251,10 @@ describe.concurrent('elder-terms-terminal settings', () => {
         context,
         ['--test-fixture', '-c', configPath],
         async (app) => {
+          const identityConfig = await expectConnectionIdentityOnly(
+            configPath,
+            initialConfig
+          );
           await openSettingsDialog(app);
           await showTerminalSettingsPage(app);
 
@@ -3247,7 +3281,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
             const layout = await readWindowCellLayout(app);
             expectWindowCellSize(layout, defaultColumns, defaultRows);
           });
-          await expectFileContent(configPath, initialConfig);
+          await expectFileContent(configPath, identityConfig);
         }
       );
     });
@@ -3341,6 +3375,10 @@ describe.concurrent('elder-terms-terminal settings', () => {
         context,
         ['--test-fixture', '-c', configPath],
         async (app) => {
+          const identityConfig = await expectConnectionIdentityOnly(
+            configPath,
+            initialConfig
+          );
           await openSettingsDialog(app);
           await showTerminalSettingsPage(app);
 
@@ -3369,7 +3407,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
             const layout = await readWindowCellLayout(app);
             expectWindowCellSize(layout, defaultColumns + 1, defaultRows + 1);
           });
-          await expectFileContent(configPath, initialConfig);
+          await expectFileContent(configPath, identityConfig);
         }
       );
     });
