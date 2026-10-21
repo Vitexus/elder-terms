@@ -20,8 +20,9 @@ ELDER_TERMS_API std::string generate_connection_id();
  * @param path Existing local INI profile path.
  * @param cancellation Signal that cancels GIO file operations.
  * @returns The existing or newly persisted UUID. A missing or invalid ID is
- * derived from the normalized absolute path, so concurrent processes choose
- * the same replacement for that path.
+ * derived from the normalized absolute path, file identity, entity tag, and
+ * original contents. Concurrent processes reading one file generation choose
+ * the same replacement; a new file reusing its path receives a different ID.
  * @throws cardio::canceled_exception if canceled; an exception for read,
  * parse, or write failures.
  * @remarks Uses the current cardio GLib dispatcher and GIO asynchronous I/O.

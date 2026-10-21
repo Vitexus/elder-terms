@@ -10,6 +10,7 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include <unordered_set>
 
 #include <gdk/gdkkeysyms.h>
 #include <gdk/gdkx.h>
@@ -26,6 +27,7 @@
 #include <cardio.h>
 #include <elder-terms/application-icon.h>
 #include <elder-terms/connection-icon.h>
+#include <elder-terms/connection-identity.h>
 #include <elder-terms/connection-desktop.h>
 #include <elder-terms/application-settings-widget.h>
 #include <elder-terms/application-version.h>
@@ -131,6 +133,8 @@ struct ApplicationState {
   std::filesystem::path global_config_path;
   std::vector<elder_terms::ConnectionProfile> profiles;
   cardio::cancellation_source connection_icon_loading;
+  cardio::cancellation_source connection_identity_loading;
+  std::unordered_set<std::string> pending_connection_id_paths;
   std::optional<std::filesystem::path> selected_path;
   // Track file contents, not monitor event counts: one save can emit several
   // events, including replacement of the selected file's inode.
@@ -223,6 +227,7 @@ static void request_application_restart(ApplicationState *state);
 static void enable_connection_selection(ApplicationState *state);
 static void open_application_dialog(ApplicationState *state,
                                     ApplicationDialogPage page);
+static void preserve_current_editor_after_list_refresh(ApplicationState *state);
 
 static void print_warnings(const std::vector<std::string> &warnings) {
   for (const std::string &warning : warnings) {
@@ -1044,6 +1049,25 @@ static void load_profile_icon(ApplicationState *state, GtkTreeIter *iterator,
       state->connection_icon_loading.get_cancellation()));
 }
 
+static cardio::promise<void> ensure_tray_connection_id_async(
+    ApplicationState *state, std::filesystem::path path,
+    cardio::cancellation cancellation) {
+  try {
+    (void)co_await elder_terms::ensure_connection_id_async(path, cancellation);
+    if (!cancellation.is_cancellation_requested() && !state->shutting_down) {
+      state->pending_connection_id_paths.erase(path.string());
+      preserve_current_editor_after_list_refresh(state);
+    }
+  } catch (const cardio::canceled_exception &) {
+    // The launcher is closing.
+  } catch (const std::exception &error) {
+    if (!cancellation.is_cancellation_requested() && !state->shutting_down) {
+      state->pending_connection_id_paths.erase(path.string());
+      std::cerr << "Connection ID: " << error.what() << '\n';
+    }
+  }
+}
+
 static void populate_profile_rows(ApplicationState *state) {
   (void)state->connection_icon_loading.cancel();
   state->connection_icon_loading = cardio::cancellation_source{};
@@ -1063,6 +1087,11 @@ static void populate_profile_rows(ApplicationState *state) {
     const auto loaded = elder_terms::load_connection_profile(profile.path);
     load_profile_icon(state, &iterator, loaded.store, profile.name);
     const auto id = elder_terms::general_connection_id(loaded.store);
+    if (id.empty() && loaded.loaded &&
+        state->pending_connection_id_paths.insert(profile.path.string()).second)
+      cardio::fire_and_forget(ensure_tray_connection_id_async(
+          state, profile.path,
+          state->connection_identity_loading.get_cancellation()));
     const auto key = profile.path.string() + '\n' + id;
     state->tray_connections.push_back({
         .key = key,
@@ -1539,9 +1568,13 @@ static gboolean refresh_connections_from_monitor(gpointer user_data) {
     if (path.has_value()) {
       const auto contents = read_profile_content(path.value());
       if (contents != state->observed_file_content) {
+        const bool identity_only = elder_terms::connection_profile_only_gained_id(
+            state->observed_file_content, contents);
         state->observed_file_content = contents;
-        state->external_conflict = true;
-        if (editor_is_dirty(state)) {
+        if (!identity_only) state->external_conflict = true;
+        if (identity_only && editor_is_dirty(state)) {
+          // The launcher added only its hidden ID; keep the user's draft.
+        } else if (editor_is_dirty(state)) {
           show_external_change_dialog(state);
         } else {
           load_existing_connection(state, path.value());
@@ -2773,6 +2806,7 @@ static void on_window_destroy(GtkWidget *, gpointer user_data) {
   }
   state->window_destroyed = true;
   (void)state->connection_icon_loading.cancel();
+  (void)state->connection_identity_loading.cancel();
   state->shutting_down = true;
   stop_connection_monitor(state);
   for (EditorLaunch *launch : state->editor_launches) {
@@ -3301,7 +3335,8 @@ static void on_application_startup(GApplication *,
                     state->tray_connection_targets.end(), [&key](const auto &candidate) {
                       return candidate.key == key;
                     });
-                if (target != state->tray_connection_targets.end())
+                if (target != state->tray_connection_targets.end() &&
+                    !target->connection_id.empty())
                   launch_saved_connection(state, target->path, std::nullopt,
                                           target->connection_id);
               },

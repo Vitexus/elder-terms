@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
+#include <memory>
 #include <system_error>
 #include <utility>
 
@@ -19,6 +20,48 @@ namespace elder_terms {
 
 static constexpr gdouble default_terminal_font_size_dip = 12.0;
 static constexpr char initial_local_terminal_name[] = "Local terminal";
+
+bool connection_profile_only_gained_id(
+    const std::optional<std::string> &before,
+    const std::optional<std::string> &after) {
+  if (!before || !after) return false;
+  auto previous = std::shared_ptr<GKeyFile>(g_key_file_new(), g_key_file_unref);
+  auto current = std::shared_ptr<GKeyFile>(g_key_file_new(), g_key_file_unref);
+  const auto flags = static_cast<GKeyFileFlags>(
+      G_KEY_FILE_KEEP_COMMENTS | G_KEY_FILE_KEEP_TRANSLATIONS);
+  if (!g_key_file_load_from_data(previous.get(), before->data(), before->size(),
+                                 flags, nullptr) ||
+      !g_key_file_load_from_data(current.get(), after->data(), after->size(),
+                                 flags, nullptr))
+    return false;
+  auto old_id = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_key_file_get_string(previous.get(), "general", "connection_id", nullptr),
+      g_free);
+  auto new_id = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_key_file_get_string(current.get(), "general", "connection_id", nullptr),
+      g_free);
+  if (old_id && g_uuid_string_is_valid(old_id.get())) return false;
+  if (!new_id || !g_uuid_string_is_valid(new_id.get())) return false;
+  const bool had_general = g_key_file_has_group(previous.get(), "general");
+  (void)g_key_file_remove_key(previous.get(), "general", "connection_id", nullptr);
+  (void)g_key_file_remove_key(current.get(), "general", "connection_id", nullptr);
+  if (!had_general) {
+    gsize remaining_keys = 0;
+    auto keys = std::unique_ptr<gchar *, decltype(&g_strfreev)>(
+        g_key_file_get_keys(current.get(), "general", &remaining_keys, nullptr),
+        g_strfreev);
+    if (remaining_keys == 0)
+      (void)g_key_file_remove_group(current.get(), "general", nullptr);
+  }
+  gsize previous_size = 0;
+  gsize current_size = 0;
+  auto previous_text = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_key_file_to_data(previous.get(), &previous_size, nullptr), g_free);
+  auto current_text = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_key_file_to_data(current.get(), &current_size, nullptr), g_free);
+  return previous_text && current_text && previous_size == current_size &&
+         std::memcmp(previous_text.get(), current_text.get(), previous_size) == 0;
+}
 
 static std::string trim_ascii_whitespace(const std::string &value) {
   const auto first = std::find_if_not(

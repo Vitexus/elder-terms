@@ -24,6 +24,12 @@ struct ConnectionIdentityContents {
   }
 };
 
+struct ConnectionIdentityFileGeneration {
+  std::string file_id;
+  std::string filesystem_id;
+  std::string etag;
+};
+
 static std::mutex connection_identity_mutex_map_guard;
 static std::unordered_map<std::string, std::weak_ptr<cardio::primitives::mutex>>
     connection_identity_mutexes;
@@ -48,14 +54,25 @@ connection_identity_mutex(const std::filesystem::path &path) {
   return mutex;
 }
 
-static std::string connection_identity_for_legacy_path(
-    const std::filesystem::path &path) {
+static std::string connection_identity_for_legacy_file(
+    const std::filesystem::path &path,
+    const ConnectionIdentityFileGeneration &generation,
+    const ConnectionIdentityContents &contents) {
   // RFC 9562 section 5.8 assigns SHA-256 name-based UUIDs to version 8.
-  // A fixed path-derived repair also makes concurrent processes choose the
-  // same ID when a backend's entity-tag check precedes its atomic rename.
+  // Include the file generation so a new profile reusing the same path does
+  // not inherit the old identity. Concurrent readers of one generation still
+  // choose the same ID if an entity-tag check precedes its atomic rename.
   const auto normalized = std::filesystem::absolute(path).lexically_normal();
-  const auto source = std::string("elder-terms:connection-id:legacy:v1:") +
-                      normalized.string();
+  auto content_checksum = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_compute_checksum_for_data(
+          G_CHECKSUM_SHA256, reinterpret_cast<const guchar *>(contents.data),
+          contents.size), g_free);
+  if (content_checksum == nullptr)
+    throw std::runtime_error("Failed to hash connection profile");
+  const auto source = std::string("elder-terms:connection-id:legacy:v2:") +
+                      normalized.string() + "\n" + generation.filesystem_id +
+                      "\n" + generation.file_id + "\n" + generation.etag +
+                      "\n" + content_checksum.get();
   auto checksum = std::unique_ptr<gchar, decltype(&g_free)>(
       g_compute_checksum_for_string(G_CHECKSUM_SHA256, source.c_str(),
                                     source.size()), g_free);
@@ -96,6 +113,36 @@ read_connection_contents_async(std::shared_ptr<GFile> file,
   co_return contents;
 }
 
+static cardio::promise<ConnectionIdentityFileGeneration>
+query_connection_file_generation_async(std::shared_ptr<GFile> file,
+                                       cardio::cancellation cancellation) {
+  auto task = cardio::gio::submit<GFileInfo *>(
+      [file](GCancellable *signal, GAsyncReadyCallback callback,
+             gpointer data) {
+        g_file_query_info_async(
+            file.get(), G_FILE_ATTRIBUTE_ID_FILE ","
+                            G_FILE_ATTRIBUTE_ID_FILESYSTEM ","
+                            G_FILE_ATTRIBUTE_ETAG_VALUE,
+            G_FILE_QUERY_INFO_NONE, G_PRIORITY_DEFAULT, signal, callback,
+            data);
+      },
+      [file](GObject *, GAsyncResult *result, GError **error) {
+        return g_file_query_info_finish(file.get(), result, error);
+      }, cancellation);
+  auto info = std::shared_ptr<GFileInfo>(co_await task, g_object_unref);
+  const char *file_id = g_file_info_get_attribute_string(
+      info.get(), G_FILE_ATTRIBUTE_ID_FILE);
+  const char *filesystem_id = g_file_info_get_attribute_string(
+      info.get(), G_FILE_ATTRIBUTE_ID_FILESYSTEM);
+  const char *etag = g_file_info_get_attribute_string(
+      info.get(), G_FILE_ATTRIBUTE_ETAG_VALUE);
+  if (file_id == nullptr || *file_id == '\0' ||
+      filesystem_id == nullptr || *filesystem_id == '\0' ||
+      etag == nullptr || *etag == '\0')
+    throw std::runtime_error("Connection profile has no file identity");
+  co_return ConnectionIdentityFileGeneration{file_id, filesystem_id, etag};
+}
+
 cardio::promise<std::string> ensure_connection_id_async(
     std::filesystem::path path, cardio::cancellation cancellation) {
   cancellation.throw_if_cancellation_requested();
@@ -127,9 +174,18 @@ cardio::promise<std::string> ensure_connection_id_async(
       cancellation.throw_if_cancellation_requested();
       co_return std::string(current.get());
     }
-    if (contents->etag == nullptr)
-      throw std::runtime_error("Connection profile has no entity tag");
-    const auto new_id = connection_identity_for_legacy_path(path);
+    const auto generation = co_await query_connection_file_generation_async(
+        file, cancellation);
+    if (contents->etag == nullptr || generation.etag != contents->etag)
+      continue;
+    const auto current_generation = co_await query_connection_file_generation_async(
+        file, cancellation);
+    if (generation.file_id != current_generation.file_id ||
+        generation.filesystem_id != current_generation.filesystem_id ||
+        generation.etag != current_generation.etag)
+      continue;
+    const auto new_id = connection_identity_for_legacy_file(
+        path, generation, *contents);
     g_key_file_set_string(key_file.get(), "general", "connection_id",
                           new_id.c_str());
     gsize replacement_size = 0;

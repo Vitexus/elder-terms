@@ -48,6 +48,27 @@ static void test_default_directory_uses_elder_terms_connections() {
               "default directory should be scoped to elder-terms");
 }
 
+static void test_identity_only_change_preserves_unsaved_editor() {
+  const std::string id = "e81f9240-05c5-8aae-9ae1-027f42049333";
+  expect_true(elder_terms::connection_profile_only_gained_id(
+                  "[general]\nname=Legacy\n",
+                  "[general]\nname=Legacy\nconnection_id=" + id + "\n"),
+              "adding only an ID should not conflict with unsaved edits");
+  expect_true(elder_terms::connection_profile_only_gained_id(
+                  "[terminal]\nwidth=90\n",
+                  "[terminal]\nwidth=90\n[general]\nconnection_id=" + id + "\n"),
+              "an ID added to a profile without general settings should not conflict");
+  expect_true(!elder_terms::connection_profile_only_gained_id(
+                  "[terminal]\nwidth=90\n",
+                  "[terminal]\nwidth=91\n[general]\nconnection_id=" + id + "\n"),
+              "another setting change must still report an external conflict");
+  expect_true(!elder_terms::connection_profile_only_gained_id(
+                  "[terminal]\nwidth=90\n",
+                  "[terminal]\nwidth=90\n[general]\nconnection_id=" + id +
+                      "\nicon=material:action/home\n"),
+              "a new general setting must still report an external conflict");
+}
+
 static void test_creates_initial_local_terminal_only_before_directory_exists() {
   const std::filesystem::path root = temporary_directory();
   const std::filesystem::path directory = root / "connections";
@@ -235,6 +256,8 @@ int main() {
   try {
     elder_terms_connection_repository_test::
         test_default_directory_uses_elder_terms_connections();
+    elder_terms_connection_repository_test::
+        test_identity_only_change_preserves_unsaved_editor();
     elder_terms_connection_repository_test::
         test_creates_initial_local_terminal_only_before_directory_exists();
     elder_terms_connection_repository_test::

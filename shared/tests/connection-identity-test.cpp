@@ -82,6 +82,18 @@ static cardio::promise<void> test_ensure_async(
                first_id,
            "ensuring again should keep the persisted ID");
 
+    const auto recreated = directory / "recreated.ini";
+    write_text(recreated, "[general]\nname=Recreated\n");
+    const auto old_id = co_await elder_terms::ensure_connection_id_async(
+        recreated, {});
+    const auto replacement = directory / "recreated-replacement.ini";
+    write_text(replacement, "[general]\nname=Recreated\n");
+    std::filesystem::rename(replacement, recreated);
+    const auto new_id = co_await elder_terms::ensure_connection_id_async(
+        recreated, {});
+    expect(old_id != new_id,
+           "a new profile at the same path should receive a different ID");
+
     const auto invalid = directory / "invalid.ini";
     write_text(invalid, "[general]\nconnection_id=invalid\nname=Legacy\n");
     const auto repaired = co_await elder_terms::ensure_connection_id_async(

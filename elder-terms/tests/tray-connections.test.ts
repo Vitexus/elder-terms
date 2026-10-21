@@ -164,7 +164,10 @@ it('shows all saved connections in the tray and follows changes while the launch
           '[general]\nicon=material:action/home\nopen_connection=Ctrl+Alt+Z\n'
         );
         await rm(join(connections, 'Conflict.ini'));
-        await writeFile(join(connections, 'Added.ini'), '[general]\n');
+        await writeFile(
+          join(connections, 'Added.ini'),
+          '[general]\nconnection_id=862a2557-01de-47c8-9a64-5b0aceb2543a\n'
+        );
         await waitForResult(async () => {
           const value = await layout();
           expect(menuItems(value).map((item) => item.label)).toEqual([
@@ -219,6 +222,105 @@ it('shows all saved connections in the tray and follows changes while the launch
           ELDER_TERMS_TERMINAL_PATH: join(directory, 'terminal.mjs'),
           ELDER_TERMS_FILE_TRANSFER_PATH: join(directory, 'file-transfer.mjs'),
         },
+      }
+    );
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 60_000);
+
+it('does not launch a replacement profile through a stale legacy tray item', async (context) => {
+  const directory = await mkdtemp(join(tmpdir(), 'elder-tray-legacy-id-'));
+  const capture = join(directory, 'launched.json');
+  const terminal = join(directory, 'terminal.mjs');
+  await writeFile(
+    terminal,
+    `#!/usr/bin/env node\nimport fs from 'node:fs';fs.writeFileSync(${JSON.stringify(capture)}, JSON.stringify(process.argv.slice(2)));\n`
+  );
+  await chmod(terminal, 0o700);
+  try {
+    await runLauncherGtkTest(
+      context,
+      async (connections) => {
+        await writeFile(
+          join(connections, '..', 'global.ini'),
+          '[general]\nstartup_mode=tray\nopen_application=\n'
+        );
+        await writeFile(join(connections, 'Legacy.ini'), '[terminal]\n');
+      },
+      async ({ app, connections }) => {
+        const path = join(connections, 'Legacy.ini');
+        await app.getTrayItem({ id: 'elder-terms' });
+        const oldId = await waitForResult(async () => {
+          const match = (await readFile(path, 'utf8')).match(
+            /^connection_id=([0-9a-f-]{36})$/mu
+          );
+          expect(match).not.toBeNull();
+          return match![1]!;
+        });
+        const registered = await callBus(
+          app,
+          'org.kde.StatusNotifierWatcher',
+          '/StatusNotifierWatcher',
+          'org.freedesktop.DBus.Properties.Get',
+          ['org.kde.StatusNotifierWatcher', 'RegisteredStatusNotifierItems']
+        );
+        const bus = registered.match(
+          /['"]([^'"]+)\/StatusNotifierItem['"]/u
+        )?.[1];
+        expect(bus).toBeDefined();
+        const menu = async (method: string, args: string[]): Promise<string> =>
+          await callBus(
+            app,
+            bus!,
+            '/StatusNotifierMenu',
+            `com.canonical.dbusmenu.${method}`,
+            args
+          );
+        const layout = async (): Promise<string> =>
+          await menu('GetLayout', [
+            '0',
+            '-1',
+            "['label', 'children-display', 'enabled']",
+          ]);
+        const oldItem = await waitForResult(async () => {
+          const item = menuItems(await layout()).find(
+            (entry) => entry.label === 'Legacy'
+          );
+          expect(item).toBeDefined();
+          return item!;
+        });
+        await menu('Event', [oldItem.id, 'clicked', '<0>', '0']);
+        await waitForResult(async () => {
+          expect(JSON.parse(await readFile(capture, 'utf8'))).toEqual([
+            '-c',
+            path,
+          ]);
+        });
+        await rm(capture);
+        const replacement = join(directory, 'replacement.ini');
+        await writeFile(replacement, '[terminal]\n');
+        await rename(replacement, path);
+        await menu('Event', [oldItem.id, 'clicked', '<0>', '0']);
+        await waitForResult(async () => {
+          const current = menuItems(await layout()).find(
+            (item) => item.label === 'Legacy'
+          );
+          expect(current).toBeDefined();
+          expect(current!.id).not.toBe(oldItem.id);
+          const newId = (await readFile(path, 'utf8')).match(
+            /^connection_id=([0-9a-f-]{36})$/mu
+          )?.[1];
+          expect(newId).toBeDefined();
+          expect(newId).not.toBe(oldId);
+        });
+        await expect(readFile(capture, 'utf8')).rejects.toMatchObject({
+          code: 'ENOENT',
+        });
+      },
+      {
+        args: [],
+        env: { ELDER_TERMS_TERMINAL_PATH: terminal },
       }
     );
   } finally {
