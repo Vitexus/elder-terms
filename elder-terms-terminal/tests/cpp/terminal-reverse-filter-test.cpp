@@ -60,7 +60,41 @@ static void test_lightness() {
   }
 }
 
+static double luminance(boxrig_rgb rgb) {
+  const auto channel = [](double value) {
+    value /= 255;
+    return value <= .04045 ? value / 12.92 : std::pow((value + .055) / 1.055, 2.4);
+  };
+  return .2126 * channel(rgb.red) + .7152 * channel(rgb.green) + .0722 * channel(rgb.blue);
+}
+
+static double contrast(boxrig_rgb a, boxrig_rgb b) {
+  const double x = luminance(a) + .05, y = luminance(b) + .05;
+  return std::max(x, y) / std::min(x, y);
+}
+
+static void test_contrast() {
+  constexpr auto filter = TerminalColorFilter::reverse_contrast;
+  const auto reversed = cell(filter, {255, 255, 255}, {0, 0, 0});
+  assert(equal(reversed.foreground, {0, 0, 0}) && equal(reversed.background, {255, 255, 255}));
+  for (int r = 0; r <= 255; r += 17) for (int g = 0; g <= 255; g += 17) for (int b = 0; b <= 255; b += 17) {
+    const boxrig_rgb source{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b)};
+    const auto transformed = cell(filter, source, {53, 82, 113});
+    const auto y = luminance(source);
+    const auto expected = (1 - y) / (1 + 20 * y);
+    assert(std::abs(luminance(transformed.foreground) - expected) < .0045);
+    const auto original = contrast(source, {53, 82, 113});
+    assert(std::abs(contrast(transformed.foreground, transformed.background) / original - 1) < .025);
+    const auto again = cell(filter, transformed.foreground, {0, 0, 0});
+    assert(std::abs(luminance(again.foreground) - y) < .025);
+  }
+  // B preserves poor contrast too; it must not silently become Oklch or C.
+  const auto poor = cell(filter, {128, 128, 128}, {120, 120, 120});
+  assert(contrast(poor.foreground, poor.background) < 1.2);
+}
+
 int main() {
   test_lightness();
+  test_contrast();
   std::puts("reverse color filters passed");
 }

@@ -2712,3 +2712,6 @@ msgstr "明度を反転 (A)"
 
 msgid "Choose a visibility correction or a background reversal. Only one color filter is applied."
 msgstr "明暗差の補正または背景の反転を選びます。色フィルタは一つだけ適用されます。"
+
+msgid "Reverse contrast (B)"
+msgstr "コントラスト比を保って反転 (B)"

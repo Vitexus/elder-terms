@@ -210,8 +210,8 @@ static bool validate_terminal_cursor_shape(const SettingValue &value, std::strin
 
 static bool validate_color_filter(const SettingValue &value, std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
-  if (text && (*text == "none" || *text == "oklch" || *text == "reverse-lightness")) return true;
-  *reason = "must be none, oklch, or reverse-lightness";
+  if (text && (*text == "none" || *text == "oklch" || *text == "reverse-lightness" || *text == "reverse-contrast")) return true;
+  *reason = "must be none, oklch, reverse-lightness, or reverse-contrast";
   return false;
 }
 
@@ -319,6 +319,7 @@ SettingKey terminal_cursor_blink_setting_key() { return terminal_key("cursor_bli
 SettingKey terminal_color_filter_setting_key() { return terminal_key("color_filter"); }
 TerminalColorFilter terminal_color_filter(const SettingsStore &store) {
   const auto value = setting_string_value_or_default(store, terminal_color_filter_setting_key(), "none");
+  if (value == "reverse-contrast") return TerminalColorFilter::reverse_contrast;
   if (value == "reverse-lightness") return TerminalColorFilter::reverse_lightness;
   return value == "oklch" ? TerminalColorFilter::oklch : TerminalColorFilter::none;
 }

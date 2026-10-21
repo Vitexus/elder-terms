@@ -182,11 +182,29 @@ RgbColor correct_color_vision(RgbColor color, TerminalColorVision profile, doubl
   return encode(rgb);
 }
 
-static boxrig_rgb reverse_color(boxrig_rgb value) {
+static RgbColor color_at_luminance(Oklch color, double target) {
+  const double radians = color.hue * std::numbers::pi / 180;
+  const double cosine = std::cos(radians), sine = std::sin(radians);
+  double low = 0, high = 1;
+  for (int iteration = 0; iteration < 24; iteration++) {
+    const auto middle = (low + high) / 2;
+    if (luminance(gamut_map(middle, color.chroma, cosine, sine)) < target) low = middle;
+    else high = middle;
+  }
+  return encode(gamut_map((low + high) / 2, color.chroma, cosine, sine));
+}
+
+static boxrig_rgb reverse_color(boxrig_rgb value, TerminalColorFilter filter) {
   auto color = srgb_to_oklch({value.red, value.green, value.blue});
   color.lightness = 1 - color.lightness;
   if (value.red == value.green && value.green == value.blue) color.chroma = 0;
-  const auto result = oklch_to_srgb(color);
+  // Yoon-Buck's continuous luminance involution preserves all pairwise WCAG
+  // ratios. Here we find that Y in Oklch instead of HSL; eight-bit rounding
+  // introduces a small measurable error. No visibility floor belongs in B.
+  // https://jordan.yoonbuck.com/post/contrast-preserving-inversion/derivation/
+  const auto y = luminance(linear_rgb({value.red, value.green, value.blue}));
+  const auto result = filter == TerminalColorFilter::reverse_contrast
+      ? color_at_luminance(color, (1 - y) / (1 + 20 * y)) : oklch_to_srgb(color);
   return {result.red, result.green, result.blue};
 }
 
@@ -225,13 +243,13 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
         result.underline = recolor(result.underline, input->underline_source.role);
     } else result.marker = recolor(result.marker, input->marker_source.role);
   }
-  if (context.filter == TerminalColorFilter::reverse_lightness) {
+  if (context.filter == TerminalColorFilter::reverse_lightness || context.filter == TerminalColorFilter::reverse_contrast) {
     if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
         input->target == BOXRIG_UI_COLOR_SURFACE) {
-      result.background = reverse_color(result.background);
-      result.foreground = reverse_color(result.foreground);
-      if (!result.underline_follows_foreground) result.underline = reverse_color(result.underline);
-    } else result.marker = reverse_color(result.marker);
+      result.background = reverse_color(result.background, context.filter);
+      result.foreground = reverse_color(result.foreground, context.filter);
+      if (!result.underline_follows_foreground) result.underline = reverse_color(result.underline, context.filter);
+    } else result.marker = reverse_color(result.marker, context.filter);
     return result;
   }
   if (context.filter != TerminalColorFilter::oklch) return result;
