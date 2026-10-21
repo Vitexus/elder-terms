@@ -129,9 +129,26 @@ static void test_roles() {
   }
 }
 
+static void test_cam16() {
+  constexpr auto filter = TerminalColorFilter::reverse_cam16;
+  const auto neutral = cell(filter, {255, 255, 255}, {0, 0, 0});
+  assert(equal(neutral.foreground, {0, 0, 0}) && equal(neutral.background, {255, 255, 255}));
+  int different = 0;
+  for (int r = 0; r <= 255; r += 51) for (int g = 0; g <= 255; g += 51) for (int b = 0; b <= 255; b += 51) {
+    const boxrig_rgb source{static_cast<uint8_t>(r), static_cast<uint8_t>(g), static_cast<uint8_t>(b)};
+    for (const boxrig_rgb bg : {boxrig_rgb{0, 0, 0}, boxrig_rgb{32, 32, 32}, boxrig_rgb{80, 128, 80}}) {
+      const auto result = cell(filter, source, bg);
+      assert(contrast(result.foreground, result.background) >= 4.5);
+      if (!equal(result.foreground, cell(TerminalColorFilter::reverse_roles, source, bg).foreground)) different++;
+    }
+  }
+  assert(different > 100);
+}
+
 int main() {
   test_lightness();
   test_contrast();
   test_roles();
+  test_cam16();
   std::puts("reverse color filters passed");
 }

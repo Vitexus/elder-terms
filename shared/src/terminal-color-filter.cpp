@@ -1,4 +1,5 @@
 #include <elder-terms/terminal-color-filter.h>
+#include "color-appearance.h"
 #include <algorithm>
 #include <cmath>
 #include <numbers>
@@ -216,14 +217,16 @@ static double reverse_tone(double lightness) {
   return std::cbrt(linear_channel(255 * (1 - encoded)));
 }
 
-static boxrig_rgb reverse_background(boxrig_rgb value) {
+static boxrig_rgb reverse_background(boxrig_rgb value, TerminalColorFilter filter) {
   auto color = srgb_to_oklch({value.red, value.green, value.blue});
   color.lightness = reverse_tone(color.lightness);
-  const auto result = oklch_to_srgb(color);
+  auto result = oklch_to_srgb(color);
+  if (filter == TerminalColorFilter::reverse_cam16)
+    result = compensate_color_appearance({value.red, value.green, value.blue}, result);
   return {result.red, result.green, result.blue};
 }
 
-static boxrig_rgb reverse_foreground(boxrig_rgb value, boxrig_rgb background) {
+static boxrig_rgb reverse_foreground(boxrig_rgb value, boxrig_rgb background, TerminalColorFilter filter) {
   auto color = srgb_to_oklch({value.red, value.green, value.blue});
   const RgbColor bg{background.red, background.green, background.blue};
   const auto y = luminance(linear_rgb(bg));
@@ -241,7 +244,10 @@ static boxrig_rgb reverse_foreground(boxrig_rgb value, boxrig_rgb background) {
   auto amount = std::clamp(color.chroma / .08, 0.0, 1.0);
   amount = amount * amount * (3 - 2 * amount);
   color.lightness = std::lerp(reverse_tone(color.lightness), dark ? compressed : 1 - compressed, amount);
-  const auto result = improve_color_visibility(oklch_to_srgb(color), bg);
+  auto candidate = oklch_to_srgb(color);
+  if (filter == TerminalColorFilter::reverse_cam16)
+    candidate = compensate_color_appearance({value.red, value.green, value.blue}, candidate);
+  const auto result = improve_color_visibility(candidate, bg);
   return {result.red, result.green, result.blue};
 }
 
@@ -289,17 +295,17 @@ boxrig_ui_color_filter_result filter_terminal_colors(const boxrig_ui_color_filte
     } else result.marker = reverse_color(result.marker, context.filter);
     return result;
   }
-  if (context.filter == TerminalColorFilter::reverse_roles) {
+  if (context.filter == TerminalColorFilter::reverse_roles || context.filter == TerminalColorFilter::reverse_cam16) {
     if (input->target == BOXRIG_UI_COLOR_CELL || input->target == BOXRIG_UI_COLOR_IME ||
         input->target == BOXRIG_UI_COLOR_SURFACE) {
-      result.background = reverse_background(result.background);
-      result.foreground = reverse_foreground(result.foreground, result.background);
+      result.background = reverse_background(result.background, context.filter);
+      result.foreground = reverse_foreground(result.foreground, result.background, context.filter);
       if (!result.underline_follows_foreground)
-        result.underline = reverse_foreground(result.underline, result.background);
+        result.underline = reverse_foreground(result.underline, result.background, context.filter);
     } else {
       // Marker underlays are display colors, already filtered exactly once.
-      const auto background = input->underlay_valid ? input->underlay.background : reverse_background(result.background);
-      result.marker = reverse_foreground(result.marker, background);
+      const auto background = input->underlay_valid ? input->underlay.background : reverse_background(result.background, context.filter);
+      result.marker = reverse_foreground(result.marker, background, context.filter);
     }
     return result;
   }

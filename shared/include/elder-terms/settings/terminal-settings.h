@@ -18,6 +18,7 @@ enum class TerminalColorFilter {
   reverse_lightness, /**< Reflect Oklab lightness while preserving hue (A). */
   reverse_contrast, /**< Reverse relative luminance while preserving contrast ratios (B). */
   reverse_roles, /**< Reverse neutrals and adapt chromatic text to its displayed background (C). */
+  reverse_cam16, /**< Add CAM16 appearance compensation between fixed viewing conditions (D). */
   oklch, /**< Improve low-contrast text and markers of any hue, including neutrals, in Oklch. */
 };
 /** Color-vision profile used for display recoloring, not a diagnosis. */

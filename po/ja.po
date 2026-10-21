@@ -2718,3 +2718,6 @@ msgstr "コントラスト比を保って反転 (B)"
 
 msgid "Reverse text and background (C)"
 msgstr "文字と背景に合わせて反転 (C)"
+
+msgid "Reverse appearance (D, CAM16)"
+msgstr "見え方を補償して反転 (D, CAM16)"

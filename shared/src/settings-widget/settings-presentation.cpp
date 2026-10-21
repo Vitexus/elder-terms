@@ -198,6 +198,7 @@ static constexpr std::array setting_choices{
     SettingChoiceEntry{"terminal", "cursor_shape", "block", N_("Full box")},
     SettingChoiceEntry{"terminal", "color_filter", "none", N_("No correction")},
     SettingChoiceEntry{"terminal", "color_filter", "oklch", N_("Improve visibility (Oklch)")},
+    SettingChoiceEntry{"terminal", "color_filter", "reverse-cam16", N_("Reverse appearance (D, CAM16)")},
     SettingChoiceEntry{"terminal", "color_filter", "reverse-roles", N_("Reverse text and background (C)")},
     SettingChoiceEntry{"terminal", "color_filter", "reverse-contrast", N_("Reverse contrast (B)")},
     SettingChoiceEntry{"terminal", "color_filter", "reverse-lightness", N_("Reverse lightness (A)")},
