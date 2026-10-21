@@ -72,6 +72,7 @@ struct TerminalRuntime {
   bool widget_allocated = false;
   bool notified_settled = false;
   bool selection_drag_active = false;
+  bool selection_cancelled = false;
   std::uint64_t allocation_generation = 0;
   std::uint64_t command_allocation = 0;
   boxrig_ui_layout_action size_command{};
@@ -151,6 +152,11 @@ static boxrig_input_mouse_route route_mouse(
     void *context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  if (runtime->selection_cancelled) {
+    if (event->action == BOXRIG_MOUSE_RELEASE && event->button == BOXRIG_MOUSE_BUTTON_LEFT)
+      runtime->selection_cancelled = false;
+    return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
+  }
   if (runtime->host.mouse) {
     const auto route = runtime->host.mouse(event, hit);
     if (route != BOXRIG_INPUT_MOUSE_ROUTE_TERMINAL) return route;
@@ -787,6 +793,7 @@ static bool attach_widget(TerminalRuntime *runtime) {
   runtime->scroll = scroll;
   runtime->size_command = {};
   runtime->selection_drag_active = false;
+  runtime->selection_cancelled = false;
   runtime->widget_allocated = false;
   runtime->pending_input = runtime->applied_input;
   gtk_box_pack_start(runtime->attachment, scroll, TRUE, TRUE, 0);
@@ -868,6 +875,26 @@ void destroy_terminal_runtime(TerminalRuntime *runtime) {
 }
 
 BoxrigGtk3TerminalWidget *terminal_runtime_widget(TerminalRuntime *runtime) { return runtime->widget; }
+
+boxrig_input_key_route terminal_runtime_route_selection_key(TerminalRuntime *runtime, const boxrig_key_event &event) {
+  constexpr auto modifiers = BOXRIG_MODIFIER_SHIFT | BOXRIG_MODIFIER_CONTROL | BOXRIG_MODIFIER_ALT |
+      BOXRIG_MODIFIER_SUPER | BOXRIG_MODIFIER_HYPER | BOXRIG_MODIFIER_META;
+  if (event.key != BOXRIG_KEY_ESCAPE || event.action != BOXRIG_KEY_PRESS || (event.modifiers & modifiers))
+    return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
+  boxrig_composition_view composition{};
+  if (boxrig_composition_get_view(boxrig_gtk3_terminal_widget_composition(runtime->widget), &composition) !=
+      BOXRIG_COMPOSITION_OK) return BOXRIG_INPUT_KEY_ROUTE_ERROR;
+  if (composition.active || composition.commit_pending) return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
+  auto *view = boxrig_gtk3_terminal_widget_view(runtime->widget);
+  boxrig_ui_selection selection{};
+  if (!boxrig_ui_view_get_selection(view, &selection) && !runtime->selection_drag_active)
+    return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
+  if (boxrig_ui_view_clear_selection(view) != BOXRIG_UI_OK) return BOXRIG_INPUT_KEY_ROUTE_ERROR;
+  runtime->selection_cancelled = runtime->selection_cancelled || runtime->selection_drag_active;
+  runtime->selection_drag_active = false;
+  request_frame(runtime);
+  return BOXRIG_INPUT_KEY_ROUTE_APPLICATION;
+}
 
 void terminal_runtime_set_host_callbacks(TerminalRuntime *runtime, TerminalRuntimeHostCallbacks callbacks) {
   runtime->host = std::move(callbacks);

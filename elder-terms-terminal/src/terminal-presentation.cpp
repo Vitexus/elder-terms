@@ -130,6 +130,8 @@ static guint key_value(const boxrig_key_event &event) {
 
 static boxrig_input_key_route route_key(const boxrig_key_event *event, void *context) {
   auto *presentation = static_cast<TerminalPresentation *>(context);
+  const auto selection = terminal_runtime_route_selection_key(presentation->window->runtime, *event);
+  if (selection != BOXRIG_INPUT_KEY_ROUTE_TERMINAL) return selection;
   const auto clipboard = route_main_window_terminal_key(presentation->window, *event);
   if (clipboard != BOXRIG_INPUT_KEY_ROUTE_TERMINAL) return clipboard;
   const guint modifiers = ((event->modifiers & BOXRIG_MODIFIER_CONTROL) ? GDK_CONTROL_MASK : 0) |

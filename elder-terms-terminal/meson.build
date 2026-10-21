@@ -214,6 +214,13 @@ appearance_state_test = executable('terminal-appearance-state-test',
     liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep, boxrig_background_dep],
   link_with: libxyzm_async_static_library,
   link_args: ['-Wl,--wrap=main', '-Wl,--wrap=boxrig_gtk3_terminal_widget_frame'])
+selection_state_test = executable('terminal-selection-state-test',
+  'tests/cpp/terminal-selection-state-test.cpp',
+  objects: elder_terms_terminal.extract_all_objects(recursive: false),
+  dependencies: [cardio_dep, elder_terms_dep, canberra_dep, gio_dep, gtk_dep,
+    liburing_dep, ssh_transport_dep, libudev_dep, boxrig_runtime_dep, boxrig_background_dep],
+  link_with: libxyzm_async_static_library,
+  link_args: ['-Wl,--wrap=main'])
 foreach backend : ['cairo', 'opengl']
   foreach scale : ['1', '2']
     appearance_env = ['GSETTINGS_BACKEND=memory', 'NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals',
@@ -223,6 +230,9 @@ foreach backend : ['cairo', 'opengl']
     endif
     test('terminal-appearance-state-' + backend + '-' + scale, find_program('xvfb-run'),
       args: ['-a', '-s', '-screen 0 2560x2048x24', appearance_state_test], timeout: 60, env: appearance_env)
+    test('terminal-selection-state-' + backend + '-' + scale, find_program('xvfb-run'),
+      args: ['-a', '-s', '-screen 0 2560x2048x24', selection_state_test], timeout: 60,
+      env: appearance_env + ['GTK_IM_MODULE=gtk-im-context-simple'])
   endforeach
 endforeach
 endif

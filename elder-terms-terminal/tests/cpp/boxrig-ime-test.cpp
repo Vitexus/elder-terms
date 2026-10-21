@@ -106,6 +106,14 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   while (ime(fixture).active_route != BOXRIG_GTK_IME_ROUTE_FCITX4 ||
       ime(fixture).direct.pending != 0 || ime(fixture).direct.contexts != 1) co_await fixture->changed.wait();
   expect(ime(fixture).requested_policy == BOXRIG_GTK_IME_AUTO, "runtime retains AUTO policy");
+  expect(terminal_runtime_feed(fixture->runtime, "\033[HSELECT"), "prepare selection alongside composition");
+  while (!terminal_runtime_is_settled(fixture->runtime)) co_await fixture->changed.wait();
+  auto *view = boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(fixture->runtime));
+  boxrig_ui_hit_test_result hit{};
+  expect(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK,
+      "hit selectable text beside IME");
+  expect(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_WORD, &hit) == BOXRIG_UI_OK,
+      "select text before starting composition");
   key(fixture, GDK_KEY_a);
   while (preedit(fixture) != "きしゃ") co_await fixture->changed.wait();
   expect(fixture->outgoing.empty() && body(fixture).find("きしゃ") == std::string::npos,
@@ -118,6 +126,12 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   key(fixture, GDK_KEY_Escape);
   while (!preedit(fixture).empty() || terminal_runtime_input_settings_pending(fixture->runtime))
     co_await fixture->changed.wait();
+  boxrig_ui_selection selection{};
+  expect(boxrig_ui_view_get_selection(view, &selection) && fixture->outgoing.empty(),
+      "the first Escape cancels fcitx4 composition while preserving selection");
+  key(fixture, GDK_KEY_Escape);
+  while (boxrig_ui_view_get_selection(view, &selection)) co_await fixture->changed.wait();
+  expect(fixture->outgoing.empty(), "the next Escape cancels selection without reaching the peer");
   key(fixture, GDK_KEY_a);
   while (preedit(fixture) != "きしゃ") co_await fixture->changed.wait();
   key(fixture, GDK_KEY_b);
@@ -175,6 +189,10 @@ int main() {
   gtk_overlay_add_overlay(GTK_OVERLAY(overlay), fixture.entry);
   fixture.runtime = create_terminal_runtime(GTK_WINDOW(window), GTK_BOX(content), GTK_BOX(content));
   if (!fixture.runtime) return 1;
+  expect(boxrig_gtk3_terminal_widget_set_key_router(terminal_runtime_widget(fixture.runtime),
+      +[](const boxrig_key_event *event, void *context) {
+        return terminal_runtime_route_selection_key(static_cast<TerminalRuntime *>(context), *event);
+      }, fixture.runtime) == BOXRIG_UI_OK, "install application selection routing");
   expect(boxrig_gtk3_terminal_widget_set_accessibility_enabled(
       terminal_runtime_widget(fixture.runtime), true) == BOXRIG_UI_OK, "enable test text observations");
   terminal_runtime_set_changed_callback(fixture.runtime, [](void *context) {

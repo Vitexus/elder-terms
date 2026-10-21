@@ -18,13 +18,14 @@ const build = fileURLToPath(
   new URL('../../.build/elder-terms-terminal/', import.meta.url)
 );
 
-for (const [route, backend] of [
-  ['gtk', 'cairo'],
-  ['ibus', 'cairo'],
-  ['fcitx5', 'cairo'],
-  ['ibus', 'context-loss'],
+for (const [route, backend, snooper] of [
+  ['gtk', 'cairo', false],
+  ['ibus', 'cairo', false],
+  ['fcitx5', 'cairo', false],
+  ['ibus', 'context-loss', false],
+  ['gtk', 'cairo', true],
 ] as const) {
-  it(`uses AUTO ${route} with ${backend} for composition, commit, settings and input inhibition`, async () => {
+  it(`uses AUTO ${route} with ${backend}${snooper ? ' and IBus key snooping' : ''} for composition, commit, settings and input inhibition`, async () => {
     const root = await mkdtemp(join(tmpdir(), 'elder-boxrig-ime-'));
     const config = join(root, 'config');
     await mkdir(join(config, 'gtk-3.0'), { recursive: true });
@@ -50,6 +51,7 @@ for (const [route, backend] of [
         XDG_CACHE_HOME: join(root, 'cache'),
         XDG_DATA_HOME: join(root, 'data'),
         GTK_IM_MODULE: route === 'gtk' ? 'ibus' : undefined,
+        IBUS_DISABLE_SNOOPER: snooper ? '0' : '1',
         XMODIFIERS: route === 'fcitx5' ? '@im=fcitx' : '@im=ibus',
         IBUS_ADDRESS: route === 'fcitx5' ? '' : address,
         IBUS_ADDRESS_FILE: addressFile,
@@ -189,7 +191,7 @@ for (const [route, backend] of [
         );
       const evidence = fileURLToPath(
         new URL(
-          `../../test-results/boxrig/ime-${route}-${backend}/`,
+          `../../test-results/boxrig/ime-${route}-${backend}${snooper ? '-snooper' : ''}/`,
           import.meta.url
         )
       );
@@ -294,6 +296,19 @@ for (const [route, backend] of [
         );
         return pixels;
       };
+      const metrics = /cell=(\d+)x(\d+)/.exec(await report());
+      if (!metrics) throw new Error('Missing selection metrics');
+      await app.input.moveMouseTo(
+        bounds.x + 1,
+        bounds.y + Math.trunc(Number(metrics[2]) / 2)
+      );
+      await app.input.setMouseButton('left', true);
+      await app.input.moveMouseTo(
+        bounds.x + Number(metrics[1]) * 5 - 1,
+        bounds.y + Math.trunc(Number(metrics[2]) / 2)
+      );
+      await app.input.setMouseButton('left', false);
+      await toPass(async () => expect(await report()).toContain('selected=1'));
       const beforeComposition = await observeVideo('before');
       const composeKey = route === 'fcitx5' ? 'a' : 'F1';
       const composition =
@@ -333,6 +348,8 @@ for (const [route, backend] of [
       await toPass(async () => {
         expect(await preedit()).toBe('');
         expect(await report()).toContain('input_pending=0');
+        expect(await report()).toContain('selected=1');
+        expect(await cooked()).toBe('READY');
       });
       const cancelledPixels = await observeVideo('cancelled');
       expect(
@@ -340,6 +357,41 @@ for (const [route, backend] of [
           (value, index) => Math.abs(value - composingPixels[index]) > 8
         ).length
       ).toBeGreaterThan(150);
+      const keyCounts = async () => {
+        const { stdout } = await execute(
+          'gdbus',
+          [
+            'call',
+            '--address',
+            address,
+            '--dest',
+            'org.boxrig.IMEProbe',
+            '--object-path',
+            '/org/boxrig/IMEProbe',
+            '--method',
+            'org.boxrig.IMEProbe.GetState',
+          ],
+          { env }
+        );
+        const counts = [...stdout.matchAll(/uint32 (\d+)/g)].map((match) =>
+          Number(match[1])
+        );
+        return counts.slice(3, 5);
+      };
+      const beforeEscape = snooper ? await keyCounts() : [];
+      await app.input.pressKey('Escape');
+      await toPass(async () => {
+        // The probe consumes Escape even without preedit. IBus's optional
+        // GTK snooper handles it before either boxrig or the application.
+        if (snooper)
+          expect(await keyCounts()).toEqual(
+            beforeEscape.map((count) => count + 1)
+          );
+        expect(await report()).toContain(`selected=${snooper ? 1 : 0}`);
+        expect(await preedit()).toBe('');
+        expect(await cooked()).toBe('READY');
+      });
+      await observeVideo(snooper ? 'ime-consumed-escape' : 'selection-cleared');
       await app.input.pressKey(composeKey);
       await toPass(async () => expect(await preedit()).toBe(composition));
       await app.input.pressKey(route === 'fcitx5' ? 'b' : 'Return');

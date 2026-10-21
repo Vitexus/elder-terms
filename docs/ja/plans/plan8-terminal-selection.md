@@ -85,7 +85,9 @@ Ctrl付きの複数回クリックは、矩形の文字選択として扱いま�
 
 選択の解除判定は、製品と`boxrig-driver`で共有できるruntimeの操作にまとめます。presentation側のキー処理から呼び、ドライバーだけに別の解除処理を作りません。
 
-ESCの初回押下では、Shift、Ctrl、Alt、Superなどの操作用修飾キーがないことを確認します。Caps Lockなどのロック状態だけで解除不能にしません。まず、IMEの未確定文字を保持するcompositionの`active`と`commit_pending`を調べます。IMEの処理中は既存のIME経路を通す方針です。boxrigのGTK3実装ではアプリのキールーターがIMEより先に呼ばれるため、この判定が必要です。[compositionのAPIコメント][boxrig-composition]、[GTK3のキー配送][boxrig-gtk-input]
+ESCの初回押下では、Shift、Ctrl、Alt、Superなどの操作用修飾キーがないことを確認します。Caps Lockなどのロック状態だけで解除不能にしません。まず、IMEの未確定文字を保持するcompositionの`active`と`commit_pending`を調べます。IMEの処理中は既存のIME経路を通す方針です。boxrigのGTK3ウィジェットへ届いたキーは、アプリのキールーターがIMEより先に処理するため、この判定が必要です。[compositionのAPIコメント][boxrig-composition]、[GTK3のキー配送][boxrig-gtk-input]
+
+GTKのIMEモジュールが、ウィジェットへの配送より先にキーを消費する経路は例外です。段階2の比較試験で、IBusのkey snooperがこの経路を使うことを確認しました。このキーはアプリへ届かないため、IMEの消費を優先します。アプリから環境変数やIMEモジュールを書き換えて配送を強制する変更は加えません。検証では先行処理の有無を分け、選択解除の結果を混同しない方針に計画を補足します。[IBusの先行処理と環境設定][ibus-snooper]
 
 IMEが処理中でなければ、表示先の選択とruntimeの押下待機・ドラッグ状態を確認します。解除対象は、通常選択、矩形、幅ゼロの矩形、失効した選択です。`boxrig_ui_view_clear_selection()`とホスト側の状態解除を一つの操作として扱います。
 
@@ -261,6 +263,17 @@ GUI試験にはgestamentを使います。主な実行環境は、既存テス�
 
 通常ビルドは成功し、コンパイラ警告はありません。段階1の完了条件を満たしました。ログは`test-results/plan8-implementation/step1-*.log`、動画とフレームの観測値は各GUI試験の成果物ディレクトリへ保存しています。
 
+### 段階2：ESCとIMEの優先順位
+
+選択解除をruntimeへまとめ、製品とドライバーから同じ操作を呼ぶようにしました。解除したESCの後続イベントはboxrigが捕捉し、押したままのマウスは対応する解放までruntimeが消費します。
+
+通常選択、矩形、幅ゼロ、失効状態のテストは、修正前に選択が残り、ESCが送信される失敗を確認しました。修正後は、Cairo／OpenGL、表示倍率1／2の4件が成功しています。通常の入力とKittyのキー解放通知を使い、ESCのリピート・解放、修飾付きESC、選択のないESC、マウス通知中の取消、PRIMARYとCLIPBOARDの保持を検証しました。確定文字の送信先が満杯の間はIMEを優先し、送信再開後も文字を欠落・重複させないことを確認しています。
+
+IMEの検証では、直接接続のIBus、fcitx 5、fcitx 4、OpenGLからCairoへの復旧を通した変換取消と選択解除を確認しました。GTKのIBusは、先行処理を無効にした場合の変換取消→選択解除と、先行処理が消費したキーで選択を残す場合に分けた検証です。試験用エンジンは未確定文字がないESCも消費するため、後者をアプリの解除失敗とは扱いません。GUIの5件とfcitx 4のC++試験は成功しました。段階2の調査に使った一時的なキートレースは削除済みです。
+
+通常ビルドにコンパイラ警告はなく、上記の配送条件を明記した段階2の完了条件を満たしました。ログは`test-results/plan8-implementation/step2-*.log`です。全体テストは段階6で改めて実行します。
+
+[ibus-snooper]: https://github.com/ibus/ibus/blob/1.5.29/client/gtk2/ibusimcontext.c#L643-L752
 [boxrig-text]: https://github.com/kekyo/boxrig/blob/0.5.0/docs/ja/text.md
 [boxrig-view]: https://github.com/kekyo/boxrig/blob/0.5.0/include/boxrig/ui/view.h
 [boxrig-decorations]: https://github.com/kekyo/boxrig/blob/0.5.0/docs/ja/decorations.md
