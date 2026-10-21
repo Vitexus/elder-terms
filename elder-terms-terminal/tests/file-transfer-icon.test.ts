@@ -24,7 +24,12 @@ describe('File transfer window icons', () => {
             import.meta.url
           )
         ),
-        env: { LANGUAGE: 'en', LC_ALL: 'C.UTF-8', XDG_CONFIG_HOME: directory },
+        env: {
+          LANGUAGE: 'en',
+          LC_ALL: 'C.UTF-8',
+          XDG_CONFIG_HOME: directory,
+          XDG_DATA_HOME: join(directory, 'data'),
+        },
         xvfbTrayHost: true,
       });
       try {

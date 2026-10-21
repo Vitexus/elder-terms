@@ -1,5 +1,4 @@
 import { defineConfig } from 'vitest/config';
-import { fileURLToPath } from 'node:url';
 import prettierMax from 'prettier-max';
 import { getTestFontEnvironment } from '../scripts/test-font-environment.mjs';
 
@@ -31,12 +30,6 @@ export default defineConfig({
     env: {
       ...getTestFontEnvironment(),
       ELDER_TERMS_TEST_RESULT_RUN_ID: testResultRunId,
-      XDG_DATA_HOME: fileURLToPath(
-        new URL(
-          `../test-results/${testResultRunId}/shared-xdg-data`,
-          import.meta.url
-        )
-      ),
     },
     globals: true,
     environment: 'node',

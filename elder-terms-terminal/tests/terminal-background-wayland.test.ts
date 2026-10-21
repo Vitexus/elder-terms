@@ -50,6 +50,8 @@ for (const backend of ['cairo', 'opengl']) {
           ],
           accessibilitySession: 'minimal',
           env: {
+            XDG_CONFIG_HOME: join(directory, 'config'),
+            XDG_DATA_HOME: join(directory, 'data'),
             LIBGL_ALWAYS_SOFTWARE: '1',
             GDK_GL: backend === 'cairo' ? 'disable' : undefined,
           },

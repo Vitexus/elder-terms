@@ -645,7 +645,7 @@ export const assertDisconnectedNoticeMatches = async (
 /**
  * Launches the GTK app and records evidence for one Vitest test.
  *
- * @remarks A temporary XDG config home isolates each launch unless overridden
+ * @remarks Temporary XDG config and data homes isolate each launch unless overridden
  * through `options.env`.
  *
  * @param context Vitest test context.
@@ -680,6 +680,7 @@ export const runGtkTest = async (
         LANGUAGE: 'C',
         LC_ALL: 'C.UTF-8',
         XDG_CONFIG_HOME: configHome,
+        XDG_DATA_HOME: join(configHome, 'data'),
         ...options?.env,
       },
       onSystemOutput: evidence.recordSystemOutputEvent,

@@ -113,6 +113,7 @@ describe('elder-terms XDG autostart', () => {
           LANGUAGE: 'C',
           LC_ALL: 'C.UTF-8',
           XDG_CONFIG_HOME: configHome,
+          XDG_DATA_HOME: join(directory, 'data'),
         },
         xvfbPool: {
           type: 'xvfb',

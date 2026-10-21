@@ -86,6 +86,7 @@ for (const appKind of ['terminal', 'file-transfer'] as const) {
             LANGUAGE: 'en',
             LC_ALL: 'C.UTF-8',
             XDG_CONFIG_HOME: directory,
+            XDG_DATA_HOME: join(directory, 'data'),
             GTK_PATH: '/usr/lib/x86_64-linux-gnu/gtk-3.0',
           },
         });

@@ -1218,6 +1218,7 @@ process.stdout.write('INSTALLED-TERMINAL-READY');
       args: ['-c', configPath],
       env: {
         XDG_CONFIG_HOME: join(temporaryRoot, 'installed-config'),
+        XDG_DATA_HOME: join(temporaryRoot, 'installed-data'),
         LD_LIBRARY_PATH: '',
         LD_PRELOAD: '',
         LIBGL_ALWAYS_SOFTWARE: '1',

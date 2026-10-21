@@ -176,6 +176,7 @@ describe('WebDAV certificate confirmation', () => {
             LANGUAGE: 'en',
             LC_ALL: 'C.UTF-8',
             XDG_CONFIG_HOME: join(directory, 'config'),
+            XDG_DATA_HOME: join(directory, 'data'),
           },
           onSystemOutput: evidence.recordSystemOutputEvent,
           xvfbTrayHost: true,

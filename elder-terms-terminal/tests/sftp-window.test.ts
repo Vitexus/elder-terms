@@ -129,6 +129,7 @@ const runSftpFixtureWithEnvironment = async (
         env: {
           ...environment,
           XDG_CONFIG_HOME: configHome,
+          XDG_DATA_HOME: join(configHome, 'data'),
         },
         onSystemOutput: evidence.recordSystemOutputEvent,
         xvfbTrayHost: true,
