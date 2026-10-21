@@ -10,6 +10,29 @@ using namespace elder_terms;
 
 static bool reject_frame = false;
 static bool rejected_frame = false;
+static std::string selection_limit;
+static bool reject_selection_update = false;
+static std::string selection_warnings;
+
+extern "C" boxrig_ui_status __real_boxrig_gtk3_terminal_widget_create(
+    boxrig_ui_model *, const boxrig_gtk3_terminal_widget_config *, BoxrigGtk3TerminalWidget **);
+extern "C" boxrig_ui_status __wrap_boxrig_gtk3_terminal_widget_create(
+    boxrig_ui_model *model, const boxrig_gtk3_terminal_widget_config *config, BoxrigGtk3TerminalWidget **widget) {
+  auto bounded = *config;
+  if (selection_limit == "rows") bounded.view.maximum_selection_rows = 2;
+  if (selection_limit == "ranges") bounded.view.maximum_selection_ranges = 2;
+  if (selection_limit == "bytes") bounded.view.maximum_copy_bytes = 8;
+  return __real_boxrig_gtk3_terminal_widget_create(model, &bounded, widget);
+}
+
+extern "C" boxrig_ui_status __real_boxrig_ui_view_update_selection(boxrig_ui_view *, const boxrig_ui_hit_test_result *);
+extern "C" boxrig_ui_status __wrap_boxrig_ui_view_update_selection(boxrig_ui_view *view, const boxrig_ui_hit_test_result *hit) {
+  if (reject_selection_update) {
+    reject_selection_update = false;
+    return BOXRIG_UI_OUT_OF_MEMORY;
+  }
+  return __real_boxrig_ui_view_update_selection(view, hit);
+}
 
 extern "C" boxrig_ui_status __real_boxrig_gtk3_terminal_widget_frame(
     BoxrigGtk3TerminalWidget *, boxrig_ui_component_frame_result *);
@@ -49,7 +72,7 @@ static void key(Fixture *fixture, guint symbol, GdkEventType type, guint modifie
   event.send_event = TRUE;
   event.time = GDK_CURRENT_TIME;
   event.keyval = symbol;
-  event.hardware_keycode = symbol == GDK_KEY_Escape ? 9 : symbol == GDK_KEY_Return ? 36 : 38;
+  event.hardware_keycode = symbol == GDK_KEY_Escape ? 9 : symbol == GDK_KEY_Return ? 36 : symbol == GDK_KEY_c ? 54 : 38;
   event.state = modifiers;
   gboolean handled = FALSE;
   g_signal_emit_by_name(widget, type == GDK_KEY_PRESS ? "key-press-event" : "key-release-event", &event, &handled);
@@ -162,8 +185,12 @@ static cardio::promise<void> barrier(Fixture *fixture, bool kitty) {
   key(fixture, GDK_KEY_Return, GDK_KEY_PRESS, 0);
   key(fixture, GDK_KEY_Return, GDK_KEY_RELEASE, 0);
   const std::string tail = kitty ? "\033[13;1:3u" : "\r";
-  while (!fixture->outgoing.ends_with(tail) || !terminal_runtime_is_settled(fixture->window->runtime))
+  while (!fixture->outgoing.ends_with(tail) || !terminal_runtime_is_settled(fixture->window->runtime)) {
+    boxrig_ui_component_diagnostic diagnostic{};
+    expect(boxrig_gtk3_terminal_widget_get_diagnostic(terminal_runtime_widget(fixture->window->runtime), &diagnostic) == BOXRIG_UI_OK &&
+        diagnostic.failure_reason == BOXRIG_UI_COMPONENT_FAILURE_NONE, "selection failure must not disable the terminal component");
     co_await fixture->changed.wait();
+  }
 }
 
 static cardio::promise<void> click_scenarios(Fixture *fixture) {
@@ -590,6 +617,178 @@ static cardio::promise<void> autoscroll_scenarios(Fixture *fixture) {
   }
 }
 
+static cardio::promise<void> copy_scenarios(Fixture *fixture) {
+  auto *runtime = fixture->window->runtime;
+  const auto copy = [&] {
+    key(fixture, GDK_KEY_c, GDK_KEY_PRESS, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+    key(fixture, GDK_KEY_c, GDK_KEY_RELEASE, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+  };
+  const auto check_text = [&](const std::string &expected) -> cardio::promise<void> {
+    expect(co_await clipboard(GDK_SELECTION_PRIMARY) == expected, "PRIMARY contains complete selected graphemes and physical rows");
+    copy();
+    co_await barrier(fixture, false);
+    expect(co_await clipboard(GDK_SELECTION_CLIPBOARD) == expected, "Copy exports the same complete selection to CLIPBOARD");
+  };
+  boxrig_ui_layout_result layout{};
+  expect(boxrig_ui_view_get_layout(view(fixture), &layout) == BOXRIG_UI_OK, "copy fixture grid");
+  std::string history = "\033[3J\033[2J\033[H\033[?25l0123456789";
+  std::string expected = "234";
+  const std::string lines[] = {"A界é👩‍💻z  ", "AאבגדZ  ", ""};
+  const std::string slices[] = {"界é👩‍💻", "אבג", "   "};
+  for (int row = 0; row != 90; ++row) {
+    history += "\r\n" + lines[row % 3];
+    expected += "\n" + slices[row % 3];
+  }
+  history += "\r\n0123456789";
+  expected += "\n234";
+  expect(terminal_runtime_feed(runtime, history), "feed Unicode history in one batch before rendering");
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  boxrig_scrollbar_model model{};
+  auto *terminal = boxrig_ui_model_terminal(boxrig_ui_view_model(view(fixture)));
+  expect(boxrig_scrollbar_model_read(terminal, &model) == 0 && model.history_rows + layout.rows == 92,
+      "Unicode fixture occupies 92 physical rows");
+  bool changed = false;
+  expect(boxrig_ui_view_apply_scrollbar_action(view(fixture), BOXRIG_SCROLLBAR_POSITION, 0, &changed) == BOXRIG_UI_OK,
+      "show the first Unicode history rows");
+  terminal_runtime_refresh(runtime);
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  mouse(fixture, GDK_BUTTON_PRESS, 2.1, 0.5, GDK_CONTROL_MASK);
+  mouse(fixture, GDK_MOTION_NOTIFY, 4.9, 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  // Jump over the middle instead of rendering it. The native layout provider
+  // must resolve its Unicode and bidi cells while materializing the rectangle.
+  expect(boxrig_ui_view_apply_scrollbar_action(view(fixture), BOXRIG_SCROLLBAR_POSITION, model.history_rows, &changed) == BOXRIG_UI_OK,
+      "jump across unvisited history");
+  terminal_runtime_refresh(runtime);
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  mouse(fixture, GDK_MOTION_NOTIFY, 4.9, layout.rows - 0.5, GDK_BUTTON1_MASK);
+  mouse(fixture, GDK_BUTTON_RELEASE, 4.9, layout.rows - 0.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(selected_text(fixture) == expected, "unvisited Unicode history preserves whole graphemes, bidi logical order and blank padding");
+  co_await check_text(expected);
+
+  const std::string wrapped = std::string(layout.columns, 'x') + "AB";
+  expect(terminal_runtime_feed(runtime, "\033[3J\033[2J\033[H" + wrapped + "\r\ntail"), "prepare a soft-wrapped logical line");
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  for (const auto modifier : {GDK_SHIFT_MASK, GDK_CONTROL_MASK}) {
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, modifier);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 2.5, GDK_BUTTON1_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 2.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    co_await check_text(modifier == GDK_CONTROL_MASK ? "xxxx\nAB  \ntail" : wrapped + "\ntail");
+  }
+
+  for (const bool stale : {false, true}) {
+    expect(terminal_runtime_feed(runtime, "\033[2J\033[Halpha\r\nbeta"), "prepare empty or stale copy");
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), "keep PRIMARY", -1);
+    gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), "keep CLIPBOARD", -1);
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, GDK_CONTROL_MASK);
+    mouse(fixture, GDK_MOTION_NOTIFY, stale ? 3.9 : 0.1, 1.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    if (stale) {
+      expect(terminal_runtime_feed(runtime, "\033[Hchanged"), "invalidate copy selection");
+      while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    }
+    mouse(fixture, GDK_BUTTON_RELEASE, stale ? 3.9 : 0.1, 1.5, GDK_BUTTON1_MASK);
+    copy();
+    co_await barrier(fixture, false);
+    expect(co_await clipboard(GDK_SELECTION_PRIMARY) == "keep PRIMARY" &&
+        co_await clipboard(GDK_SELECTION_CLIPBOARD) == "keep CLIPBOARD", "empty or stale copies preserve both OS selections");
+    mouse(fixture, GDK_BUTTON_PRESS, 2.1, 0.5, 0, GDK_BUTTON_SECONDARY);
+    mouse(fixture, GDK_BUTTON_RELEASE, 2.1, 0.5, GDK_BUTTON3_MASK, GDK_BUTTON_SECONDARY);
+    co_await observe_main_loop(fixture);
+    auto *menu = gtk_grab_get_current();
+    expect(menu && GTK_IS_MENU(menu), "open Copy menu for an empty or stale selection");
+    auto *items = gtk_container_get_children(GTK_CONTAINER(menu));
+    const bool enabled = items && gtk_widget_get_sensitive(GTK_WIDGET(items->data));
+    g_list_free(items);
+    gtk_menu_popdown(GTK_MENU(menu));
+    expect(!enabled, "Copy menu is disabled for empty and stale rectangles");
+  }
+}
+
+static cardio::promise<void> limit_scenarios(Fixture *fixture) {
+  auto *runtime = fixture->window->runtime;
+  expect(terminal_runtime_feed(runtime, "\033[2J\033[Habcdefghijkl\r\nmnopqrstuvwx\r\nABCDEFGHIJKL\r\nMNOPQRSTUVWX"),
+      "prepare bounded selection text");
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), "bounded PRIMARY", -1);
+  gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), "bounded CLIPBOARD", -1);
+  mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, GDK_CONTROL_MASK);
+  mouse(fixture, GDK_MOTION_NOTIFY, 1.9, 1.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(selected_text(fixture) == "ab\nmn", "retain a valid rectangle below every configured limit");
+  selection_warnings.clear();
+  if (selection_limit == "allocation") reject_selection_update = true;
+  mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 3.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  if (selection_limit != "bytes") {
+    expect(selected_text(fixture) == "ab\nmn", "rejected rectangle growth preserves the complete previous selection");
+  } else {
+    boxrig_ui_selection selection{};
+    expect(boxrig_ui_view_get_selection(view(fixture), &selection) && selection.row_count == 4 && !selection.stale,
+        "a copy byte limit does not discard a valid displayed selection");
+  }
+  mouse(fixture, GDK_BUTTON_RELEASE, 3.9, 3.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(co_await clipboard(GDK_SELECTION_PRIMARY) == "bounded PRIMARY" &&
+      co_await clipboard(GDK_SELECTION_CLIPBOARD) == "bounded CLIPBOARD", "failed selection or primary copy never publishes partial text");
+  expect(!selection_warnings.empty(), "the application reports a selection or copy failure");
+  if (selection_limit == "bytes") {
+    selection_warnings.clear();
+    key(fixture, GDK_KEY_c, GDK_KEY_PRESS, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+    key(fixture, GDK_KEY_c, GDK_KEY_RELEASE, GDK_CONTROL_MASK | GDK_SHIFT_MASK);
+    co_await barrier(fixture, false);
+    expect(!selection_warnings.empty() && co_await clipboard(GDK_SELECTION_CLIPBOARD) == "bounded CLIPBOARD",
+        "Copy reports its byte limit and preserves the previous clipboard");
+  }
+  mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, GDK_CONTROL_MASK);
+  mouse(fixture, GDK_MOTION_NOTIFY, 1.9, 1.5, GDK_BUTTON1_MASK);
+  mouse(fixture, GDK_BUTTON_RELEASE, 1.9, 1.5, GDK_BUTTON1_MASK);
+  co_await barrier(fixture, false);
+  expect(co_await clipboard(GDK_SELECTION_PRIMARY) == "ab\nmn", "a new smaller selection still succeeds after a rejected operation");
+  if (selection_limit == "bytes") {
+    selection_warnings.clear();
+    mouse(fixture, GDK_2BUTTON_PRESS, 0.1, 0.5, 0);
+    mouse(fixture, GDK_BUTTON_RELEASE, 0.1, 0.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    expect(!selection_warnings.empty() && selected_text(fixture) == "ab\nmn" &&
+        co_await clipboard(GDK_SELECTION_PRIMARY) == "ab\nmn", "a rejected word-selection start preserves the old selection and clipboard");
+    selection_warnings.clear();
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 0.5, GDK_SHIFT_MASK);
+    mouse(fixture, GDK_MOTION_NOTIFY, 11.9, 0.5, GDK_BUTTON1_MASK);
+    mouse(fixture, GDK_BUTTON_RELEASE, 11.9, 0.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    boxrig_ui_selection selection{};
+    expect(!selection_warnings.empty() && boxrig_ui_view_get_selection(view(fixture), &selection) && selection.range_valid &&
+        co_await clipboard(GDK_SELECTION_PRIMARY) == "ab\nmn", "linear copy byte limits retain selection and the previous clipboard too");
+  } else if (selection_limit == "rows" || selection_limit == "ranges") {
+    std::string history = "\033[3J\033[2J\033[H";
+    for (int row = 0; row != 100; ++row) history += std::to_string(1000 + row) + (row == 99 ? "" : "\r\n");
+    expect(terminal_runtime_feed(runtime, history), "prepare bounded autoscroll");
+    while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+    mouse(fixture, GDK_BUTTON_PRESS, 0.1, 1.5, GDK_CONTROL_MASK);
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, 0.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    const auto retained = selected_text(fixture);
+    selection_warnings.clear();
+    mouse(fixture, GDK_MOTION_NOTIFY, 3.9, -2.5, GDK_BUTTON1_MASK);
+    co_await observe_main_loop(fixture);
+    co_await barrier(fixture, false);
+    expect(!selection_warnings.empty() && selected_text(fixture) == retained, "autoscroll stops when its deferred extension exceeds a limit");
+    boxrig_scrollbar_model stopped{}, after{};
+    auto *terminal = boxrig_ui_model_terminal(boxrig_ui_view_model(view(fixture)));
+    expect(boxrig_scrollbar_model_read(terminal, &stopped) == 0, "bounded scroll position");
+    co_await observe_main_loop(fixture);
+    expect(boxrig_scrollbar_model_read(terminal, &after) == 0 && after.position == stopped.position,
+        "rejected autoscroll leaves no continuing timer");
+    mouse(fixture, GDK_BUTTON_RELEASE, 3.9, -2.5, GDK_BUTTON1_MASK);
+    co_await barrier(fixture, false);
+    expect(co_await clipboard(GDK_SELECTION_PRIMARY) == "ab\nmn", "releasing a rejected autoscroll does not copy partial text");
+  }
+}
+
 static cardio::promise<void> scenarios(Fixture *fixture) {
   auto *runtime = fixture->window->runtime;
   TerminalTransportRequest request;
@@ -622,6 +821,11 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   g_signal_emit_by_name(terminal_runtime_widget(runtime), "focus-in-event", &focus, &handled);
   gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), "retained primary", -1);
   gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD), "retained clipboard", -1);
+
+  if (!selection_limit.empty()) {
+    co_await limit_scenarios(fixture);
+    co_return;
+  }
 
   for (const bool kitty : {false, true}) {
     expect(terminal_runtime_feed(runtime, kitty ? "\033[>11u" : "\033[=0u"), "set keyboard reporting");
@@ -689,6 +893,7 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
   co_await click_scenarios(fixture);
   co_await scroll_scenarios(fixture);
   co_await autoscroll_scenarios(fixture);
+  co_await copy_scenarios(fixture);
   while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
   select(fixture, BOXRIG_UI_SELECTION_RECTANGULAR, false);
   auto *composition = boxrig_gtk3_terminal_widget_composition(terminal_runtime_widget(runtime));
@@ -761,6 +966,10 @@ static cardio::promise<void> run(Fixture *fixture, std::exception_ptr *failure) 
   try {
     co_await scenarios(fixture);
     co_await terminal_runtime_disconnect(fixture->window->runtime);
+    if (!selection_limit.empty()) {
+      gtk_main_quit();
+      co_return;
+    }
     auto *terminal = boxrig_ui_model_terminal(boxrig_ui_view_model(view(fixture)));
     boxrig_scrollbar_model before{};
     expect(boxrig_scrollbar_model_read(terminal, &before) == 0, "history before destruction");
@@ -788,6 +997,11 @@ static cardio::promise<void> run(Fixture *fixture, std::exception_ptr *failure) 
 
 extern "C" int __wrap_main(int argc, char **argv) {
   gtk_init(&argc, &argv);
+  if (argc > 1) selection_limit = argv[1];
+  g_log_set_handler(nullptr, G_LOG_LEVEL_WARNING, +[](const gchar *domain, GLogLevelFlags level, const gchar *message, gpointer data) {
+    selection_warnings += message;
+    g_log_default_handler(domain, level, message, data);
+  }, nullptr);
   cardio::dispatcher_group_glib group;
   cardio::dispatcher_host_glib_auto dispatcher(group);
   auto window = load_main_window();

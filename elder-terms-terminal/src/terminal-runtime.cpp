@@ -197,6 +197,21 @@ static void cancel_selection_gesture(TerminalRuntime *runtime) {
   runtime->selection_release_pending = false;
 }
 
+static boxrig_ui_status selection_result(TerminalRuntime *runtime, boxrig_ui_status status, const char *operation) {
+  if (status == BOXRIG_UI_OK) return status;
+  cancel_selection_gesture(runtime);
+  runtime->selection_phase = runtime->selection_left_down ? SelectionPhase::cancelled : SelectionPhase::idle;
+  if (status == BOXRIG_UI_UNAVAILABLE || status == BOXRIG_UI_STALE) return BOXRIG_UI_OK;
+  if (status == BOXRIG_UI_LIMIT_EXCEEDED || status == BOXRIG_UI_OUT_OF_MEMORY) {
+    // The view keeps its last accepted selection and clipboard offer. Reject
+    // this gesture without converting a bounded operation into a UI failure.
+    g_warning("boxrig %s failed: %s", operation,
+        status == BOXRIG_UI_LIMIT_EXCEEDED ? "selection or clipboard limit exceeded" : "out of memory");
+    return BOXRIG_UI_OK;
+  }
+  return status;
+}
+
 static gboolean selection_native_event(GtkWidget *, GdkEvent *event, gpointer context) {
   auto *runtime = static_cast<TerminalRuntime *>(context);
   if (event->type == GDK_BUTTON_PRESS && event->button.button == GDK_BUTTON_PRIMARY) {
@@ -263,8 +278,7 @@ static boxrig_ui_status finish_selection(TerminalRuntime *runtime) {
   runtime->selection_scroll_pending = false;
   runtime->selection_release_pending = false;
   const boxrig_ui_view_action copy{BOXRIG_UI_VIEW_ACTION_COPY, BOXRIG_UI_CLIPBOARD_TARGET_PRIMARY_SELECTION};
-  const auto status = boxrig_gtk3_terminal_widget_apply_view_action(runtime->widget, &copy);
-  return status == BOXRIG_UI_UNAVAILABLE || status == BOXRIG_UI_STALE ? BOXRIG_UI_OK : status;
+  return selection_result(runtime, boxrig_gtk3_terminal_widget_apply_view_action(runtime->widget, &copy), "primary selection copy");
 }
 
 static boxrig_ui_status update_selection_endpoint(TerminalRuntime *runtime) {
@@ -280,12 +294,7 @@ static boxrig_ui_status update_selection_endpoint(TerminalRuntime *runtime) {
       std::clamp<boxrig_ui_fixed>(runtime->selection_pointer->second, 0, layout.grid_height - 1), &endpoint);
   if (status != BOXRIG_UI_OK) return status;
   if (!endpoint.text_position_valid) return BOXRIG_UI_OK;
-  status = boxrig_ui_view_update_selection(view, &endpoint);
-  if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) {
-    cancel_selection_gesture(runtime);
-    return BOXRIG_UI_OK;
-  }
-  return status;
+  return selection_result(runtime, boxrig_ui_view_update_selection(view, &endpoint), "selection update");
 }
 
 static bool update_scrolled_selection(TerminalRuntime *runtime) {
@@ -428,11 +437,9 @@ static boxrig_input_mouse_route route_mouse(
     }
     const auto status = boxrig_ui_view_begin_selection_with_options(view, &press.options, &press.hit);
     runtime->selection_press = {};
-    if (status == BOXRIG_UI_STALE || status == BOXRIG_UI_UNAVAILABLE) {
-      runtime->selection_phase = release ? SelectionPhase::idle : SelectionPhase::cancelled;
-      return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
-    }
     if (status != BOXRIG_UI_OK) {
+      if (selection_result(runtime, status, "selection start") == BOXRIG_UI_OK)
+        return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
       g_warning("boxrig selection start failed: %d", status);
       return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
     }
@@ -501,8 +508,9 @@ static boxrig_input_mouse_route route_mouse(
       return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
     }
     const auto status = boxrig_ui_view_begin_selection_with_options(view, &options, hit);
-    if (status == BOXRIG_UI_STALE) return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
     if (status != BOXRIG_UI_OK) {
+      if (selection_result(runtime, status, "selection start") == BOXRIG_UI_OK)
+        return BOXRIG_INPUT_MOUSE_ROUTE_APPLICATION;
       g_warning("boxrig selection start failed: %d", status);
       return BOXRIG_INPUT_MOUSE_ROUTE_ERROR;
     }
