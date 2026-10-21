@@ -103,6 +103,12 @@ struct ConnectionHotkeyTarget {
   elder_terms::KeyBinding binding;
 };
 
+struct TrayConnectionTarget {
+  std::string key;
+  std::filesystem::path path;
+  std::string connection_id;
+};
+
 struct ApplicationState {
   GApplication *application = nullptr;
   cardio::dispatcher *dispatcher = nullptr;
@@ -115,6 +121,8 @@ struct ApplicationState {
   bool hotkey_warning_shown = false;
   elder_terms::ControlServerState *control_server = nullptr;
   elder_terms::TrayBackendState *tray_backend = nullptr;
+  std::vector<elder_terms::TrayConnectionItem> tray_connections;
+  std::vector<TrayConnectionTarget> tray_connection_targets;
   elder_terms::SettingsWidgetState *settings_widget = nullptr;
   elder_terms::SettingsWidgetState *global_defaults_widget = nullptr;
   elder_terms::ApplicationSettingsWidgetState *application_settings_widget =
@@ -198,7 +206,8 @@ static void select_existing_connection(
 static void launch_selected_connection(ApplicationState *state);
 static void launch_saved_connection(
     ApplicationState *state, const std::filesystem::path &path,
-    const std::optional<std::string> &activation_token);
+    const std::optional<std::string> &activation_token,
+    const std::string &expected_connection_id);
 static void replace_registered_hotkeys(
     ApplicationState *state,
     const elder_terms::SettingsStore &global_store);
@@ -1042,6 +1051,8 @@ static void populate_profile_rows(ApplicationState *state) {
       state->connection_directory);
   state->suppress_selection = true;
   gtk_list_store_clear(state->main_window->connection_store);
+  state->tray_connections.clear();
+  state->tray_connection_targets.clear();
   for (const elder_terms::ConnectionProfile &profile : state->profiles) {
     GtkTreeIter iterator;
     gtk_list_store_append(state->main_window->connection_store, &iterator);
@@ -1049,10 +1060,21 @@ static void populate_profile_rows(ApplicationState *state) {
                        connection_name_column, profile.name.c_str(),
                        connection_path_column, profile.path.c_str(),
                        connection_is_new_column, FALSE, -1);
-    load_profile_icon(state, &iterator, elder_terms::load_connection_profile(profile.path).store,
-        profile.name);
+    const auto loaded = elder_terms::load_connection_profile(profile.path);
+    load_profile_icon(state, &iterator, loaded.store, profile.name);
+    const auto id = elder_terms::general_connection_id(loaded.store);
+    const auto key = profile.path.string() + '\n' + id;
+    state->tray_connections.push_back({
+        .key = key,
+        .name = profile.name,
+        .shortcut = elder_terms::general_open_connection_hotkey_text(loaded.store),
+        .icon = elder_terms::general_connection_icon(loaded.store),
+    });
+    state->tray_connection_targets.push_back({key, profile.path, id});
   }
   state->suppress_selection = false;
+  if (state->tray_backend != nullptr)
+    elder_terms::update_tray_connections(state->tray_backend, state->tray_connections);
 }
 
 static std::vector<elder_terms::HotkeyAction>
@@ -1912,12 +1934,19 @@ static void launch_selected_connection(ApplicationState *state) {
 
 static void launch_saved_connection(
     ApplicationState *state, const std::filesystem::path &path,
-    const std::optional<std::string> &activation_token) {
+    const std::optional<std::string> &activation_token,
+    const std::string &expected_connection_id) {
   const elder_terms::SettingsLoadResult loaded =
       elder_terms::load_connection_profile(path);
   print_warnings(loaded.warnings);
   if (!loaded.loaded) {
     show_error(state, _("Failed to load connection"), loaded.warnings);
+    return;
+  }
+  if (!expected_connection_id.empty() &&
+      elder_terms::general_connection_id(loaded.store) != expected_connection_id) {
+    show_error(state, _("Failed to load connection"),
+               {_("The saved connection has changed. Reopen the Connections menu.")});
     return;
   }
 
@@ -2936,7 +2965,7 @@ static bool dispatch_launcher_action(
     return false;
   }
   if (connection.has_value()) {
-    launch_saved_connection(state, *connection, context.activation_token);
+    launch_saved_connection(state, *connection, context.activation_token, "");
   } else {
     present_main_window(state, context.activation_time,
                         context.activation_token);
@@ -3265,6 +3294,17 @@ static void on_application_startup(GApplication *,
               .quit = [state]() {
                 request_application_quit(state);
               },
+              .open_connection = [state](const std::string &key,
+                  const elder_terms::TrayActivationContext &) {
+                if (state->application_shutting_down || state->quitting) return;
+                const auto target = std::find_if(state->tray_connection_targets.begin(),
+                    state->tray_connection_targets.end(), [&key](const auto &candidate) {
+                      return candidate.key == key;
+                    });
+                if (target != state->tray_connection_targets.end())
+                  launch_saved_connection(state, target->path, std::nullopt,
+                                          target->connection_id);
+              },
               .availability_changed =
                   [state](elder_terms::TrayBackendAvailabilityState
                               availability) {
@@ -3272,6 +3312,7 @@ static void on_application_startup(GApplication *,
               },
           },
   });
+  elder_terms::update_tray_connections(state->tray_backend, state->tray_connections);
 }
 
 static void on_application_activate(GApplication *,

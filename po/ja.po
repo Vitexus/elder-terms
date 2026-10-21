@@ -2688,3 +2688,12 @@ msgstr "補正前"
 
 msgid "With current settings"
 msgstr "編集中の設定"
+
+msgid "Connections"
+msgstr "接続"
+
+msgid "No saved connections"
+msgstr "保存済みの接続はありません"
+
+msgid "The saved connection has changed. Reopen the Connections menu."
+msgstr "保存済みの接続が変更されています。「接続」メニューを開き直してください。"
