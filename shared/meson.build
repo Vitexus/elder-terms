@@ -284,6 +284,13 @@ connection_icon_test = executable('connection-icon-test',
   'tests/connection-icon-test.cpp', dependencies: elder_terms_dep)
 test('connection-icon-test', connection_icon_test)
 
+connection_window_icon_test = executable('connection-window-icon-test',
+  'tests/connection-window-icon-test.cpp',
+  dependencies: [elder_terms_dep, elder_terms_shared_gdk_x11_dep, dependency('x11')])
+test('connection-window-icon-test', find_program('xvfb-run'),
+  args: ['-a', connection_window_icon_test],
+  env: ['GDK_BACKEND=x11', 'NO_AT_BRIDGE=1', 'G_DEBUG=fatal-criticals'])
+
 connection_icon_presets_test = executable('connection-icon-presets-test',
   'tests/connection-icon-presets-test.cpp', dependencies: elder_terms_dep)
 test('connection-icon-presets-test', connection_icon_presets_test)

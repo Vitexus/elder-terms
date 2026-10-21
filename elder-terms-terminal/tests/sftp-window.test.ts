@@ -382,6 +382,28 @@ describe('SFTP window', () => {
             await app.getById('file_transfer_connection_icon'),
             'image'
           );
+          const nativeCenterPixel = async (): Promise<number> => {
+            const window = expectElementKind(
+              await app.getById('file_transfer_window'),
+              'window'
+            );
+            const { stdout } = await promisify(execFile)(
+              'xprop',
+              [
+                '-id',
+                (await window.x11Info()).windowId,
+                '-len',
+                '4096',
+                '32c',
+                '_NET_WM_ICON',
+              ],
+              { env: { ...process.env, ...(await app.environment()) } }
+            );
+            const pixels = stdout.split('=')[1]!.split(',').map(Number);
+            expect(pixels[0]).toBe(16);
+            expect(pixels[1]).toBe(16);
+            return pixels[2 + 8 * 16 + 8]!;
+          };
           await waitForResult(async () => {
             const [red, green, blue] = capturePixel(
               await titleIcon.capture(),
@@ -391,6 +413,7 @@ describe('SFTP window', () => {
             expect(red).toBeGreaterThan(220);
             expect(green).toBeLessThan(35);
             expect(blue).toBeLessThan(35);
+            expect(await nativeCenterPixel()).toBe(0xffff0000);
           });
           await expectElementKind(
             await app.getById('application_menu_button'),
@@ -415,6 +438,7 @@ describe('SFTP window', () => {
               0.5
             );
             expect(red < 220 || green > 35 || blue > 35).toBe(true);
+            expect(await nativeCenterPixel()).not.toBe(0xffff0000);
           });
         }
       );

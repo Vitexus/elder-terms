@@ -807,7 +807,7 @@ static bool apply_runtime_settings(ApplicationState *state,
     return false;
   }
   state->settings_store = store;
-  elder_terms::set_connection_icon_image(
+  elder_terms::set_connection_window_icon(GTK_WINDOW(state->main_window->window),
       GTK_IMAGE(state->main_window->header_connection_icon),
       elder_terms::general_connection_icon(state->settings_store), 20);
   elder_terms::apply_terminal_bell_settings(
@@ -1883,7 +1883,7 @@ int main(int argc, char **argv) {
   app_state.active_profile = *connection_profile;
   app_state.dispatcher_group = &dispatcher_group;
   app_state.settings_store = settings_result.store;
-  elder_terms::set_connection_icon_image(
+  elder_terms::set_connection_window_icon(GTK_WINDOW(main_window->window),
       GTK_IMAGE(main_window->header_connection_icon),
       elder_terms::general_connection_icon(app_state.settings_store), 20);
   app_state.config_path = launch_options.config_path;

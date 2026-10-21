@@ -71,6 +71,74 @@ struct WaylandTest {
   bool failed = false;
 };
 
+struct WaylandScaleTest {
+  GtkWidget *widget = nullptr;
+  int paints_at_scale_two = 0;
+  bool failed = false;
+};
+
+static void scale_after_paint(GdkFrameClock *, WaylandScaleTest *test) {
+  if (gtk_widget_get_scale_factor(test->widget) != 2) return;
+  if (elder_terms::native_window_icon_status(GTK_WINDOW(test->widget)) !=
+      elder_terms::NativeWindowIconStatus::AppliedWayland) {
+    test->failed = true;
+    gtk_main_quit();
+    return;
+  }
+  if (++test->paints_at_scale_two >= 2) {
+    gtk_main_quit();
+  } else {
+    gtk_widget_queue_draw(test->widget);
+  }
+}
+
+static void on_scale_widget_realize(GtkWidget *widget, WaylandScaleTest *test) {
+  GdkFrameClock *clock = gdk_window_get_frame_clock(gtk_widget_get_window(widget));
+  g_signal_connect(clock, "after-paint", G_CALLBACK(scale_after_paint), test);
+}
+
+static int run_wayland_scale_test() {
+  if (!GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default())) return 1;
+  GtkWidget *widget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  GdkPixbuf *red = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 16, 16);
+  gdk_pixbuf_fill(red, 0xdd2233ff);
+  GList *icons = g_list_append(nullptr, red);
+  elder_terms::set_native_window_icon(GTK_WINDOW(widget), icons);
+  g_list_free(icons);
+  g_object_unref(red);
+  WaylandScaleTest test{widget};
+  g_signal_connect(widget, "realize", G_CALLBACK(on_scale_widget_realize), &test);
+  gtk_widget_show(widget);
+  gtk_main();
+  gtk_widget_destroy(widget);
+  return !test.failed && test.paints_at_scale_two >= 2 ? 0 : 1;
+}
+
+static int run_wayland_multisize_test() {
+  if (!GDK_IS_WAYLAND_DISPLAY(gdk_display_get_default())) return 1;
+  GtkWidget *widget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  GdkPixbuf *small = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 16, 16);
+  GdkPixbuf *large = gdk_pixbuf_new(GDK_COLORSPACE_RGB, TRUE, 8, 256, 256);
+  gdk_pixbuf_fill(small, 0xdd2233ff);
+  gdk_pixbuf_fill(large, 0x1144eeff);
+  GList *icons = g_list_append(nullptr, small);
+  icons = g_list_append(icons, large);
+  elder_terms::set_native_window_icon(GTK_WINDOW(widget), icons);
+  g_list_free(icons);
+  g_object_unref(small);
+  g_object_unref(large);
+  gtk_widget_show(widget);
+  while (elder_terms::native_window_icon_status(GTK_WINDOW(widget)) ==
+         elder_terms::NativeWindowIconStatus::Pending) {
+    g_main_context_iteration(nullptr, TRUE);
+  }
+  const bool applied = elder_terms::native_window_icon_status(GTK_WINDOW(widget)) ==
+                       elder_terms::NativeWindowIconStatus::AppliedWayland;
+  gdk_display_sync(gdk_display_get_default());
+  gtk_widget_destroy(widget);
+  return applied ? 0 : 1;
+}
+
 static gboolean recreate_wayland_widget(gpointer data) {
   auto *test = static_cast<WaylandTest *>(data);
   gtk_widget_hide(test->widget);
@@ -162,6 +230,12 @@ int main(int argc, char **argv) {
     check(gtk_init_check(&argc, &argv), "GTK initialization failed");
     if (argc > 1 && std::strcmp(argv[1], "wayland") == 0) {
       return run_wayland_test(elder_terms::NativeWindowIconStatus::Pending);
+    }
+    if (argc > 1 && std::strcmp(argv[1], "wayland-scale") == 0) {
+      return run_wayland_scale_test();
+    }
+    if (argc > 1 && std::strcmp(argv[1], "wayland-multisize") == 0) {
+      return run_wayland_multisize_test();
     }
     if (argc > 1 && std::strcmp(argv[1], "wayland-unsupported") == 0) {
       return run_wayland_test(elder_terms::NativeWindowIconStatus::UnsupportedGtk);

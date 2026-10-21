@@ -1,5 +1,6 @@
 #include <elder-terms/connection-icon-image.h>
 #include <elder-terms/connection-icon.h>
+#include <elder-terms/native-window-icon.h>
 #include <algorithm>
 #include <memory>
 #include <utility>
@@ -15,6 +16,8 @@ struct ConnectionIconImageState {
   ConnectionIconStatusCallback status;
   cardio::cancellation_source cancellation;
   std::size_t generation = 0;
+  std::shared_ptr<GWeakRef> window;
+  std::shared_ptr<GdkPixbuf> published_pixels;
 };
 
 cairo_surface_t *connection_icon_surface(GdkPixbuf *image, int logical_size, int scale) {
@@ -34,6 +37,19 @@ static void render_connection_icon(ConnectionIconImageState *state) {
       gtk_widget_get_scale_factor(GTK_WIDGET(state->image)));
   gtk_image_set_from_surface(state->image, surface);
   cairo_surface_destroy(surface);
+  if (!state->window || state->published_pixels == state->pixels) return;
+  auto *window = static_cast<GtkWindow *>(g_weak_ref_get(state->window.get()));
+  if (!window) return;
+  GList *icons = nullptr;
+  for (const int size : {16, 24, 32, 48, 64, 128, 256}) {
+    auto *pixels = size == 256 ? GDK_PIXBUF(g_object_ref(state->pixels.get())) :
+        gdk_pixbuf_scale_simple(state->pixels.get(), size, size, GDK_INTERP_BILINEAR);
+    icons = g_list_append(icons, pixels);
+  }
+  set_native_window_icon(window, icons);
+  g_list_free_full(icons, g_object_unref);
+  state->published_pixels = state->pixels;
+  g_object_unref(window);
 }
 
 static cardio::promise<void> load_image_async(std::shared_ptr<ConnectionIconImageState> state,
@@ -54,9 +70,7 @@ static cardio::promise<void> load_image_async(std::shared_ptr<ConnectionIconImag
   }
 }
 
-void set_connection_icon_image(GtkImage *image, const std::string &specification,
-    int logical_size, ConnectionIconStatusCallback status) {
-  g_return_if_fail(GTK_IS_IMAGE(image) && logical_size > 0);
+static std::shared_ptr<ConnectionIconImageState> image_state(GtkImage *image) {
   constexpr const char *key = "elder-terms-connection-icon-image";
   auto *holder = static_cast<std::shared_ptr<ConnectionIconImageState> *>(
       g_object_get_data(G_OBJECT(image), key));
@@ -71,13 +85,18 @@ void set_connection_icon_image(GtkImage *image, const std::string &specification
       auto *state = static_cast<ConnectionIconImageState *>(data);
       state->image = nullptr;
       state->status = {};
+      state->window.reset();
       (void)state->cancellation.cancel();
     }), holder->get());
     g_signal_connect(image, "notify::scale-factor", G_CALLBACK(+[](GObject *, GParamSpec *, gpointer data) {
       render_connection_icon(static_cast<ConnectionIconImageState *>(data));
     }), holder->get());
   }
-  const auto state = *holder;
+  return *holder;
+}
+
+static void update_image(const std::shared_ptr<ConnectionIconImageState> &state,
+    const std::string &specification, int logical_size, ConnectionIconStatusCallback status) {
   state->status = std::move(status);
   state->size = logical_size;
   if (state->specification == specification && state->pixels) {
@@ -96,6 +115,33 @@ void set_connection_icon_image(GtkImage *image, const std::string &specification
   if (specification.empty() || specification == "default") return;
   cardio::fire_and_forget(load_image_async(state, specification, state->generation,
       state->cancellation.get_cancellation()));
+}
+
+void set_connection_icon_image(GtkImage *image, const std::string &specification,
+    int logical_size, ConnectionIconStatusCallback status) {
+  g_return_if_fail(GTK_IS_IMAGE(image) && logical_size > 0);
+  const auto state = image_state(image);
+  state->window.reset();
+  state->published_pixels.reset();
+  update_image(state, specification, logical_size, std::move(status));
+}
+
+void set_connection_window_icon(GtkWindow *window, GtkImage *image,
+    const std::string &specification, int logical_size) {
+  g_return_if_fail(GTK_IS_WINDOW(window) && GTK_IS_IMAGE(image) && logical_size > 0);
+  const auto state = image_state(image);
+  auto *previous = state->window ? g_weak_ref_get(state->window.get()) : nullptr;
+  const bool changed = previous != window;
+  if (previous) g_object_unref(previous);
+  if (changed) {
+    state->window = std::shared_ptr<GWeakRef>(new GWeakRef, +[](GWeakRef *reference) {
+      g_weak_ref_clear(reference);
+      delete reference;
+    });
+    g_weak_ref_init(state->window.get(), window);
+    state->published_pixels.reset();
+  }
+  update_image(state, specification, logical_size, {});
 }
 
 } // namespace elder_terms

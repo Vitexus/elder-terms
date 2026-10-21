@@ -31,6 +31,8 @@ struct IconServer {
   wl_display *display = nullptr;
   wl_resource *output = nullptr;
   std::uint32_t serial = 0;
+  bool scale_after_first_icon_commit = false;
+  bool scale_changed = false;
   std::vector<std::unique_ptr<IconSurface>> surfaces;
 };
 
@@ -90,6 +92,12 @@ static void commit(wl_client *, wl_resource *resource) {
   if (surface->icon_pending) {
     std::cout << "COMMIT " << surface->icon_id << '\n';
     surface->icon_pending = false;
+    if (surface->server->scale_after_first_icon_commit &&
+        !surface->server->scale_changed && surface->server->output) {
+      surface->server->scale_changed = true;
+      wl_output_send_scale(surface->server->output, 2);
+      wl_output_send_done(surface->server->output);
+    }
   }
   if (surface->buffer) {
     wl_buffer_send_release(surface->buffer);
@@ -207,7 +215,7 @@ static std::vector<std::uint32_t> read_pixels(wl_resource *resource) {
   auto *buffer = wl_shm_buffer_get(resource);
   assert(buffer);
   const int size = wl_shm_buffer_get_width(buffer);
-  assert(size > 0 && size <= 512 && size == wl_shm_buffer_get_height(buffer));
+  assert(size > 0 && size <= 1024 && size == wl_shm_buffer_get_height(buffer));
   assert(wl_shm_buffer_get_format(buffer) == WL_SHM_FORMAT_ARGB8888);
   const int stride = wl_shm_buffer_get_stride(buffer);
   std::vector<std::uint32_t> pixels(size * size);
@@ -247,6 +255,9 @@ static void add_buffer(wl_client *, wl_resource *resource, wl_resource *native, 
   buffer->size = wl_shm_buffer_get_width(wl_shm_buffer_get(native));
   buffer->scale = scale;
   buffer->pixels = read_pixels(native);
+  for (const auto &previous : icon->buffers) {
+    assert(previous->size != buffer->size || previous->scale != buffer->scale);
+  }
   buffer->destroyed.notify = [](wl_listener *listener, void *) {
     auto *buffer = reinterpret_cast<ReceivedBuffer *>(listener);
     // Explicit requests must retain the buffer until icon destruction. On
@@ -296,6 +307,8 @@ static void bind_icons(wl_client *client, void *, std::uint32_t version, std::ui
   wl_resource_set_implementation(manager, &manager_implementation, nullptr, nullptr);
   xdg_toplevel_icon_manager_v1_send_icon_size(manager, 16);
   xdg_toplevel_icon_manager_v1_send_icon_size(manager, 32);
+  xdg_toplevel_icon_manager_v1_send_icon_size(manager, 32);
+  xdg_toplevel_icon_manager_v1_send_icon_size(manager, 4096);
   xdg_toplevel_icon_manager_v1_send_done(manager);
 }
 
@@ -308,6 +321,7 @@ int main(int argc, char **argv) {
   assert(argc == 3);
   std::cout << std::unitbuf;
   IconServer server;
+  server.scale_after_first_icon_commit = std::strcmp(argv[2], "icons-scale") == 0;
   server.display = wl_display_create();
   assert(server.display && wl_display_init_shm(server.display) == 0);
   assert(wl_global_create(server.display, &wl_compositor_interface, 4, &server, bind_compositor));
@@ -315,7 +329,7 @@ int main(int argc, char **argv) {
   assert(wl_global_create(server.display, &wl_seat_interface, 5, &server, bind_seat));
   assert(wl_global_create(server.display, &wl_data_device_manager_interface, 3, &server, bind_data));
   assert(wl_global_create(server.display, &xdg_wm_base_interface, 1, &server, bind_wm));
-  if (std::strcmp(argv[2], "icons") == 0)
+  if (std::strcmp(argv[2], "icons") == 0 || server.scale_after_first_icon_commit)
     assert(wl_global_create(server.display, &xdg_toplevel_icon_manager_v1_interface, 1, &server, bind_icons));
   assert(wl_display_add_socket(server.display, argv[1]) == 0);
   auto *signal = wl_event_loop_add_signal(wl_display_get_event_loop(server.display), SIGTERM, stop_server, &server);

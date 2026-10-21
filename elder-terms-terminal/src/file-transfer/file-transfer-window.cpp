@@ -2767,7 +2767,7 @@ create_file_transfer_window(FileTransferWindowOptions options) {
       state->header_connection_icon, "file_transfer_connection_icon");
   gtk_header_bar_pack_start(GTK_HEADER_BAR(state->header_bar),
                             state->header_connection_icon);
-  set_connection_icon_image(
+  set_connection_window_icon(GTK_WINDOW(state->window),
       GTK_IMAGE(state->header_connection_icon),
       general_connection_icon(state->settings), 20);
   state->title_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
@@ -3229,7 +3229,7 @@ void set_file_transfer_window_connection_icon(
     set_explicit_setting_value(
         &window->settings, general_icon_setting_key(), specification);
   }
-  set_connection_icon_image(
+  set_connection_window_icon(GTK_WINDOW(window->window),
       GTK_IMAGE(window->header_connection_icon), specification, 20);
 }
 

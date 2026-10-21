@@ -31,4 +31,16 @@ ELDER_TERMS_API void set_connection_icon_image(GtkImage *image,
     const std::string &specification, int logical_size,
     ConnectionIconStatusCallback status = {});
 
+/** Displays a connection icon and publishes the same image to its native window.
+ * @param window Target window, held weakly; native support is detected at runtime.
+ * @param image Title bar image; destruction cancels pending loading.
+ * @param specification Saved icon reference, including default, file or preset IDs.
+ * @param logical_size Positive title bar size in logical pixels.
+ * @remarks Call on the GTK thread with a cardio GLib dispatcher for file loading.
+ * One load supplies both displays. Unsupported native backends keep the title bar
+ * image working. Later calls supersede pending work, and missing files use the
+ * application image. The binding does not change the process-wide default icon. */
+ELDER_TERMS_API void set_connection_window_icon(GtkWindow *window, GtkImage *image,
+    const std::string &specification, int logical_size);
+
 } // namespace elder_terms

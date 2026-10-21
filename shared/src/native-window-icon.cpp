@@ -8,6 +8,7 @@
 #include "xdg-toplevel-icon-v1-client-protocol.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <linux/memfd.h>
@@ -57,6 +58,7 @@ struct NativeWindowIconState {
   GdkWindow *gdk_window = nullptr;
   gulong widget_realize_handler = 0;
   gulong widget_unrealize_handler = 0;
+  gulong widget_scale_handler = 0;
   gulong toplevel_handler = 0;
   GetXdgToplevel get_toplevel = nullptr;
   wl_display *wayland_display = nullptr;
@@ -66,6 +68,7 @@ struct NativeWindowIconState {
   xdg_toplevel_icon_manager_v1 *manager = nullptr;
   bool registry_complete = false;
   bool manager_complete = false;
+  std::vector<int> preferred_sizes;
   std::unique_ptr<NativeIcon> icon;
 
   ~NativeWindowIconState() {
@@ -80,6 +83,10 @@ struct NativeWindowIconState {
     if (widget_unrealize_handler != 0 &&
         g_signal_handler_is_connected(window, widget_unrealize_handler)) {
       g_signal_handler_disconnect(window, widget_unrealize_handler);
+    }
+    if (widget_scale_handler != 0 &&
+        g_signal_handler_is_connected(window, widget_scale_handler)) {
+      g_signal_handler_disconnect(window, widget_scale_handler);
     }
     icon.reset();
     if (registry_sync != nullptr) {
@@ -176,6 +183,44 @@ static std::unique_ptr<NativeIconBuffer> make_buffer(wl_shm *shm, GdkPixbuf *pix
   return buffer;
 }
 
+static std::unique_ptr<NativeIconBuffer> make_scaled_buffer(
+    wl_shm *shm, GdkPixbuf *source, int edge) {
+  const int width = gdk_pixbuf_get_width(source);
+  const int height = gdk_pixbuf_get_height(source);
+  if (edge <= 0 || edge > 1024 || width <= 0 || height <= 0) return nullptr;
+  const double factor = static_cast<double>(edge) /
+                        static_cast<double>(std::max(width, height));
+  const int scaled_width = std::max(1, static_cast<int>(std::round(width * factor)));
+  const int scaled_height = std::max(1, static_cast<int>(std::round(height * factor)));
+  if (scaled_width == width && scaled_height == height) return make_buffer(shm, source);
+  auto *scaled = gdk_pixbuf_scale_simple(source, scaled_width, scaled_height,
+                                        GDK_INTERP_BILINEAR);
+  if (scaled == nullptr) return nullptr;
+  auto buffer = make_buffer(shm, scaled);
+  g_object_unref(scaled);
+  return buffer;
+}
+
+static GdkPixbuf *closest_image(GList *images, int edge) {
+  GdkPixbuf *selected = nullptr;
+  int selected_side = 0;
+  for (GList *item = images; item != nullptr; item = item->next) {
+    auto *candidate = GDK_PIXBUF(item->data);
+    const int side = std::max(gdk_pixbuf_get_width(candidate),
+                              gdk_pixbuf_get_height(candidate));
+    if (side <= 0) continue;
+    // Prefer downscaling the smallest suitable source over enlarging a small
+    // raster. If none is large enough, enlarge the largest available source.
+    if (selected == nullptr ||
+        (side >= edge && (selected_side < edge || side < selected_side)) ||
+        (side < edge && selected_side < edge && side > selected_side)) {
+      selected = candidate;
+      selected_side = side;
+    }
+  }
+  return selected;
+}
+
 static void apply_wayland_icon(NativeWindowIconState *state) {
   if (!state->registry_complete || !state->manager_complete ||
       state->manager == nullptr || state->shm == nullptr || state->gdk_window == nullptr) {
@@ -199,10 +244,25 @@ static void apply_wayland_icon(NativeWindowIconState *state) {
     state->status = NativeWindowIconStatus::UnsupportedProtocol;
     return;
   }
+  const int scale = std::max(1, gtk_widget_get_scale_factor(GTK_WIDGET(state->window)));
+  std::vector<int> logical_sizes = state->preferred_sizes;
   for (GList *item = state->images; item != nullptr; item = item->next) {
-    auto buffer = make_buffer(state->shm, GDK_PIXBUF(item->data));
+    auto *image = GDK_PIXBUF(item->data);
+    logical_sizes.push_back(std::max(gdk_pixbuf_get_width(image),
+                                     gdk_pixbuf_get_height(image)));
+  }
+  logical_sizes.push_back(256);
+  std::sort(logical_sizes.begin(), logical_sizes.end());
+  logical_sizes.erase(std::unique(logical_sizes.begin(), logical_sizes.end()),
+                      logical_sizes.end());
+  for (const int logical_size : logical_sizes) {
+    if (logical_size <= 0 || logical_size > 1024 / scale) continue;
+    const int edge = logical_size * scale;
+    auto *source = closest_image(state->images, edge);
+    if (source == nullptr) continue;
+    auto buffer = make_scaled_buffer(state->shm, source, edge);
     if (buffer != nullptr) {
-      xdg_toplevel_icon_v1_add_buffer(icon->protocol_icon, buffer->wayland_buffer, 1);
+      xdg_toplevel_icon_v1_add_buffer(icon->protocol_icon, buffer->wayland_buffer, scale);
       icon->buffers.push_back(std::move(buffer));
     }
   }
@@ -218,7 +278,14 @@ static void apply_wayland_icon(NativeWindowIconState *state) {
   gtk_widget_queue_draw(GTK_WIDGET(state->window));
 }
 
-static void on_manager_icon_size(void *, xdg_toplevel_icon_manager_v1 *, int32_t) {}
+static void on_manager_icon_size(void *data, xdg_toplevel_icon_manager_v1 *, int32_t size) {
+  auto *state = static_cast<NativeWindowIconState *>(data);
+  if (size > 0 && size <= 1024 &&
+      std::find(state->preferred_sizes.begin(), state->preferred_sizes.end(), size) ==
+          state->preferred_sizes.end()) {
+    state->preferred_sizes.push_back(size);
+  }
+}
 
 static void on_manager_done(void *data, xdg_toplevel_icon_manager_v1 *) {
   auto *state = static_cast<NativeWindowIconState *>(data);
@@ -298,6 +365,10 @@ static void on_widget_realize(GtkWidget *widget, NativeWindowIconState *state) {
   }
 }
 
+static void on_widget_scale(GObject *, GParamSpec *, NativeWindowIconState *state) {
+  apply_wayland_icon(state);
+}
+
 static void initialize_wayland(NativeWindowIconState *state, GdkDisplay *display) {
   state->get_toplevel = lookup_get_toplevel();
   g_type_ensure(GDK_TYPE_WAYLAND_WINDOW);
@@ -325,6 +396,8 @@ static void initialize_wayland(NativeWindowIconState *state, GdkDisplay *display
       state->window, "realize", G_CALLBACK(on_widget_realize), state);
   state->widget_unrealize_handler = g_signal_connect(
       state->window, "unrealize", G_CALLBACK(on_widget_unrealize), state);
+  state->widget_scale_handler = g_signal_connect(
+      state->window, "notify::scale-factor", G_CALLBACK(on_widget_scale), state);
   if (gtk_widget_get_realized(GTK_WIDGET(state->window))) {
     on_widget_realize(GTK_WIDGET(state->window), state);
   }

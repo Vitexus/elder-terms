@@ -1,4 +1,6 @@
 import { writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import type { GtkApp, GtkWidgetElement } from 'gestament';
@@ -29,6 +31,26 @@ const openSettings = async (app: GtkApp): Promise<void> => {
   await app.getById('settings_dialog');
 };
 
+const nativeCenterPixel = async (app: GtkApp): Promise<number> => {
+  const window = expectElementKind(await app.getById('main_window'), 'window');
+  const { stdout } = await promisify(execFile)(
+    'xprop',
+    [
+      '-id',
+      (await window.x11Info()).windowId,
+      '-len',
+      '4096',
+      '32c',
+      '_NET_WM_ICON',
+    ],
+    { env: { ...process.env, ...(await app.environment()) } }
+  );
+  const pixels = stdout.split('=')[1]!.split(',').map(Number);
+  expect(pixels[0]).toBe(16);
+  expect(pixels[1]).toBe(16);
+  return pixels[2 + 8 * 16 + 8]!;
+};
+
 it('shows a saved connection icon at the left of the terminal title bar', async (context) => {
   await withTemporaryDirectory(async (directory) => {
     const icon = join(directory, 'icon.png');
@@ -51,6 +73,7 @@ it('shows a saved connection icon at the left of the terminal title bar', async 
         expect(red).toBeGreaterThan(220);
         expect(green).toBeLessThan(35);
         expect(blue).toBeLessThan(35);
+        expect(await nativeCenterPixel(app)).toBe(0xffff0000);
       });
       await openSettings(app);
       await expectElementKind(
@@ -71,6 +94,7 @@ it('shows a saved connection icon at the left of the terminal title bar', async 
         expect(red).toBeGreaterThan(220);
         expect(green).toBeLessThan(35);
         expect(blue).toBeLessThan(35);
+        expect(await nativeCenterPixel(app)).toBe(0xffff0000);
       });
       await openSettings(app);
       await expectElementKind(
@@ -89,6 +113,7 @@ it('shows a saved connection icon at the left of the terminal title bar', async 
           0.5
         );
         expect(red < 220 || green > 35 || blue > 35).toBe(true);
+        expect(await nativeCenterPixel(app)).not.toBe(0xffff0000);
       });
     });
   });
