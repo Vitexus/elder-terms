@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { PNG } from 'pngjs';
 import { describe, expect, it } from 'vitest';
@@ -19,17 +19,29 @@ describe.concurrent('terminal selection autoscroll video', () => {
         await withTemporaryDirectory(async (directory) => {
           const peer = join(directory, 'scroll.mjs');
           const config = join(directory, 'scroll.ini');
+          const action = join(directory, 'xdg-open');
+          const actions = join(directory, 'actions.jsonl');
+          await writeFile(actions, '');
+          await writeFile(
+            action,
+            `#!${process.execPath}\nimport { appendFileSync } from 'node:fs';\nappendFileSync(${JSON.stringify(actions)}, JSON.stringify(process.argv.slice(2)) + '\\n');\n`
+          );
+          await chmod(action, 0o755);
           const lines = Array.from(
             { length: 200 },
             (_, row) => `${1000 + row} alpha beta`
           );
+          lines[199] =
+            '\x1b]8;;https://selection.test/last\x1b\\' +
+            lines[199] +
+            '\x1b]8;;\x1b\\';
           await writeFile(
             peer,
             `process.stdin.setRawMode(true); process.stdin.resume();\nprocess.stdout.write(${JSON.stringify('\x1b[?25l\x1b[2J\x1b[H' + lines.join('\r\n'))});`
           );
           await writeFile(
             config,
-            `[local]\ncommand_line=${process.execPath} ${peer}\n`
+            `[local]\ncommand_line=${process.execPath} ${peer}\n[hyperlink]\nenabled=true\n`
           );
           await runGtkTest(
             context,
@@ -185,6 +197,49 @@ describe.concurrent('terminal selection autoscroll video', () => {
               const modifier = rectangular ? 'control' : 'shift';
               try {
                 await observe('before');
+                // Run the complete product workflow before the video checks:
+                // normal selection, Escape, link click, rectangle from that
+                // link, and a wheel extension with Ctrl still held.
+                await move(0.1, 0.5);
+                await app.input.setMouseButton('left', true);
+                await move(3.9, 1.5);
+                await app.input.setMouseButton('left', false);
+                await waitForResult(async () =>
+                  expect((await state()).selected).toBe(true)
+                );
+                await app.input.pressKey('Escape');
+                await waitForResult(async () =>
+                  expect((await state()).selected).toBe(false)
+                );
+                await app.input.setModifier('control', true);
+                await move(7.5, layout.rows - 0.5);
+                await app.input.setMouseButton('left', true);
+                await app.input.setMouseButton('left', false);
+                const expectedAction =
+                  JSON.stringify(['https://selection.test/last']) + '\n';
+                await waitForResult(async () =>
+                  expect(await readFile(actions, 'utf8')).toBe(expectedAction)
+                );
+                await move(0.1, layout.rows - 0.5);
+                await app.input.setMouseButton('left', true);
+                await move(3.9, 0.5);
+                await app.input.scrollWheel(0, -2);
+                await waitForResult(async () => {
+                  const current = await state();
+                  expect(current.position).toBe(initial.position - 6);
+                  expect(current.rows).toBeGreaterThan(layout.rows);
+                });
+                await app.input.setMouseButton('left', false);
+                await app.input.setModifier('control', false);
+                await app.input.pressKey('Escape');
+                await waitForResult(async () =>
+                  expect((await state()).selected).toBe(false)
+                );
+                await app.input.scrollWheel(0, 2);
+                await waitForResult(async () =>
+                  expect((await state()).position).toBe(initial.position)
+                );
+                expect(await readFile(actions, 'utf8')).toBe(expectedAction);
                 await app.input.setModifier(modifier, true);
                 await move(0.1, layout.rows - 1.5);
                 await app.input.setMouseButton('left', true);
@@ -264,6 +319,7 @@ describe.concurrent('terminal selection autoscroll video', () => {
                 expect(frames[cleared.frame]?.gray).toBeLessThan(
                   (width * height) / 100
                 );
+                expect(await readFile(actions, 'utf8')).toBe(expectedAction);
                 await writeFile(
                   join(evidence.directory, 'autoscroll-frames.json'),
                   JSON.stringify({ observations, frames }, null, 2)
@@ -278,6 +334,7 @@ describe.concurrent('terminal selection autoscroll video', () => {
             },
             {
               env: {
+                PATH: `${directory}:${process.env.PATH ?? ''}`,
                 GTK_IM_MODULE: 'gtk-im-context-simple',
                 ...(backend === 'cairo'
                   ? { GDK_GL: 'disable' }
