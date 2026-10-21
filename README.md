@@ -578,6 +578,40 @@ When editing the INI file directly, set `return_code` to one of `auto`, `cr`, `l
 return_code=crlf
 ```
 
+## Selecting and Copying Terminal Text
+
+Drag with the left mouse button to select text. The selection uses a gray fill, with your configured color correction applied.
+A normal selection follows text order; a block selection is a rectangle aligned to display columns.
+
+| Action | Behavior |
+| --- | --- |
+| Left click | Clears the selection. A click alone does not copy a character |
+| Left drag | Makes a normal selection |
+| Double / triple click | Selects a word / line |
+| Ctrl + left drag | Makes a block selection. Releasing Ctrl during the drag keeps its rectangular shape |
+| Ctrl + click on a link | Opens the link when you release over the same link. Dragging instead makes a block selection |
+| Escape | Cancels the selection and any active drag |
+| Mouse wheel during a drag | Extends the selection through history while retaining its anchor. Ctrl does not zoom during this operation |
+| Drag beyond the top or bottom edge | Scrolls through history automatically until you release the button |
+| Ctrl + Shift + C, or “Copy” in the context menu | Copies the selected text to the clipboard |
+
+When a terminal application uses mouse input, Shift + drag overrides it for normal selection, and Ctrl + drag for block selection.
+Ctrl + Shift + drag also makes a block selection. Ctrl + wheel changes the text size as usual when no selection gesture is active.
+
+Completing a selection also stores its text in the primary selection (PRIMARY), which you can paste with the middle mouse button.
+This is separate from the regular clipboard (CLIPBOARD). Escape and left click clear the selection without erasing previously copied text.
+During IME composition, Escape cancels composition first; the next Escape clears the selection.
+If an IME consumes Escape before the widget receives it, the IME takes priority. [IBus key snooping](https://github.com/ibus/ibus/blob/1.5.29/client/gtk2/ibusimcontext.c#L643-L752)
+
+Block selections can span more history than fits on screen. Copying preserves whole wide characters, combining sequences, and emoji,
+including blank cells and trailing spaces within the rectangle. Each display row, including a soft-wrapped row, is separated by a newline,
+without an extra final newline. Bidirectional text is copied in logical order within each row.
+Reducing the width to zero retains the anchor, so you can expand the rectangle again while holding the button.
+
+“Copy” is disabled for an empty rectangle or a selection invalidated by text changes, and existing clipboard contents are preserved.
+Exceeding a selection or copy limit also preserves the previous result instead of publishing partial text; select a smaller range and try again.
+Focus changes, menus, and disconnection end an active drag. Changing focus alone does not clear a completed selection.
+
 ## Newlines When Sending and Pasting Text
 
 "Follow Enter/Return code for text send" applies to sending text files,
