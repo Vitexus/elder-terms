@@ -22,6 +22,9 @@ struct ConnectionIconPicker {
   GtkWidget *popup;
   GtkWidget *grid;
   GtkWidget *family;
+  GtkWidget *color_row;
+  GtkWidget *black;
+  GtkWidget *white;
   std::function<void(std::string)> selected;
   std::function<void()> choose_file;
   std::unordered_map<unsigned int, IconPickerThumbnail> thumbnails;
@@ -34,6 +37,15 @@ struct ConnectionIconPicker {
 static void identify(GtkWidget *widget, const std::string &id) {
   gtk_widget_set_name(widget, id.c_str());
   atk_object_set_accessible_id(gtk_widget_get_accessible(widget), id.c_str());
+}
+
+static std::string preset_specification(ConnectionIconPicker *picker,
+                                       unsigned int index) {
+  const auto &base = connection_icon_presets()[index].specification;
+  if (connection_icon_presets()[index].family == ConnectionIconFamily::Material &&
+      gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(picker->white)))
+    return "material:white:" + base.substr(std::string("material:").size());
+  return base;
 }
 
 static gboolean load_visible_thumbnails(gpointer data) {
@@ -70,7 +82,7 @@ static gboolean load_visible_thumbnails(gpointer data) {
     }
     // Yield between small batches so scrolling and keyboard input remain live.
     if (loaded == 8) { remaining = true; break; }
-    auto pixels = connection_icon_preset_thumbnail(catalog[index].specification,
+    auto pixels = connection_icon_preset_thumbnail(preset_specification(picker, index),
                                                    thumbnail_size * picker->scale);
     std::shared_ptr<cairo_surface_t> surface;
     if (pixels) surface.reset(gdk_cairo_surface_create_from_pixbuf(
@@ -97,6 +109,7 @@ static void schedule_thumbnails(ConnectionIconPicker *picker) {
 static void select_family(ConnectionIconPicker *picker) {
   const auto family = gtk_combo_box_get_active(GTK_COMBO_BOX(picker->family)) == 1
       ? ConnectionIconFamily::Material : ConnectionIconFamily::Noto;
+  gtk_widget_set_visible(picker->color_row, family == ConnectionIconFamily::Material);
   auto *model = gtk_list_store_new(2, G_TYPE_STRING, G_TYPE_UINT);
   const auto &catalog = connection_icon_presets();
   for (unsigned int index = 0; index < catalog.size(); ++index) {
@@ -112,6 +125,17 @@ static void select_family(ConnectionIconPicker *picker) {
   schedule_thumbnails(picker);
 }
 
+void sync_connection_icon_picker(GtkWidget *popup, const std::string &specification) {
+  auto *picker = static_cast<ConnectionIconPicker *>(
+      g_object_get_data(G_OBJECT(popup), "elder-terms-icon-picker"));
+  if (!picker) return;
+  const bool material = specification.starts_with("material:");
+  auto *color = specification.starts_with("material:white:")
+      ? picker->white : picker->black;
+  gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(color), TRUE);
+  gtk_combo_box_set_active(GTK_COMBO_BOX(picker->family), material ? 1 : 0);
+}
+
 GtkWidget *create_connection_icon_picker(GtkWidget *relative_to,
     const std::string &prefix, std::function<void(std::string)> selected,
     std::function<void()> choose_file) {
@@ -122,12 +146,19 @@ GtkWidget *create_connection_icon_picker(GtkWidget *relative_to,
   });
   picker->grid = gtk_icon_view_new();
   picker->family = gtk_combo_box_text_new();
+  picker->color_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  picker->black = gtk_radio_button_new_with_label(nullptr, _("Black"));
+  picker->white = gtk_radio_button_new_with_label_from_widget(
+      GTK_RADIO_BUTTON(picker->black), _("White"));
   picker->selected = std::move(selected);
   picker->choose_file = std::move(choose_file);
   picker->scale = gtk_widget_get_scale_factor(relative_to);
   identify(picker->popup, prefix + "_general_icon_picker");
   identify(picker->grid, prefix + "_general_icon_grid");
   identify(picker->family, prefix + "_general_icon_family");
+  identify(picker->color_row, prefix + "_general_icon_color_row");
+  identify(picker->black, prefix + "_general_icon_color_black");
+  identify(picker->white, prefix + "_general_icon_color_white");
   auto *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
   gtk_container_set_border_width(GTK_CONTAINER(box), 8);
   gtk_container_add(GTK_CONTAINER(picker->popup), box);
@@ -135,6 +166,14 @@ GtkWidget *create_connection_icon_picker(GtkWidget *relative_to,
   gtk_combo_box_text_append_text(GTK_COMBO_BOX_TEXT(picker->family), "Material Icons");
   gtk_combo_box_set_active(GTK_COMBO_BOX(picker->family), 0);
   gtk_box_pack_start(GTK_BOX(box), picker->family, FALSE, FALSE, 0);
+  auto *color_label = gtk_label_new(_("Glyph color"));
+  gtk_box_pack_start(GTK_BOX(picker->color_row), color_label, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(picker->color_row), picker->black, FALSE, FALSE, 0);
+  gtk_box_pack_start(GTK_BOX(picker->color_row), picker->white, FALSE, FALSE, 0);
+  gtk_widget_show_all(picker->color_row);
+  gtk_widget_set_no_show_all(picker->color_row, TRUE);
+  gtk_widget_hide(picker->color_row);
+  gtk_box_pack_start(GTK_BOX(box), picker->color_row, FALSE, FALSE, 0);
   auto *scroll = gtk_scrolled_window_new(nullptr, nullptr);
   gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(scroll), GTK_POLICY_NEVER, GTK_POLICY_ALWAYS);
   identify(gtk_scrolled_window_get_vscrollbar(GTK_SCROLLED_WINDOW(scroll)),
@@ -186,13 +225,20 @@ GtkWidget *create_connection_icon_picker(GtkWidget *relative_to,
     if (!gtk_tree_model_get_iter(model, &iterator, path)) return;
     unsigned int index = 0;
     gtk_tree_model_get(model, &iterator, 1, &index, -1);
-    const auto specification = connection_icon_presets()[index].specification;
+    const auto specification = preset_specification(picker, index);
     auto callback = picker->selected;
     gtk_widget_hide(picker->popup);
     callback(specification);
   }), picker);
   g_signal_connect(picker->family, "changed", G_CALLBACK(+[](GtkComboBox *, gpointer data) {
     select_family(static_cast<ConnectionIconPicker *>(data));
+  }), picker);
+  g_signal_connect(picker->white, "toggled", G_CALLBACK(+[](GtkToggleButton *, gpointer data) {
+    auto *picker = static_cast<ConnectionIconPicker *>(data);
+    picker->thumbnails.clear();
+    picker->recent.clear();
+    gtk_widget_queue_draw(picker->grid);
+    schedule_thumbnails(picker);
   }), picker);
   g_signal_connect(picker->grid, "map", G_CALLBACK(+[](GtkWidget *, gpointer data) {
     schedule_thumbnails(static_cast<ConnectionIconPicker *>(data));

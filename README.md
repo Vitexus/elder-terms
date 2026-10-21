@@ -235,6 +235,10 @@ and click one to select it. "Choose image file…" also accepts PNG and JPEG fil
 "Default icon" restores the elder-terms image. Presets are bundled and do not
 require a download when selected.
 
+For Material Icons, choose Black or White under "Glyph color". The background is
+transparent, with an outline in the opposite color. Changing the color updates
+the grid previews; clicking an image selects both its glyph and color.
+
 Apply updates the current window; Save records the selection for the next launch.
 Cancel discards edits made since the last apply. The image appears at the left
 edge of terminal and file-transfer title bars. The launcher's connection list
@@ -279,7 +283,8 @@ In an INI file, `[general] icon` accepts these forms:
 | --- | --- |
 | `default` or omitted | elder-terms default |
 | `noto:emoji_u1f44d` | Example Noto Color Emoji preset |
-| `material:action/home` | Example Material Icons preset |
+| `material:action/home` | Black Material Icons glyph with a white outline |
+| `material:white:action/home` | White Material Icons glyph with a black outline |
 | `file:/home/user/Pictures/server.png` | PNG or JPEG at an absolute path |
 
 ## Finding a Host with IP Scan
@@ -1235,7 +1240,7 @@ Rendering requires GTK3 3.24 or later, Pango 1.50 or later, Cairo 1.18 or later,
 
 ```bash
 sudo apt update
-sudo apt install build-essential git meson ninja-build pkg-config gettext imagemagick \
+sudo apt install build-essential git meson ninja-build pkg-config gettext imagemagick libgdk-pixbuf2.0-bin librsvg2-common \
   libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev libxfixes-dev \
   libxkbcommon-dev liburing-dev libudev-dev libsystemd-dev libssh-dev libcurl4-openssl-dev \
   libcairo2-dev libpango1.0-dev libfontconfig1-dev libepoxy-dev libibus-1.0-dev \
@@ -1245,9 +1250,10 @@ sudo apt install build-essential git meson ninja-build pkg-config gettext imagem
 Node.js 22.18 or later is also required for
 [direct TypeScript execution](https://nodejs.org/docs/latest-v22.x/api/typescript.html).
 
-Material Icons are rendered to PNG using ImageMagick's `convert` during the build.
-The generated images are included in the distribution; ImageMagick is not needed
-at runtime.
+Material Icons are rendered to PNG using `gdk-pixbuf-thumbnailer` with SVG support
+and ImageMagick's `convert` during the build.
+The generated images are included in the distribution; these generation tools
+are not needed at runtime.
 
 Check the installed Node.js version when using your distribution's package:
 
@@ -1325,8 +1331,8 @@ Debian bookworm is excluded because its standard [Cairo 1.16](https://packages.d
 
 The host requires Podman, binfmt/QEMU for non-native targets, `dpkg-deb`,
 `readelf`, GNU Make, Node.js 22.18 or later, npm, and `npx`.
-Preparing preset images also requires ImageMagick's `convert` and GLib's
-`glib-compile-resources`. Run `npm ci` first.
+Preparing preset images also requires `gdk-pixbuf-thumbnailer` with SVG support,
+ImageMagick's `convert`, and GLib's `glib-compile-resources`. Run `npm ci` first.
 From the repository root, generate the
 reusable prerequisite images once, then build packages for every combination:
 

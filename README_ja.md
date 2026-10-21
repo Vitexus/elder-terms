@@ -200,6 +200,8 @@ elder-termsの設定値には、次の三種類があります。後に挙げる
 
 各接続の「一般」タブにある「アイコンを選択…」を開くと、画像を並べたポップアップが表示されます。
 Noto Color EmojiとMaterial Iconsを切り替え、スクロールして画像を探し、クリックして選んでください。
+Material Iconsは「図柄の色」で黒または白を選べます。背景は透過で、図柄と反対の色で縁取りします。
+色を切り替えると一覧の見本も変わり、画像をクリックすると図柄と色をまとめて採用します。
 「画像ファイルを選択…」からPNGまたはJPEGも指定できます。「デフォルトアイコン」でelder-terms標準の画像へ戻します。
 プリセットは同梱されているため、選択時のダウンロードは不要です。
 
@@ -240,7 +242,8 @@ INIファイルの`[general] icon`には、次の形式で指定します。
 | --- | --- |
 | `default`または省略 | elder-terms標準 |
 | `noto:emoji_u1f44d` | Noto Color Emojiのプリセット例 |
-| `material:action/home` | Material Iconsのプリセット例 |
+| `material:action/home` | 黒い図柄と白い縁取りのMaterial Icons |
+| `material:white:action/home` | 白い図柄と黒い縁取りのMaterial Icons |
 | `file:/home/user/Pictures/server.png` | 絶対パスで指定したPNGまたはJPEG |
 
 ## IPスキャンで接続先を探す
@@ -1079,7 +1082,7 @@ UbuntuまたはDebianでビルドする場合は、C++20対応コンパイラ、
 
 ```bash
 sudo apt update
-sudo apt install build-essential git meson ninja-build pkg-config gettext imagemagick \
+sudo apt install build-essential git meson ninja-build pkg-config gettext imagemagick libgdk-pixbuf2.0-bin librsvg2-common \
   libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev libxfixes-dev \
   libxkbcommon-dev liburing-dev libudev-dev libsystemd-dev libssh-dev libcurl4-openssl-dev \
   libcairo2-dev libpango1.0-dev libfontconfig1-dev libepoxy-dev libibus-1.0-dev \
@@ -1088,7 +1091,8 @@ sudo apt install build-essential git meson ninja-build pkg-config gettext imagem
 
 このほか、Node.js 22.18以降が必要です。[TypeScriptを直接実行できる版](https://nodejs.org/docs/latest-v22.x/api/typescript.html)を使用します。ディストリビューションのパッケージを使う場合は、インストール後にバージョンを確認してください。
 
-Material IconsのPNG生成にはImageMagickの`convert`を使います。生成した画像は配布物に含まれ、実行時にImageMagickは不要です。
+Material IconsのPNG生成には、SVGを読み込める`gdk-pixbuf-thumbnailer`とImageMagickの`convert`を使います。
+生成した画像は配布物に含まれるため、利用者の環境にこれらの生成ツールは不要です。
 
 ```bash
 sudo apt install nodejs
@@ -1152,7 +1156,7 @@ npm run test
 Debian bookwormは対象外です。標準の[Cairo 1.16](https://packages.debian.org/bookworm/libcairo2-dev)と[IBus 1.5.27](https://packages.debian.org/bookworm/libibus-1.0-dev)が、描画ライブラリの必要なバージョンに届かないためです。
 
 ホストにはPodman、非ネイティブターゲット用のbinfmt/QEMU、GNU Make、`dpkg-deb`、`readelf`、Node.js 22.18以降、npmと`npx`が必要です。
-プリセット画像の準備には、ImageMagickの`convert`とGLibの`glib-compile-resources`も使います。
+プリセット画像の準備には、SVGを読み込める`gdk-pixbuf-thumbnailer`、ImageMagickの`convert`、GLibの`glib-compile-resources`も使います。
 先に`npm ci`を実行してください。リポジトリのルートで、再利用可能な前提イメージを一度生成してから、全組み合わせのパッケージを生成します。
 
 ```sh

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { PNG } from 'pngjs';
 import { expect, it } from 'vitest';
 import { waitForResult } from 'gestament/testing';
+import type { GtkElementOfKind } from 'gestament';
 import { expectElementKind, runSharedGtkTest } from './test-helpers';
 
 it('scrolls through both preset families and saves a clicked icon', async (context) => {
@@ -36,9 +37,20 @@ it('scrolls through both preset families and saves a clicked icon', async (conte
           await app.getById('settings_general_icon_scrollbar'),
           'scrollbar'
         );
+        let white: GtkElementOfKind<'radio'> | undefined;
         for (const [index, name] of ['noto', 'material'].entries()) {
           if (index > 0) await choose.click();
           await family.selectChildAt(index);
+          if (name === 'material') {
+            const colorRow = await app.getById(
+              'settings_general_icon_color_row'
+            );
+            expect((await colorRow.info()).states).toContain('showing');
+            white = expectElementKind(
+              await app.getById('settings_general_icon_color_white'),
+              'radio'
+            );
+          }
           await waitForResult(async () => {
             const pixels = PNG.sync.read((await grid.capture()).image);
             let dark = 0;
@@ -70,6 +82,54 @@ it('scrolls through both preset families and saves a clicked icon', async (conte
             (await popup.capture()).image
           );
           const info = await last!.info();
+          if (name === 'material') {
+            const gridViewport = (await grid.capture()).visibleBounds;
+            await app.input.moveMouseTo(
+              gridViewport.x + 10,
+              gridViewport.y - 55
+            );
+            const black = expectElementKind(
+              await app.getById('settings_general_icon_color_black'),
+              'radio'
+            );
+            expect(await black.isChecked()).toBe(true);
+            const previous = await selection.text();
+            const position = await scroll.value();
+            const previousThumbnails = PNG.sync.read(
+              (await grid.capture()).image
+            );
+            await white!.click();
+            expect(await white!.isChecked()).toBe(true);
+            expect(await scroll.value()).toBe(position);
+            expect((await popup.info()).states).toContain('showing');
+            expect(await selection.text()).toBe(previous);
+            await waitForResult(async () => {
+              const changedThumbnails = PNG.sync.read(
+                (await grid.capture()).image
+              );
+              expect(changedThumbnails.width).toBe(previousThumbnails.width);
+              let changed = 0;
+              for (
+                let offset = 0;
+                offset < changedThumbnails.data.length;
+                offset += 4
+              )
+                if (
+                  changedThumbnails.data[offset] !==
+                    previousThumbnails.data[offset] ||
+                  changedThumbnails.data[offset + 1] !==
+                    previousThumbnails.data[offset + 1] ||
+                  changedThumbnails.data[offset + 2] !==
+                    previousThumbnails.data[offset + 2]
+                )
+                  changed++;
+              expect(changed).toBeGreaterThan(200);
+            });
+            await writeFile(
+              join(directory, 'material-white-last.png'),
+              (await popup.capture()).image
+            );
+          }
           const bounds = (await expectElementKind(last, 'image').imageInfo())
             .bounds;
           // GTK3's IconView item extents omit the vertical scroll offset.
@@ -82,7 +142,9 @@ it('scrolls through both preset families and saves a clicked icon', async (conte
           await app.input.setMouseButton('left', true);
           await app.input.setMouseButton('left', false);
           await waitForResult(async () =>
-            expect(await selection.text()).toBe(info.name)
+            expect(await selection.text()).toBe(
+              name === 'material' ? `${info.name} (White)` : info.name
+            )
           );
           await expectElementKind(
             await app.getById('settings_save_button'),
@@ -90,11 +152,14 @@ it('scrolls through both preset families and saves a clicked icon', async (conte
           ).click();
           await waitForResult(async () =>
             expect(await readFile(configuration, 'utf8')).toMatch(
-              new RegExp(`icon=${name}:`)
+              new RegExp(
+                `icon=${name === 'material' ? 'material:white' : name}:`
+              )
             )
           );
         }
         await choose.click();
+        expect(await white!.isChecked()).toBe(true);
         const selected = await selection.text();
         await app.input.pressKey('Escape');
         await waitForResult(async () =>

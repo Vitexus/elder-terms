@@ -602,6 +602,15 @@ msgstr "デフォルトアイコン"
 msgid "Choose icon…"
 msgstr "アイコンを選択…"
 
+msgid "Glyph color"
+msgstr "図柄の色"
+
+msgid "Black"
+msgstr "黒"
+
+msgid "White"
+msgstr "白"
+
 msgid "Choose image file…"
 msgstr "画像ファイルを選択…"
 

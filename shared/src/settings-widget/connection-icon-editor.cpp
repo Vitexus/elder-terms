@@ -40,7 +40,18 @@ void sync_connection_icon_editor(ConnectionIconEditor *editor) {
   } else if (specification != "default" && !specification.empty()) {
     label = specification;
     for (const auto &preset : connection_icon_presets()) {
-      if (preset.specification == specification) { label = preset.name; break; }
+      if (preset.specification == specification) {
+        label = preset.name;
+        if (preset.family == ConnectionIconFamily::Material)
+          label += " (" + std::string(_("Black")) + ")";
+        break;
+      }
+      if (preset.family == ConnectionIconFamily::Material &&
+          specification == "material:white:" + preset.specification.substr(
+              std::string("material:").size())) {
+        label = preset.name + " (" + std::string(_("White")) + ")";
+        break;
+      }
     }
   }
   gtk_label_set_text(GTK_LABEL(editor->selection), label.c_str());
@@ -120,6 +131,7 @@ static void choose_icon(GtkButton *button, gpointer data) {
       static_cast<ConnectionIconEditor *>(data)->picker = nullptr;
     }), editor);
   }
+  sync_connection_icon_picker(editor->picker, general_connection_icon(*editor->store));
   gtk_widget_show(editor->picker);
 }
 

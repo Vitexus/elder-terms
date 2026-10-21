@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, it } from 'vitest';
+import { PNG } from 'pngjs';
 import { createGtkAppLauncher } from 'gestament';
 import type { GtkApp, GtkWidgetElement } from 'gestament';
 import { waitForResult } from 'gestament/testing';
@@ -31,7 +32,7 @@ it('uses a saved connection identity and prepares its desktop entry before showi
     await mkdir(data);
     await writeFile(
       config,
-      `[general]\nname=Desktop icon test\nconnection_id=${id}\nicon=material:action/home\n`
+      `[general]\nname=Desktop icon test\nconnection_id=${id}\nicon=material:white:action/home\n`
     );
     await runGtkTest(
       context,
@@ -55,6 +56,17 @@ it('uses a saved connection identity and prepares its desktop entry before showi
         expect(iconPath).toBeDefined();
         const firstImage = await readFile(iconPath!);
         expect(firstImage.subarray(1, 4).toString()).toBe('PNG');
+        const exported = PNG.sync.read(firstImage);
+        expect([exported.width, exported.height]).toEqual([256, 256]);
+        const center = (128 * exported.width + 128) * 4;
+        expect([...exported.data.subarray(center, center + 4)]).toEqual([
+          255, 255, 255, 255,
+        ]);
+        const outline = (190 * exported.width + 90) * 4;
+        expect([...exported.data.subarray(outline, outline + 4)]).toEqual([
+          0, 0, 0, 255,
+        ]);
+        expect(exported.data[(128 * exported.width + 32) * 4 + 3]).toBe(0);
 
         await clickWidget(app, await app.getById('application_menu_button'));
         await expectElementKind(

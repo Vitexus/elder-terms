@@ -106,6 +106,11 @@ int main(int argc, char **argv) {
   auto *grid = find(popup, "settings_general_icon_grid");
   assert(GTK_IS_ICON_VIEW(grid));
   auto *family = find(popup, "settings_general_icon_family");
+  auto *color_row = find(popup, "settings_general_icon_color_row");
+  auto *black = find(popup, "settings_general_icon_color_black");
+  auto *white = find(popup, "settings_general_icon_color_white");
+  assert(color_row && black && white);
+  assert(!gtk_widget_get_visible(color_row));
   auto *preview = find(root, "settings_general_icon_preview");
   const auto default_pixels = pixels(preview);
   assert(!default_pixels.empty());
@@ -123,16 +128,38 @@ int main(int argc, char **argv) {
   assert(applied && general_connection_icon(*applied) == noto.specification);
   gtk_button_clicked(GTK_BUTTON(find(root, "settings_general_icon_choose")));
   gtk_combo_box_set_active(GTK_COMBO_BOX(family), 1);
+  assert(gtk_widget_get_visible(color_row));
+  assert(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(black)));
   select_last(grid, material);
   assert(general_connection_icon(settings_widget_draft_store(state)) == material.specification);
   wait_until([&] { return pixels(preview) != default_pixels && pixels(preview) != noto_pixels; });
+  gtk_button_clicked(GTK_BUTTON(find(root, "settings_general_icon_choose")));
+  assert(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(black)));
+  gtk_button_clicked(GTK_BUTTON(white));
+  assert(general_connection_icon(settings_widget_draft_store(state)) == material.specification);
+  gtk_widget_hide(popup);
+  gtk_button_clicked(GTK_BUTTON(find(root, "settings_general_icon_choose")));
+  assert(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(black)));
+  gtk_widget_hide(popup);
   gtk_button_clicked(GTK_BUTTON(find(root, "settings_cancel_button")));
   assert(general_connection_icon(settings_widget_draft_store(state)) == noto.specification);
   wait_until([&] { return pixels(preview) == noto_pixels; });
   gtk_button_clicked(GTK_BUTTON(find(root, "settings_general_icon_choose")));
+  gtk_combo_box_set_active(GTK_COMBO_BOX(family), 1);
+  auto *adjustment = gtk_scrollable_get_vadjustment(GTK_SCROLLABLE(grid));
+  gtk_adjustment_set_value(adjustment, gtk_adjustment_get_upper(adjustment));
+  wait_until([&] { return gtk_adjustment_get_value(adjustment) > 0; });
+  const auto before_color = gtk_adjustment_get_value(adjustment);
+  gtk_button_clicked(GTK_BUTTON(white));
+  assert(gtk_widget_get_visible(popup));
+  assert(gtk_adjustment_get_value(adjustment) == before_color);
+  assert(general_connection_icon(settings_widget_draft_store(state)) == noto.specification);
   select_last(grid, material);
+  const auto white_specification = std::string("material:white:") +
+      material.specification.substr(std::string("material:").size());
+  assert(general_connection_icon(settings_widget_draft_store(state)) == white_specification);
   gtk_button_clicked(GTK_BUTTON(find(root, "settings_save_button")));
-  assert(saved && general_connection_icon(*saved) == material.specification);
+  assert(saved && general_connection_icon(*saved) == white_specification);
   auto *directory = g_dir_make_tmp("elder-presets-XXXXXX", nullptr);
   const auto path = std::filesystem::path(directory) / "connection.ini";
   assert(save_settings(*saved, path).saved);
@@ -141,10 +168,25 @@ int main(int argc, char **argv) {
   restored.store = load_settings({.config_path = path, .startup_config_path = std::nullopt,
       .global_config_path = std::nullopt}, 12).store;
   auto *reopened = create_settings_widget(std::move(restored));
-  auto *selection = find(settings_widget_root(reopened), "settings_general_icon_selection");
-  assert(material.name == gtk_label_get_text(GTK_LABEL(selection)));
-  assert(general_connection_icon(settings_widget_draft_store(reopened)) == material.specification);
-  destroy_settings_widget(reopened);
+  auto *reopened_root = settings_widget_root(reopened);
+  auto *reopened_window = gtk_window_new(GTK_WINDOW_TOPLEVEL);
+  gtk_container_add(GTK_CONTAINER(reopened_window), reopened_root);
+  g_signal_connect(reopened_window, "destroy", G_CALLBACK(+[](GtkWidget *, gpointer data) {
+    destroy_settings_widget(static_cast<SettingsWidgetState *>(data));
+  }), reopened);
+  gtk_widget_show_all(reopened_window);
+  auto *selection = find(reopened_root, "settings_general_icon_selection");
+  assert(std::string(gtk_label_get_text(GTK_LABEL(selection))).find(material.name) != std::string::npos);
+  assert(std::string(gtk_label_get_text(GTK_LABEL(selection))).find("White") != std::string::npos);
+  assert(general_connection_icon(settings_widget_draft_store(reopened)) == white_specification);
+  gtk_button_clicked(GTK_BUTTON(find(reopened_root, "settings_general_icon_choose")));
+  auto *reopened_popup = find(reopened_window, "settings_general_icon_picker");
+  assert(gtk_widget_get_visible(reopened_popup));
+  assert(gtk_combo_box_get_active(GTK_COMBO_BOX(find(reopened_popup,
+      "settings_general_icon_family"))) == 1);
+  assert(gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(find(reopened_popup,
+      "settings_general_icon_color_white"))));
+  gtk_widget_destroy(reopened_window);
   std::filesystem::remove_all(directory);
   g_free(directory);
   std::cout << "PASS both preset families, scroll-to-last selection, Apply, Cancel, Save and reload\n";

@@ -210,10 +210,10 @@ for (const preset of [
       expect(blue).toBeLessThan(100);
     },
     sample: [0.4, 0.5] as const,
-    badge: false,
+    transparent: false,
   },
   {
-    name: 'Material Icons',
+    name: 'black Material Icons',
     specification: 'material:action/home',
     expected: ([red, green, blue]: ReturnType<typeof capturePixel>) => {
       expect(red).toBeLessThan(80);
@@ -221,7 +221,18 @@ for (const preset of [
       expect(blue).toBeLessThan(80);
     },
     sample: [0.5, 0.5] as const,
-    badge: true,
+    transparent: true,
+  },
+  {
+    name: 'white Material Icons',
+    specification: 'material:white:action/home',
+    expected: ([red, green, blue]: ReturnType<typeof capturePixel>) => {
+      expect(red).toBeGreaterThan(230);
+      expect(green).toBeGreaterThan(230);
+      expect(blue).toBeGreaterThan(230);
+    },
+    sample: [0.5, 0.5] as const,
+    transparent: true,
   },
 ]) {
   it(`shows saved ${preset.name} artwork in the terminal title bar`, async (context) => {
@@ -241,11 +252,13 @@ for (const preset of [
             preset.expected(
               capturePixel(captured, preset.sample[0], preset.sample[1])
             );
-            if (preset.badge) {
-              const [red, green, blue] = capturePixel(captured, 0.15, 0.5);
-              expect(red).toBeGreaterThan(170);
-              expect(green).toBeGreaterThan(170);
-              expect(blue).toBeGreaterThan(170);
+            if (preset.transparent) {
+              const outside = capturePixel(captured, 0.01, 0.5);
+              const padding = capturePixel(captured, 0.1, 0.5);
+              for (let channel = 0; channel < 3; ++channel)
+                expect(
+                  Math.abs(padding[channel] - outside[channel])
+                ).toBeLessThanOrEqual(2);
             }
           });
         }
