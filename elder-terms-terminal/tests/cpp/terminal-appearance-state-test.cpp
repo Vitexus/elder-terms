@@ -28,6 +28,8 @@ struct Fixture {
   TerminalPresentation *presentation;
   cardio::primitives::conditional changed;
   int attachments = 0;
+  cardio::primitives::conditional painted;
+  guint paint_source = 0;
 };
 
 static void expect(bool condition, const char *message) {
@@ -77,6 +79,57 @@ static void check_appearance(Fixture *fixture, boxrig_ui_cursor_shape_policy sha
       metrics.requested_size_dip == 16, "font preference survives replacement and display scaling");
 }
 
+static cardio::promise<void> check_selection_pixels(Fixture *fixture) {
+  auto *runtime = fixture->window->runtime;
+  auto *widget = terminal_runtime_widget(runtime);
+  auto *view = boxrig_gtk3_terminal_widget_view(widget);
+  set_main_window_connection_phase(fixture->window, TerminalSessionConnectionPhase::connected);
+  expect(terminal_runtime_feed(runtime, "\033[?25l\033[2;1H\033[0m██  ██"), "feed selection sample");
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+  boxrig_font_effective_metrics metrics{};
+  expect(boxrig_gtk3_terminal_widget_get_effective_metrics(widget, &metrics) == BOXRIG_FONT_CATALOG_OK,
+      "read native selection metrics");
+  for (const auto shape : {BOXRIG_UI_SELECTION_LINEAR, BOXRIG_UI_SELECTION_RECTANGULAR}) {
+    boxrig_ui_selection_options options{};
+    options.kind = BOXRIG_UI_SELECTION_CHARACTER;
+    options.shape = shape;
+    boxrig_ui_hit_test_result hit{};
+    expect(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE,
+        (metrics.cell_height * 3 / 2) * BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK, "hit selection start");
+    expect(boxrig_ui_view_begin_selection_with_options(view, &options, &hit) == BOXRIG_UI_OK, "begin selection");
+    expect(boxrig_ui_view_hit_test(view, (metrics.cell_width * 6 - 1) * BOXRIG_UI_FIXED_ONE,
+        (metrics.cell_height * 3 / 2) * BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK, "hit selection end");
+    expect(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK, "extend selection");
+    for (const bool focused : {true, false}) {
+      expect(boxrig_ui_view_set_focused(view, focused) == BOXRIG_UI_OK, "change selection focus");
+      terminal_runtime_refresh(runtime);
+      while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+      // The prepared component image can precede GTK's actual window paint.
+      gtk_widget_queue_draw(GTK_WIDGET(widget));
+      co_await fixture->painted.wait();
+      gint x = 0, y = 0;
+      expect(gtk_widget_translate_coordinates(GTK_WIDGET(widget), fixture->window->window, 0, 0, &x, &y),
+          "locate native selection pixels");
+      auto *pixels = gdk_pixbuf_get_from_window(gtk_widget_get_window(fixture->window->window), x, y,
+          gtk_widget_get_allocated_width(GTK_WIDGET(widget)), gtk_widget_get_allocated_height(GTK_WIDGET(widget)));
+      expect(pixels != nullptr, "capture restored selection");
+      const auto *data = gdk_pixbuf_read_pixels(pixels);
+      const auto stride = gdk_pixbuf_get_rowstride(pixels);
+      const auto channels = gdk_pixbuf_get_n_channels(pixels);
+      const auto *ink = data + metrics.cell_height * 3 / 2 * stride + metrics.cell_width / 2 * channels;
+      const auto *fill = data + metrics.cell_height * 3 / 2 * stride + metrics.cell_width * 5 / 2 * channels;
+      const bool black = ink[0] == 0 && ink[1] == 0 && ink[2] == 0;
+      const bool gray = fill[0] == 179 && fill[1] == 179 && fill[2] == 179;
+      if (!black || !gray) std::fprintf(stderr, "selection shape=%d focus=%d ink=%02x%02x%02x fill=%02x%02x%02x\n",
+          shape, focused, ink[0], ink[1], ink[2], fill[0], fill[1], fill[2]);
+      g_object_unref(pixels);
+      expect(black && gray, "opaque gray and black selection survives reattachment, remap and focus with tint/image settings");
+    }
+  }
+  expect(boxrig_ui_view_clear_selection(view) == BOXRIG_UI_OK, "clear selection sample");
+  while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
+}
+
 static cardio::promise<void> scenarios(Fixture *fixture) {
   auto *runtime = fixture->window->runtime;
   while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
@@ -103,6 +156,7 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
     expect(apply_terminal_presentation(fixture->presentation, store, image), "apply combined appearance");
     while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
     check_appearance(fixture, shape);
+    co_await check_selection_pixels(fixture);
     const auto attachments = fixture->attachments;
     auto *previous = terminal_runtime_widget(runtime);
     // Retain identity through replacement; never dereference the destroyed GTK widget.
@@ -120,10 +174,12 @@ static cardio::promise<void> scenarios(Fixture *fixture) {
     expect(boxrig_ui_model_terminal(boxrig_ui_view_model(boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(runtime)))) == core,
         "recovery retains the original terminal core");
     check_appearance(fixture, shape);
+    co_await check_selection_pixels(fixture);
     gtk_widget_hide(fixture->window->window);
     gtk_widget_show(fixture->window->window);
     while (!terminal_runtime_is_settled(runtime)) co_await fixture->changed.wait();
     check_appearance(fixture, shape);
+    co_await check_selection_pixels(fixture);
   }
 }
 
@@ -142,12 +198,23 @@ extern "C" int __wrap_main(int argc, char **argv) {
   cardio::dispatcher_host_glib_auto dispatcher(group);
   auto window = load_main_window();
   if (!window) return 1;
-  Fixture fixture{&*window, create_terminal_presentation(&*window, {}, {}, {}), {}, 0};
+  Fixture fixture{&*window, create_terminal_presentation(&*window, {}, {}, {}), {}, 0, {}, 0};
   terminal_runtime_set_host_callbacks(window->runtime, {
       [&fixture](BoxrigGtk3TerminalWidget *) {
         ++fixture.attachments;
         attach_main_window_terminal(fixture.window);
         attach_terminal_presentation(fixture.presentation);
+        g_signal_connect_after(terminal_runtime_widget(fixture.window->runtime), "draw",
+            G_CALLBACK(+[](GtkWidget *, cairo_t *, gpointer context) -> gboolean {
+              auto *current = static_cast<Fixture *>(context);
+              if (!current->paint_source) current->paint_source = g_idle_add(+[](gpointer context) -> gboolean {
+                auto *current = static_cast<Fixture *>(context);
+                current->paint_source = 0;
+                current->painted.trigger();
+                return G_SOURCE_REMOVE;
+              }, current);
+              return FALSE;
+            }), &fixture);
       }, {}, {}});
   terminal_runtime_set_changed_callback(window->runtime, [](void *context) {
     static_cast<Fixture *>(context)->changed.trigger();
@@ -156,6 +223,7 @@ extern "C" int __wrap_main(int argc, char **argv) {
   std::exception_ptr failure;
   auto completion = run(&fixture, &failure);
   gtk_main();
+  if (fixture.paint_source) g_source_remove(fixture.paint_source);
   terminal_runtime_set_changed_callback(window->runtime, nullptr, nullptr);
   terminal_runtime_set_host_callbacks(window->runtime, {});
   destroy_terminal_presentation(fixture.presentation);

@@ -183,6 +183,9 @@ void attach_terminal_presentation(TerminalPresentation *presentation) {
       terminal_runtime_widget(presentation->window->runtime), route_key, presentation);
   if (status != BOXRIG_UI_OK) g_printerr("Terminal shortcuts: %d\n", status);
   apply_cursor(presentation, presentation->cursor);
+  const auto selection_status = apply_terminal_selection_style(
+      boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(presentation->window->runtime)));
+  if (selection_status != BOXRIG_UI_OK) g_printerr("Terminal selection: %d\n", selection_status);
   if (!apply_colors(presentation, presentation->colors)) g_printerr("Failed to restore terminal color correction\n");
   attach_terminal_background(presentation->background);
 }

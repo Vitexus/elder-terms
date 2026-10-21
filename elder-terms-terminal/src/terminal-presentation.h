@@ -10,6 +10,23 @@ namespace elder_terms {
 struct TerminalPresentation;
 
 /**
+ * Applies the application's opaque gray selection and black selected text.
+ * @param view Attached view on its owning UI thread.
+ * @return The boxrig status; a failed change preserves the previous style.
+ * @remarks Used by the application and its driver after every attachment.
+ * Existing color filters and hidden-text attributes still apply.
+ */
+inline boxrig_ui_status apply_terminal_selection_style(boxrig_ui_view *view) {
+  auto selection = boxrig_ui_selection_style_default();
+  selection.presentation = BOXRIG_UI_SELECTION_FILL;
+  selection.background = {179, 179, 179};
+  selection.background_opacity = 255;
+  selection.foreground_policy = BOXRIG_UI_SELECTION_FOREGROUND_RGB;
+  selection.foreground = {0, 0, 0};
+  return boxrig_ui_view_set_selection_style(view, &selection);
+}
+
+/**
  * Creates presentation integration without owning the runtime or GTK objects.
  * @param window Stable window state, retained until destruction.
  * @param options Optional deterministic UI fixture controls.
@@ -21,7 +38,7 @@ TerminalPresentation *create_terminal_presentation(MainWindow *window, TestOptio
     std::function<void(TerminalDisplaySettings)> changed, std::function<void()> send_break);
 
 /**
- * Attaches shortcuts and restores cursor, background and color-filter preferences after widget reattachment.
+ * Attaches shortcuts and restores cursor, selection, background and color-filter preferences after widget reattachment.
  * @param presentation Live integration.
  */
 void attach_terminal_presentation(TerminalPresentation *presentation);

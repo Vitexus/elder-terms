@@ -1,4 +1,5 @@
 #include "terminal-runtime.h"
+#include "terminal-presentation.h"
 #include "terminal-transports.h"
 #include "inline-prompt.h"
 #include "terminal-log.h"
@@ -256,7 +257,8 @@ static boxrig_input_key_route route_key(const boxrig_key_event *event, void *con
 }
 
 static void attach_driver_widget(Driver *driver, BoxrigGtk3TerminalWidget *widget) {
-  driver->attachment_failed = boxrig_gtk3_terminal_widget_set_key_router(widget, route_key, driver) != BOXRIG_UI_OK;
+  driver->attachment_failed = boxrig_gtk3_terminal_widget_set_key_router(widget, route_key, driver) != BOXRIG_UI_OK ||
+      elder_terms::apply_terminal_selection_style(boxrig_gtk3_terminal_widget_view(widget)) != BOXRIG_UI_OK;
   if (driver->attachment_failed) {
     std::fputs("Could not attach driver key routing\n", stderr);
     return;
