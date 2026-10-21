@@ -71,6 +71,18 @@ void destroy_terminal_runtime(TerminalRuntime *runtime);
 BoxrigGtk3TerminalWidget *terminal_runtime_widget(TerminalRuntime *runtime);
 
 /**
+ * Routes an unmodified Escape press to selection cancellation when appropriate.
+ * @param runtime Live runtime owning the view and pointer gesture.
+ * @param event Normalized native key transition before terminal encoding.
+ * @return APPLICATION when cancellation consumes Escape, TERMINAL for IME,
+ * modified keys or absent selections, or ERROR if the view cannot be updated.
+ * @remarks Lock modifiers do not prevent cancellation. Existing clipboards
+ * remain intact; a cancelled held pointer is consumed through its release.
+ * The boxrig key router captures subsequent repeat and release transitions.
+ */
+boxrig_input_key_route terminal_runtime_route_selection_key(TerminalRuntime *runtime, const boxrig_key_event &event);
+
+/**
  * Replaces ordered link rules and the application action handler.
  * @param runtime Live runtime; current recognition is invalidated atomically.
  * @param rules Screen and OSC 8 rules, or an empty list to disable links.

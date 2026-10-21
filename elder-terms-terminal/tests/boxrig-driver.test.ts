@@ -132,6 +132,31 @@ describe('boxrig GTK3 driver', () => {
           );
           expect(stdout).toBe('Select and copy this text.');
         });
+        await toPass(async () => {
+          const frame = PNG.sync.read((await terminal.capture()).image);
+          let gray = 0;
+          let darkInk = 0;
+          for (let y = cellHeight * 2; y < cellHeight * 3; y++) {
+            for (let x = 0; x < cellWidth * 25; x++) {
+              const pixel = (y * frame.width + x) * 4;
+              if (
+                frame.data[pixel] === 179 &&
+                frame.data[pixel + 1] === 179 &&
+                frame.data[pixel + 2] === 179
+              )
+                gray++;
+              if (
+                frame.data[pixel] < 80 &&
+                frame.data[pixel + 1] < 80 &&
+                frame.data[pixel + 2] < 80
+              )
+                darkInk++;
+            }
+          }
+          expect(gray).toBeGreaterThan(cellWidth * cellHeight * 10);
+          // Small text can have antialiased edges without a fully black pixel.
+          expect(darkInk).toBeGreaterThan(10);
+        });
         await app.input.moveMouseTo(
           origin.x + cellWidth * 40,
           origin.y + cellHeight * 12

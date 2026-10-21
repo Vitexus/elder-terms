@@ -130,6 +130,8 @@ static guint key_value(const boxrig_key_event &event) {
 
 static boxrig_input_key_route route_key(const boxrig_key_event *event, void *context) {
   auto *presentation = static_cast<TerminalPresentation *>(context);
+  const auto selection = terminal_runtime_route_selection_key(presentation->window->runtime, *event);
+  if (selection != BOXRIG_INPUT_KEY_ROUTE_TERMINAL) return selection;
   const auto clipboard = route_main_window_terminal_key(presentation->window, *event);
   if (clipboard != BOXRIG_INPUT_KEY_ROUTE_TERMINAL) return clipboard;
   const guint modifiers = ((event->modifiers & BOXRIG_MODIFIER_CONTROL) ? GDK_CONTROL_MASK : 0) |
@@ -183,6 +185,9 @@ void attach_terminal_presentation(TerminalPresentation *presentation) {
       terminal_runtime_widget(presentation->window->runtime), route_key, presentation);
   if (status != BOXRIG_UI_OK) g_printerr("Terminal shortcuts: %d\n", status);
   apply_cursor(presentation, presentation->cursor);
+  const auto selection_status = apply_terminal_selection_style(
+      boxrig_gtk3_terminal_widget_view(terminal_runtime_widget(presentation->window->runtime)));
+  if (selection_status != BOXRIG_UI_OK) g_printerr("Terminal selection: %d\n", selection_status);
   if (!apply_colors(presentation, presentation->colors)) g_printerr("Failed to restore terminal color correction\n");
   attach_terminal_background(presentation->background);
 }
@@ -281,13 +286,19 @@ void refresh_terminal_presentation(TerminalPresentation *presentation) {
   const bool settled = terminal_runtime_is_settled(window->runtime) &&
       presentation->zoom_requests.empty() && presentation->zoom_source == 0 && !presentation->pending_grid;
   {
-    char report[256];
-    std::snprintf(report, sizeof(report), "backend=%s grid=%zux%zu font=%.2f history=%zu cell=%ux%u scale=%d ready=%d a11y=%s",
+    boxrig_scrollbar_state scroll{};
+    boxrig_ui_selection selection{};
+    auto *view = boxrig_gtk3_terminal_widget_view(widget);
+    if (boxrig_ui_view_get_scrollbar_state(view, &scroll) != BOXRIG_UI_OK) return;
+    const bool selected = boxrig_ui_view_get_selection(view, &selection);
+    char report[512];
+    std::snprintf(report, sizeof(report), "backend=%s grid=%zux%zu font=%.2f history=%zu cell=%ux%u scale=%d ready=%d a11y=%s scroll=%zu/%zu selected=%d selection_rows=%zu",
         render.active_backend == BOXRIG_GTK_RENDER_BACKEND_OPENGL ? "opengl" :
             render.active_backend == BOXRIG_GTK_RENDER_BACKEND_CAIRO ? "cairo" : "initializing",
         columns, rows, metrics.requested_size_dip, history, metrics.cell_width, metrics.cell_height,
         gtk_widget_get_scale_factor(GTK_WIDGET(widget)), settled,
-        boxrig_gtk3_terminal_widget_get_accessibility_enabled(widget) ? "on" : "off");
+        boxrig_gtk3_terminal_widget_get_accessibility_enabled(widget) ? "on" : "off",
+        scroll.model.position, scroll.model.history_rows, selected, selection.row_count);
     gtk_label_set_text(GTK_LABEL(window->fixture_terminal_state_label), report);
     const auto grid = std::to_string(columns) + "x" + std::to_string(rows);
     gtk_label_set_text(GTK_LABEL(window->fixture_grid_size_label), grid.c_str());

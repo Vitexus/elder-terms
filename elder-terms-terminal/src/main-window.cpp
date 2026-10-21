@@ -121,7 +121,11 @@ static std::string format_translated_string(const char *format,
 static void on_terminal_context_copy_activate(GtkMenuItem *, gpointer data) {
   auto *state = static_cast<TerminalContextMenuState *>(data);
   const boxrig_ui_view_action copy{BOXRIG_UI_VIEW_ACTION_COPY, BOXRIG_UI_CLIPBOARD_TARGET_CLIPBOARD};
-  boxrig_gtk3_terminal_widget_apply_view_action(state->terminal, &copy);
+  const auto status = boxrig_gtk3_terminal_widget_apply_view_action(state->terminal, &copy);
+  if (status != BOXRIG_UI_OK && status != BOXRIG_UI_UNAVAILABLE && status != BOXRIG_UI_STALE)
+    g_warning("Could not copy terminal selection: %s (status=%d)",
+        status == BOXRIG_UI_LIMIT_EXCEEDED ? "selection or clipboard limit exceeded" :
+        status == BOXRIG_UI_OUT_OF_MEMORY ? "out of memory" : "operation failed", status);
 }
 
 static void on_clipboard_targets_received(GtkClipboard *, GdkAtom *atoms,

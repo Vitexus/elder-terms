@@ -1,4 +1,5 @@
 #include "../../src/terminal-runtime.h"
+#include "../../src/terminal-presentation.h"
 #include <elder-terms/terminal-color-filter.h>
 
 #include <cassert>
@@ -31,8 +32,11 @@ static boxrig_ui_color_filter_result filter_colors(const boxrig_ui_color_filter_
     fixture->expected.push_back(colors.foreground);
     fixture->expected.push_back(colors.background);
     fixture->expected.push_back(colors.underline);
-  } else if ((phase == 1 && input->target == BOXRIG_UI_COLOR_SELECTION_MARKER) ||
-      (phase == 2 && input->target == BOXRIG_UI_COLOR_SEARCH_MARKER) ||
+  } else if (phase == 1 && input->target == BOXRIG_UI_COLOR_CELL &&
+      input->background_source.role == BOXRIG_UI_COLOR_UI) {
+    fixture->expected.push_back(colors.foreground);
+    fixture->expected.push_back(colors.background);
+  } else if ((phase == 2 && input->target == BOXRIG_UI_COLOR_SEARCH_MARKER) ||
       (phase == 3 && input->target == BOXRIG_UI_COLOR_IME_MARKER)) {
     fixture->expected.push_back(colors.marker);
   } else if (phase == 3 && input->target == BOXRIG_UI_COLOR_IME) {
@@ -46,7 +50,7 @@ static boxrig_ui_color_filter_result filter_colors(const boxrig_ui_color_filter_
 
 static void check_pixels(Fixture *fixture) {
   const unsigned int required[] = {
-    1u << BOXRIG_UI_COLOR_CELL, 1u << BOXRIG_UI_COLOR_SELECTION_MARKER,
+    1u << BOXRIG_UI_COLOR_CELL, 1u << BOXRIG_UI_COLOR_CELL,
     1u << BOXRIG_UI_COLOR_SEARCH_MARKER, (1u << BOXRIG_UI_COLOR_IME) | (1u << BOXRIG_UI_COLOR_IME_MARKER)};
   const auto targets = required[fixture->scenario % 4];
   assert((fixture->targets & targets) == targets);
@@ -104,12 +108,16 @@ static void prepare_scenario(Fixture *fixture) {
     assert(terminal_runtime_feed(fixture->runtime,
         "\033[38;2;200;80;80;48;2;80;128;80;58;2;20;40;160;4m██  \033[7m██  \033[0m"));
   } else if (phase == 1) {
-    assert(terminal_runtime_feed(fixture->runtime, "\033[48;2;80;128;80m    \033[0m"));
+    assert(terminal_runtime_feed(fixture->runtime, "\033[48;2;80;128;80m██  \033[0m"));
     assert(boxrig_ui_model_synchronize(boxrig_ui_view_model(view)) == BOXRIG_UI_OK);
+    assert(apply_terminal_selection_style(view) == BOXRIG_UI_OK);
     boxrig_ui_hit_test_result hit{};
     assert(boxrig_ui_view_hit_test(view, BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
-    assert(boxrig_ui_view_begin_selection(view, BOXRIG_UI_SELECTION_CHARACTER, &hit) == BOXRIG_UI_OK);
-    assert(boxrig_ui_view_hit_test(view, 20 * BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
+    boxrig_ui_selection_options selection{};
+    selection.kind = BOXRIG_UI_SELECTION_CHARACTER;
+    selection.shape = fixture->scenario % 8 < 4 ? BOXRIG_UI_SELECTION_LINEAR : BOXRIG_UI_SELECTION_RECTANGULAR;
+    assert(boxrig_ui_view_begin_selection_with_options(view, &selection, &hit) == BOXRIG_UI_OK);
+    assert(boxrig_ui_view_hit_test(view, 40 * BOXRIG_UI_FIXED_ONE, BOXRIG_UI_FIXED_ONE, &hit) == BOXRIG_UI_OK);
     assert(boxrig_ui_view_update_selection(view, &hit) == BOXRIG_UI_OK);
   } else if (phase == 2) {
     assert(terminal_runtime_feed(fixture->runtime, "\033[48;2;80;128;80mFIND\033[0m"));

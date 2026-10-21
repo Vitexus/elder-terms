@@ -1,4 +1,5 @@
 #include "terminal-runtime.h"
+#include "terminal-presentation.h"
 #include "terminal-transports.h"
 #include "inline-prompt.h"
 #include "terminal-log.h"
@@ -139,7 +140,9 @@ static void report_state(void *context) {
       " ime_policy=" + std::to_string(ime.requested_policy) + " ime_route=" + std::to_string(ime.active_route) +
       " ime_reason=" + std::to_string(ime.reason) + " ime_state=" + std::to_string(ime.direct.state) +
       " ime_pending=" + std::to_string(ime.direct.pending) + " ime_contexts=" + std::to_string(ime.direct.contexts) +
-      " ime_errors=" + std::to_string(ime.direct.errors) + " preedit=" + preedit +
+      " ime_errors=" + std::to_string(ime.direct.errors) +
+      " preedit_active=" + std::to_string(composition.active) +
+      " commit_pending=" + std::to_string(composition.commit_pending) + " preedit=" + preedit +
       " caret=" + std::to_string(atk_text_get_caret_offset(ATK_TEXT(accessible))) +
       " text_events=" + std::to_string(driver->text_events) + " caret_events=" + std::to_string(driver->caret_events) +
       " selection_events=" + std::to_string(driver->selection_events) +
@@ -246,6 +249,8 @@ static void input_settings_changed(GtkButton *button, gpointer context) {
 
 static boxrig_input_key_route route_key(const boxrig_key_event *event, void *context) {
   auto *driver = static_cast<Driver *>(context);
+  const auto selection = elder_terms::terminal_runtime_route_selection_key(driver->runtime, *event);
+  if (selection != BOXRIG_INPUT_KEY_ROUTE_TERMINAL) return selection;
   if (event->key != BOXRIG_KEY_F12 || event->modifiers != BOXRIG_MODIFIER_CONTROL)
     return BOXRIG_INPUT_KEY_ROUTE_TERMINAL;
   if (event->action == BOXRIG_KEY_PRESS) {
@@ -256,7 +261,8 @@ static boxrig_input_key_route route_key(const boxrig_key_event *event, void *con
 }
 
 static void attach_driver_widget(Driver *driver, BoxrigGtk3TerminalWidget *widget) {
-  driver->attachment_failed = boxrig_gtk3_terminal_widget_set_key_router(widget, route_key, driver) != BOXRIG_UI_OK;
+  driver->attachment_failed = boxrig_gtk3_terminal_widget_set_key_router(widget, route_key, driver) != BOXRIG_UI_OK ||
+      elder_terms::apply_terminal_selection_style(boxrig_gtk3_terminal_widget_view(widget)) != BOXRIG_UI_OK;
   if (driver->attachment_failed) {
     std::fputs("Could not attach driver key routing\n", stderr);
     return;
