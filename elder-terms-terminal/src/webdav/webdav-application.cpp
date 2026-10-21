@@ -3,6 +3,7 @@
 #include "../file-transfer/file-transfer-window.h"
 #include "../file-transfer/file-transfer-paths.h"
 #include "../file-transfer/file-transfer-certificate-prompt.h"
+#include <elder-terms/connection-desktop-session.h>
 
 #include <iostream>
 #define GETTEXT_PACKAGE "elder-terms"
@@ -34,6 +35,7 @@ static cardio::promise<void> finish_application_async(WebdavApplication *state) 
     co_await stop_ssh_socks_proxy_async(state->route);
     co_await closing;
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; }
+  shutdown_connection_desktop_session();
   state->dispatcher_group->shutdown();
 }
 

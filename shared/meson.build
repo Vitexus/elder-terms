@@ -102,6 +102,9 @@ configure_file(
 )
 
 elder_terms_shared_sources = elder_terms_shared_resources + elder_terms_noto_preset_resources + [elder_terms_material_preset_resources] + [
+  'src/connection-identity.cpp',
+  'src/connection-desktop.cpp',
+  'src/connection-desktop-session.cpp',
   'src/application-icon.cpp',
   'src/connection-icon.cpp',
   'src/connection-icon-presets.cpp',
@@ -283,6 +286,13 @@ test('elder-terms-shared-test', elder_terms_shared_test)
 connection_icon_test = executable('connection-icon-test',
   'tests/connection-icon-test.cpp', dependencies: elder_terms_dep)
 test('connection-icon-test', connection_icon_test)
+
+connection_identity_test = executable('connection-identity-test',
+  'tests/connection-identity-test.cpp', dependencies: elder_terms_dep)
+test('connection-identity-test', connection_identity_test)
+
+executable('connection-desktop-driver', 'tests/connection-desktop-driver.cpp',
+  dependencies: elder_terms_dep)
 
 connection_window_icon_test = executable('connection-window-icon-test',
   'tests/connection-window-icon-test.cpp',

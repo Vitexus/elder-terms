@@ -4,6 +4,8 @@
 #include <charconv>
 #include <utility>
 
+#include <glib.h>
+
 namespace elder_terms {
 
 static constexpr char general_section[] = "general";
@@ -11,6 +13,7 @@ static constexpr char general_auto_close_key[] = "auto_close";
 static constexpr bool default_general_auto_close = true;
 static constexpr char general_name_key[] = "name";
 static constexpr char general_icon_key[] = "icon";
+static constexpr char general_connection_id_key[] = "connection_id";
 static constexpr char general_type_key[] = "type";
 static constexpr char general_open_connection_key[] = "open_connection";
 static constexpr char general_exterior_background_key[] =
@@ -164,6 +167,25 @@ SettingKey general_icon_setting_key() {
   return make_setting_key(general_section, general_icon_key);
 }
 
+SettingKey general_connection_id_setting_key() {
+  return make_setting_key(general_section, general_connection_id_key);
+}
+
+std::string general_connection_id(const SettingsStore &store) {
+  const auto id = setting_string_value_or_default(
+      store, general_connection_id_setting_key(), "");
+  return g_uuid_string_is_valid(id.c_str()) ? id : std::string();
+}
+
+static bool validate_connection_id(const SettingValue &value,
+                                   std::string *reason) {
+  const auto *id = std::get_if<std::string>(&value);
+  if (id != nullptr && (id->empty() || g_uuid_string_is_valid(id->c_str())))
+    return true;
+  *reason = "must be a UUID";
+  return false;
+}
+
 std::string general_connection_icon(const SettingsStore &store) {
   return setting_string_value_or_default(store, general_icon_setting_key(),
                                          "default");
@@ -231,6 +253,11 @@ general_setting_definitions(std::string default_connection_name) {
           .key = general_icon_setting_key(),
           .default_value = SettingValue{std::string("default")},
           .validate = nullptr,
+      },
+      {
+          .key = general_connection_id_setting_key(),
+          .default_value = SettingValue{std::string()},
+          .validate = validate_connection_id,
       },
       {
           .key = general_type_setting_key(),

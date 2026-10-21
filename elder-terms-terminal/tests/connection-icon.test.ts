@@ -31,18 +31,13 @@ const openSettings = async (app: GtkApp): Promise<void> => {
   await app.getById('settings_dialog');
 };
 
-const nativeCenterPixel = async (app: GtkApp): Promise<number> => {
-  const window = expectElementKind(await app.getById('main_window'), 'window');
+const nativeCenterPixel = async (
+  app: GtkApp,
+  windowId: string
+): Promise<number> => {
   const { stdout } = await promisify(execFile)(
     'xprop',
-    [
-      '-id',
-      (await window.x11Info()).windowId,
-      '-len',
-      '4096',
-      '32c',
-      '_NET_WM_ICON',
-    ],
+    ['-id', windowId, '-len', '4096', '32c', '_NET_WM_ICON'],
     { env: { ...process.env, ...(await app.environment()) } }
   );
   const pixels = stdout.split('=')[1]!.split(',').map(Number);
@@ -64,6 +59,11 @@ it('shows a saved connection icon at the left of the terminal title bar', async 
         await app.getById('header_connection_icon'),
         'image'
       );
+      const window = expectElementKind(
+        await app.getById('main_window'),
+        'window'
+      );
+      const windowId = (await window.x11Info()).windowId;
       await waitForResult(async () => {
         const [red, green, blue] = capturePixel(
           await titleIcon.capture(),
@@ -73,7 +73,7 @@ it('shows a saved connection icon at the left of the terminal title bar', async 
         expect(red).toBeGreaterThan(220);
         expect(green).toBeLessThan(35);
         expect(blue).toBeLessThan(35);
-        expect(await nativeCenterPixel(app)).toBe(0xffff0000);
+        expect(await nativeCenterPixel(app, windowId)).toBe(0xffff0000);
       });
       await openSettings(app);
       await expectElementKind(
@@ -94,7 +94,7 @@ it('shows a saved connection icon at the left of the terminal title bar', async 
         expect(red).toBeGreaterThan(220);
         expect(green).toBeLessThan(35);
         expect(blue).toBeLessThan(35);
-        expect(await nativeCenterPixel(app)).toBe(0xffff0000);
+        expect(await nativeCenterPixel(app, windowId)).toBe(0xffff0000);
       });
       await openSettings(app);
       await expectElementKind(
@@ -113,7 +113,7 @@ it('shows a saved connection icon at the left of the terminal title bar', async 
           0.5
         );
         expect(red < 220 || green > 35 || blue > 35).toBe(true);
-        expect(await nativeCenterPixel(app)).not.toBe(0xffff0000);
+        expect(await nativeCenterPixel(app, windowId)).not.toBe(0xffff0000);
       });
     });
   });

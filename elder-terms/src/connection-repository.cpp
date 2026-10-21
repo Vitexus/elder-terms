@@ -9,6 +9,9 @@
 #include <glib.h>
 #include <unistd.h>
 
+#include <elder-terms/connection-identity.h>
+#include <elder-terms/settings/general-settings.h>
+
 #define GETTEXT_PACKAGE "elder-terms"
 #include <glib/gi18n-lib.h>
 
@@ -217,7 +220,20 @@ ConnectionSaveResult save_connection_profile(
   if (!temporary.has_value()) {
     return result;
   }
-  const SettingsSaveResult save_result = save_settings(store, *temporary);
+  SettingsStore saved_store = store;
+  std::string id;
+  if (original_path.has_value()) {
+    const auto existing = load_connection_profile(*original_path);
+    if (existing.loaded) id = general_connection_id(existing.store);
+  }
+  if (id.empty()) id = generate_connection_id();
+  if (!set_explicit_setting_value(&saved_store,
+                                  general_connection_id_setting_key(), id)) {
+    result.warnings.push_back("Warning: failed to set connection ID");
+    remove_temporary_file(*temporary);
+    return result;
+  }
+  const SettingsSaveResult save_result = save_settings(saved_store, *temporary);
   result.warnings.insert(result.warnings.end(), save_result.warnings.begin(),
                          save_result.warnings.end());
   if (!save_result.saved) {

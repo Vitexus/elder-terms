@@ -79,6 +79,16 @@ ELDER_TERMS_API SettingKey general_name_setting_key();
  */
 ELDER_TERMS_API SettingKey general_icon_setting_key();
 
+/** @returns The connection-only key for a stable UUID in [general]. */
+ELDER_TERMS_API SettingKey general_connection_id_setting_key();
+
+/**
+ * Gets the stable identity of a saved connection.
+ * @param store Connection settings.
+ * @returns A valid UUID, or an empty string when absent or invalid.
+ */
+ELDER_TERMS_API std::string general_connection_id(const SettingsStore &store);
+
 /**
  * Gets the saved connection icon specification.
  *

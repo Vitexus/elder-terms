@@ -177,8 +177,11 @@ static void bind_data(wl_client *client, void *, std::uint32_t version, std::uin
   wl_resource_set_implementation(resource, &data_implementation, nullptr, nullptr);
 }
 
+static void record_application_id(wl_client *, wl_resource *, const char *id) {
+  std::cout << "APP_ID " << id << std::endl;
+}
 static const struct xdg_toplevel_interface toplevel_implementation = {
-    destroy_resource, no_object, no_string, no_string, no_menu, no_move, no_resize,
+    destroy_resource, no_object, no_string, record_application_id, no_menu, no_move, no_resize,
     no_pair, no_pair, no_request, no_request, no_object, no_request, no_request};
 static void toplevel_destroyed(wl_resource *resource) {
   auto *surface = static_cast<IconSurface *>(wl_resource_get_user_data(resource));

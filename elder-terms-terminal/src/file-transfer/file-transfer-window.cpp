@@ -1,5 +1,6 @@
 #include <elder-terms/modal-dialog.h>
 #include <elder-terms/connection-icon-image.h>
+#include <elder-terms/connection-desktop-session.h>
 #include <elder-terms/settings-widget.h>
 #include "file-transfer-window.h"
 
@@ -2635,6 +2636,7 @@ static void open_file_settings(GtkMenuItem *, gpointer data) {
   SettingsWidgetCallbacks callbacks;
   callbacks.apply = [window](const SettingsStore &settings, SettingsWidgetAction action) {
     window->settings = settings;
+    update_connection_desktop_session(window->settings);
     set_file_transfer_window_connection_icon(
         window->self.lock(), general_connection_icon(settings));
     set_file_transfer_window_colors(

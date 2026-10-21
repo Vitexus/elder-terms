@@ -3,17 +3,27 @@
 #include <functional>
 #include <optional>
 #include <string>
+#include <cardio.h>
 
 namespace elder_terms {
 
 /** Accepted control operations. */
-enum class ControlCommand { open_application, open_connection, setup };
+enum class ControlCommand {
+  /** Presents the launcher window. */
+  open_application,
+  /** Opens a saved connection by its current name. */
+  open_connection,
+  /** Opens a saved connection by its persistent UUID. */
+  open_connection_id,
+  /** Configures and reports global hotkeys. */
+  setup,
+};
 
 /** A transport-independent request to control the launcher. */
 struct ControlRequest {
   /** Requested operation. */
   ControlCommand command;
-  /** Saved connection name for open_connection, otherwise no value. */
+  /** Saved connection name or ID for the corresponding open command. */
   std::optional<std::string> connection;
   /** Desktop activation token, when supplied by the caller. */
   std::optional<std::string> activation_token;
@@ -30,7 +40,8 @@ struct ControlReply {
 };
 
 /** Handles a control request on the dispatcher's thread. */
-using ControlCallback = std::function<ControlReply(const ControlRequest &)>;
+using ControlCallback = std::function<cardio::promise<ControlReply>(
+    ControlRequest, cardio::cancellation)>;
 
 /** Opaque asynchronous control server and its owned resources. */
 struct ControlServerState;

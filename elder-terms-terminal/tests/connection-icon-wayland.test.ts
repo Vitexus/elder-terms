@@ -156,6 +156,14 @@ for (const appKind of ['terminal', 'file-transfer'] as const) {
               expect(received).toContain('COMMIT ');
             });
           }
+          const saved = await readFile(config, 'utf8');
+          const id = saved.match(/^connection_id=(.+)$/mu)?.[1];
+          expect(id).toMatch(/^[0-9a-f-]{36}$/u);
+          await waitForResult(async () => {
+            expect(received).toContain(
+              `APP_ID net.kekyo.elder-terms.connection.${id}\n`
+            );
+          });
         } finally {
           const evidence = fileURLToPath(
             new URL(

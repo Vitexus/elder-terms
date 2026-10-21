@@ -10,6 +10,7 @@
 #include <string>
 
 #include <elder-terms/settings.h>
+#include <elder-terms/settings/general-settings.h>
 #include <elder-terms/settings/terminal-settings.h>
 
 namespace elder_terms_connection_repository_test {
@@ -142,6 +143,9 @@ static void test_saves_loads_and_renames_profiles() {
       elder_terms::load_connection_profile(created.path);
   expect_true(loaded.loaded,
               "saved connection profile should load successfully");
+  const auto original_id = elder_terms::general_connection_id(loaded.store);
+  expect_true(g_uuid_string_is_valid(original_id.c_str()),
+              "new profile should persist a valid UUID");
   expect_true(elder_terms::terminal_display_settings(loaded.store).width == 91,
               "loaded connection profile should preserve settings");
 
@@ -152,6 +156,17 @@ static void test_saves_loads_and_renames_profiles() {
   expect_true(!std::filesystem::exists(created.path) &&
                   std::filesystem::exists(renamed.path),
               "successful rename should remove the old path");
+  const auto renamed_store = elder_terms::load_connection_profile(renamed.path);
+  expect_true(elder_terms::general_connection_id(renamed_store.store) == original_id,
+              "save and rename should keep the original connection ID");
+  const auto duplicate = elder_terms::save_connection_profile(
+      directory, std::nullopt, "Duplicate", renamed_store.store);
+  expect_true(duplicate.saved, "duplicate profile should save");
+  const auto duplicated_store = elder_terms::load_connection_profile(duplicate.path);
+  const auto duplicate_id = elder_terms::general_connection_id(duplicated_store.store);
+  expect_true(g_uuid_string_is_valid(duplicate_id.c_str()) &&
+                  duplicate_id != original_id,
+              "duplicating a connection should create a distinct ID");
   std::filesystem::remove_all(directory);
 }
 

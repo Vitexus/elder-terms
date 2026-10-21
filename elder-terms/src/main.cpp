@@ -26,6 +26,7 @@
 #include <cardio.h>
 #include <elder-terms/application-icon.h>
 #include <elder-terms/connection-icon.h>
+#include <elder-terms/connection-desktop.h>
 #include <elder-terms/application-settings-widget.h>
 #include <elder-terms/application-version.h>
 #include <elder-terms/localization.h>
@@ -161,6 +162,7 @@ struct ApplicationState {
   std::optional<std::filesystem::path> monitor_renamed_path;
   std::string terminal_executable;
   std::string file_transfer_executable;
+  std::string controller_executable;
   std::string launcher_argv0;
   std::vector<ChildLaunch *> child_launches;
   std::vector<EditorLaunch *> editor_launches;
@@ -981,8 +983,15 @@ static void restore_current_selection(ApplicationState *state) {
   state->suppress_selection = false;
 }
 
+struct ProfileDesktopPublication {
+  std::string id;
+  std::string name;
+  std::string controller;
+};
+
 static cardio::promise<void> load_profile_icon_async(
     std::shared_ptr<GtkTreeRowReference> row, std::string specification,
+    std::optional<ProfileDesktopPublication> desktop,
     cardio::cancellation cancellation) {
   try {
     const auto result = co_await elder_terms::load_connection_icon_async(
@@ -996,6 +1005,11 @@ static cardio::promise<void> load_profile_icon_async(
       gtk_list_store_set(GTK_LIST_STORE(model), &iterator,
           connection_icon_column, result.image.get(), -1);
     gtk_tree_path_free(path);
+    if (desktop) {
+      std::vector<std::string> command{desktop->controller, "open-connection-id", desktop->id};
+      (void)co_await elder_terms::publish_connection_desktop_async(
+          desktop->id, desktop->name, result.image, std::move(command), cancellation);
+    }
   } catch (const cardio::canceled_exception &) {
     // Rows were replaced or the launcher was destroyed.
   } catch (const std::exception &error) {
@@ -1004,15 +1018,20 @@ static cardio::promise<void> load_profile_icon_async(
 }
 
 static void load_profile_icon(ApplicationState *state, GtkTreeIter *iterator,
-                              const elder_terms::SettingsStore &store) {
+    const elder_terms::SettingsStore &store,
+    const std::optional<std::string> &saved_name) {
   const auto specification = elder_terms::general_connection_icon(store);
-  if (specification == "default" || specification.empty()) return;
+  std::optional<ProfileDesktopPublication> desktop;
+  const auto id = elder_terms::general_connection_id(store);
+  if (saved_name && !id.empty())
+    desktop = {id, *saved_name, state->controller_executable};
+  if (!desktop && (specification == "default" || specification.empty())) return;
   auto *model = GTK_TREE_MODEL(state->main_window->connection_store);
   auto *path = gtk_tree_model_get_path(model, iterator);
   auto row = std::shared_ptr<GtkTreeRowReference>(gtk_tree_row_reference_new(model, path),
       gtk_tree_row_reference_free);
   gtk_tree_path_free(path);
-  cardio::fire_and_forget(load_profile_icon_async(std::move(row), specification,
+  cardio::fire_and_forget(load_profile_icon_async(std::move(row), specification, std::move(desktop),
       state->connection_icon_loading.get_cancellation()));
 }
 
@@ -1030,7 +1049,8 @@ static void populate_profile_rows(ApplicationState *state) {
                        connection_name_column, profile.name.c_str(),
                        connection_path_column, profile.path.c_str(),
                        connection_is_new_column, FALSE, -1);
-    load_profile_icon(state, &iterator, elder_terms::load_connection_profile(profile.path).store);
+    load_profile_icon(state, &iterator, elder_terms::load_connection_profile(profile.path).store,
+        profile.name);
   }
   state->suppress_selection = false;
 }
@@ -1185,7 +1205,8 @@ static void append_new_profile_row(ApplicationState *state) {
                      connection_path_column, "", connection_is_new_column,
                      TRUE, -1);
   if (state->settings_widget)
-    load_profile_icon(state, &iterator, elder_terms::settings_widget_draft_store(state->settings_widget));
+    load_profile_icon(state, &iterator, elder_terms::settings_widget_draft_store(state->settings_widget),
+        std::nullopt);
 }
 
 static void show_empty_details(ApplicationState *state) {
@@ -1405,7 +1426,8 @@ static void preserve_current_editor_after_list_refresh(ApplicationState *state) 
           connection_name_column, state->draft_name.c_str(),
           connection_path_column, state->selected_path->c_str(),
           connection_is_new_column, FALSE, -1);
-      load_profile_icon(state, &iterator, elder_terms::settings_widget_draft_store(state->settings_widget));
+      load_profile_icon(state, &iterator, elder_terms::settings_widget_draft_store(state->settings_widget),
+          std::nullopt);
       selected = select_matching_row(state, state->selected_path, false);
     }
   }
@@ -2846,7 +2868,6 @@ static bool initialize_main_window(ApplicationState *state) {
                              application_accelerators);
   g_object_unref(application_accelerators);
 
-  populate_profile_rows(state);
   state->terminal_executable = resolve_child_executable(
       state->launcher_argv0.c_str(), "ELDER_TERMS_TERMINAL_PATH",
       "elder-terms-terminal");
@@ -2854,6 +2875,10 @@ static bool initialize_main_window(ApplicationState *state) {
       state->launcher_argv0.c_str(),
       "ELDER_TERMS_FILE_TRANSFER_PATH",
       "elder-terms-file-transfer");
+  state->controller_executable = resolve_child_executable(
+      state->launcher_argv0.c_str(), "ELDER_TERMS_CONTROL_PATH", "etctl");
+  if (state->controller_executable.empty()) state->controller_executable = "etctl";
+  populate_profile_rows(state);
   start_connection_monitor(state);
   show_empty_details(state);
   state->suppress_selection = true;
@@ -3065,13 +3090,35 @@ static void handle_hotkey_registration_failure(ApplicationState *state) {
   }
 }
 
-static elder_terms::ControlReply handle_control_request(
-    ApplicationState *state, const elder_terms::ControlRequest &request) {
+static cardio::promise<std::string> read_profile_id_async(
+    std::filesystem::path path, cardio::cancellation cancellation) {
+  auto file = std::shared_ptr<GFile>(g_file_new_for_path(path.c_str()), g_object_unref);
+  auto pending = cardio::gio::submit<GBytes *>(
+      [file](GCancellable *signal, GAsyncReadyCallback callback, gpointer data) {
+        g_file_load_bytes_async(file.get(), signal, callback, data);
+      },
+      [file](GObject *, GAsyncResult *result, GError **error) {
+        return g_file_load_bytes_finish(file.get(), result, nullptr, error);
+      }, cancellation);
+  auto contents = std::shared_ptr<GBytes>(co_await pending, g_bytes_unref);
+  auto key_file = std::shared_ptr<GKeyFile>(g_key_file_new(), g_key_file_unref);
+  gsize size = 0;
+  const auto *bytes = static_cast<const gchar *>(g_bytes_get_data(contents.get(), &size));
+  if (!g_key_file_load_from_data(key_file.get(), bytes, size, G_KEY_FILE_NONE, nullptr))
+    co_return std::string();
+  auto id = std::unique_ptr<gchar, decltype(&g_free)>(g_key_file_get_string(
+      key_file.get(), "general", "connection_id", nullptr), g_free);
+  co_return id ? std::string(id.get()) : std::string();
+}
+
+static cardio::promise<elder_terms::ControlReply> handle_control_request(
+    ApplicationState *state, elder_terms::ControlRequest request,
+    cardio::cancellation cancellation) {
   if (state->application_shutting_down || state->quitting) {
-    return {false, false, "The launcher is shutting down"};
+    co_return {false, false, "The launcher is shutting down"};
   }
   if (request.command == elder_terms::ControlCommand::setup) {
-    return setup_hotkeys(state);
+    co_return setup_hotkeys(state);
   }
   std::optional<std::filesystem::path> path;
   if (request.connection.has_value()) {
@@ -3079,22 +3126,32 @@ static elder_terms::ControlReply handle_control_request(
     // or the asynchronously refreshed window selection.
     const auto profiles = elder_terms::list_connection_profiles(
         state->connection_directory);
-    const auto profile = std::find_if(
-        profiles.begin(), profiles.end(), [&request](const auto &candidate) {
-          return candidate.name == *request.connection;
-        });
-    if (profile == profiles.end()) {
-      return {false, false, "Unknown saved connection"};
+    for (const auto &profile : profiles) {
+      bool matches = profile.name == *request.connection;
+      if (request.command == elder_terms::ControlCommand::open_connection_id) {
+        try {
+          matches = co_await read_profile_id_async(profile.path, cancellation) ==
+              *request.connection;
+        } catch (const cardio::gio::gio_error &) {
+          // A profile may disappear while the repository is being inspected.
+          continue;
+        }
+      }
+      if (matches) {
+        path = profile.path;
+        break;
+      }
     }
-    path = profile->path;
+    if (!path) co_return {false, false, "Unknown saved connection"};
   }
+  cancellation.throw_if_cancellation_requested();
   const bool accepted = dispatch_launcher_action(
       state, path,
       {
           .activation_time = std::nullopt,
           .activation_token = request.activation_token,
       });
-  return {accepted, false,
+  co_return {accepted, false,
           accepted ? "" : "The launcher is shutting down"};
 }
 
@@ -3126,8 +3183,8 @@ static void on_application_startup(GApplication *,
   state->application_held = true;
   try {
     state->control_server = elder_terms::create_control_server(
-        [state](const elder_terms::ControlRequest &request) {
-          return handle_control_request(state, request);
+        [state](elder_terms::ControlRequest request, cardio::cancellation cancellation) {
+          return handle_control_request(state, std::move(request), cancellation);
         });
   } catch (const std::exception &error) {
     std::cerr << "External hotkey control is unavailable: "

@@ -13,6 +13,7 @@
 
 #include <cardio.h>
 #include <elder-terms/application-icon.h>
+#include <elder-terms/connection-desktop-session.h>
 #include <elder-terms/localization.h>
 #include <elder-terms/settings/application-settings.h>
 #include <elder-terms/settings.h>
@@ -79,6 +80,7 @@ static cardio::promise<void> finish_sftp_application_async(SftpApplicationState 
     co_await elder_terms::close_file_transfer_window_async(state->window);
   } catch (const cardio::canceled_exception &) {
   } catch (const std::exception &error) { std::cerr << error.what() << '\n'; }
+  elder_terms::shutdown_connection_desktop_session();
   state->dispatcher_group->shutdown();
 }
 
@@ -401,6 +403,7 @@ static cardio::promise<void> finish_ftp_application_async(FtpApplicationState *s
   } catch (const std::exception &exception) {
     std::cerr << exception.what() << '\n';
   }
+  elder_terms::shutdown_connection_desktop_session();
   state->dispatcher_group->shutdown();
 }
 
@@ -646,7 +649,7 @@ int main(int argc, char **argv) {
   gtk_init(&argc, &argv);
   (void)elder_terms::initialize_application_window_icon();
 
-  const elder_terms::SettingsLoadResult settings_result =
+  elder_terms::SettingsLoadResult settings_result =
       elder_terms::load_settings(
           {
               .config_path = launch_options.config_path,
@@ -658,6 +661,10 @@ int main(int argc, char **argv) {
   for (const std::string &warning : settings_result.warnings) {
     std::cerr << warning << '\n';
   }
+
+  (void)elder_terms::initialize_connection_desktop_session(
+      &settings_result.store, launch_options.config_path,
+      launch_options.startup_config_path, argv[0]);
 
   const elder_terms::ConnectionKind kind =
       elder_terms::general_connection_kind(settings_result.store);
