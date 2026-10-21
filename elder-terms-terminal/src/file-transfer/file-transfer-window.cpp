@@ -1,4 +1,6 @@
 #include <elder-terms/modal-dialog.h>
+#include <elder-terms/connection-icon-image.h>
+#include <elder-terms/connection-desktop-session.h>
 #include <elder-terms/settings-widget.h>
 #include "file-transfer-window.h"
 
@@ -28,6 +30,7 @@
 #include "file-transfer-engine.h"
 #include "activity-file-client.h"
 #include "../activity-indicator.h"
+#include "../compact-header.h"
 #include "../indicator-color.h"
 #include "local-file-reveal.h"
 #include "../widget-background.h"
@@ -56,6 +59,8 @@ static constexpr char local_browser_attributes[] =
     G_FILE_ATTRIBUTE_TIME_ACCESS ","
     G_FILE_ATTRIBUTE_TIME_MODIFIED;
 static constexpr guint transfer_progress_pulse_period_ms = 100;
+static constexpr const char *file_transfer_header_style_class =
+    "file-transfer-header";
 static constexpr const char *file_transfer_exterior_component_style_class =
     "file-transfer-exterior-components";
 static constexpr int file_transfer_content_padding = 12;
@@ -141,6 +146,9 @@ struct FileTransferWindow {
   SettingsWidgetState *settings_widget = nullptr;
   guint settings_close_idle = 0;
   GtkWidget *header_bar = nullptr;
+  GtkCssProvider *header_provider = nullptr;
+  GtkWidget *application_menu_button = nullptr;
+  GtkWidget *header_connection_icon = nullptr;
   GtkWidget *title_box = nullptr;
   GtkWidget *title_label = nullptr;
   GtkWidget *root_overlay = nullptr;
@@ -2081,9 +2089,17 @@ static void on_file_transfer_window_destroy(GtkWidget *, gpointer data) {
   g_clear_object(&window->indicator_default_on);
   g_clear_object(&window->indicator_default_off);
   clear_file_transfer_window_colors(window);
+  if (window->header_provider != nullptr) {
+    gtk_style_context_remove_provider_for_screen(
+        gtk_widget_get_screen(window->header_bar),
+        GTK_STYLE_PROVIDER(window->header_provider));
+    g_clear_object(&window->header_provider);
+  }
   window->destroyed = true;
   window->window = nullptr;
   window->header_bar = nullptr;
+  window->application_menu_button = nullptr;
+  window->header_connection_icon = nullptr;
   window->root_overlay = nullptr;
   window->paned = nullptr;
   window->status_bar = nullptr;
@@ -2578,6 +2594,11 @@ static void apply_file_transfer_compact_mode(FileTransferWindow *window,
     g_object_unref(window->indicator_bar);
     gtk_widget_show_all(window->indicator_bar);
   }
+  set_compact_header_enabled(window->header_bar, window->header_provider,
+      file_transfer_header_style_class, compact_mode);
+  // Match GTK's centered window controls without stretching the menu button.
+  gtk_widget_set_valign(window->application_menu_button,
+                         compact_mode ? GTK_ALIGN_CENTER : GTK_ALIGN_FILL);
   gtk_widget_set_no_show_all(window->status_bar,
                              compact_mode ? TRUE : FALSE);
   gtk_widget_set_visible(window->status_bar,
@@ -2632,6 +2653,9 @@ static void open_file_settings(GtkMenuItem *, gpointer data) {
   SettingsWidgetCallbacks callbacks;
   callbacks.apply = [window](const SettingsStore &settings, SettingsWidgetAction action) {
     window->settings = settings;
+    update_connection_desktop_session(window->settings);
+    set_file_transfer_window_connection_icon(
+        window->self.lock(), general_connection_icon(settings));
     set_file_transfer_window_colors(
         window->self.lock(), general_color_settings(settings));
     set_file_transfer_window_indicator_colors(window->self.lock(),
@@ -2705,6 +2729,7 @@ static void open_file_about(GtkMenuItem *, gpointer data) {
 
 static void create_file_settings_menu(FileTransferWindow *window) {
   GtkWidget *button = gtk_menu_button_new();
+  window->application_menu_button = button;
   gestament_gtk_assign_accessible_id(button, "application_menu_button");
   gtk_widget_set_tooltip_text(button, _("Application"));
   gtk_container_add(GTK_CONTAINER(button),
@@ -2757,6 +2782,14 @@ create_file_transfer_window(FileTransferWindowOptions options) {
       GTK_HEADER_BAR(state->header_bar), title.c_str());
   gtk_header_bar_set_show_close_button(
       GTK_HEADER_BAR(state->header_bar), TRUE);
+  state->header_connection_icon = gtk_image_new();
+  gestament_gtk_assign_accessible_id(
+      state->header_connection_icon, "file_transfer_connection_icon");
+  gtk_header_bar_pack_start(GTK_HEADER_BAR(state->header_bar),
+                            state->header_connection_icon);
+  set_connection_window_icon(GTK_WINDOW(state->window),
+      GTK_IMAGE(state->header_connection_icon),
+      general_connection_icon(state->settings), 20);
   state->title_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   state->title_label = gtk_label_new(title.c_str());
   gestament_gtk_assign_accessible_id(
@@ -2777,6 +2810,8 @@ create_file_transfer_window(FileTransferWindowOptions options) {
   gtk_window_set_titlebar(
       GTK_WINDOW(state->window), state->header_bar);
   create_file_settings_menu(state.get());
+  state->header_provider = create_compact_header_provider(
+      state->header_bar, file_transfer_header_style_class);
 
   state->root_overlay = gtk_overlay_new();
   gtk_container_add(GTK_CONTAINER(state->window),
@@ -2864,6 +2899,9 @@ create_file_transfer_window(FileTransferWindowOptions options) {
   set_file_transfer_window_indicator_colors(state,
       general_indicator_color(state->settings),
       general_indicator_off_color(state->settings));
+  // Programmatically built widgets must be visible for GTK to measure the
+  // themed header height before compact mode is applied at startup.
+  gtk_widget_show_all(state->header_bar);
   apply_file_transfer_compact_mode(
       state.get(), general_compact_mode(state->settings));
 
@@ -3205,6 +3243,19 @@ void set_file_transfer_window_colors(
           &window->popup_component_background_provider);
     }
   }
+}
+
+void set_file_transfer_window_connection_icon(
+    const std::shared_ptr<FileTransferWindow> &window,
+    const std::string &specification) {
+  if (window == nullptr || window->destroyed ||
+      window->header_connection_icon == nullptr) return;
+  if (general_connection_icon(window->settings) != specification) {
+    set_explicit_setting_value(
+        &window->settings, general_icon_setting_key(), specification);
+  }
+  set_connection_window_icon(GTK_WINDOW(window->window),
+      GTK_IMAGE(window->header_connection_icon), specification, 20);
 }
 
 void present_file_transfer_window(

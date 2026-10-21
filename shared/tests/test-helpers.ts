@@ -114,6 +114,7 @@ export const runSharedGtkTest = async (
     env: {
       LANGUAGE: 'C',
       LC_ALL: 'C.UTF-8',
+      XDG_DATA_HOME: join(directory, 'data'),
       ...options?.env,
     },
     xvfbTrayHost: true,

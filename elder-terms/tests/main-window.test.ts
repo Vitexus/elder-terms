@@ -1019,6 +1019,7 @@ describe('elder-terms main window', () => {
               'WebDAV',
               'SSH proxy',
               '端末',
+              '端末の外観',
               '転送',
               'ログ',
             ]
@@ -1496,6 +1497,7 @@ describe('elder-terms main window', () => {
               'WebDAV',
               'SSH proxy',
               'Terminal',
+              'Terminal appearance',
               'Transfer',
               'Logging',
             ]
@@ -1574,7 +1576,7 @@ describe('elder-terms main window', () => {
         await waitForWindowCount(app, 1);
       }
     );
-  });
+  }, 60_000);
 
   it('validates, normalizes, reopens, and fully clears global defaults', async (context) => {
     await runLauncherGtkTest(
@@ -1827,7 +1829,9 @@ describe('elder-terms main window', () => {
         await waitForResult(async () => {
           expect(
             await readFile(join(connections, 'New connection.ini'), 'utf8')
-          ).toBe('');
+          ).toMatch(
+            /^\[general\]\nconnection_id=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\n$/u
+          );
         });
       }
     );
@@ -2044,7 +2048,9 @@ describe('elder-terms main window', () => {
         await waitForResult(async () => {
           expect(
             await readFile(join(connections, 'New connection.ini'), 'utf8')
-          ).toBe('');
+          ).toMatch(
+            /^\[general\]\nconnection_id=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\n$/u
+          );
         });
 
         const width = expectElementKind(
@@ -2769,6 +2775,23 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
       context,
       prepareProfiles,
       async ({ app, connections }) => {
+        const savedProfiles = await waitForResult(async () => {
+          const contents = await Promise.all(
+            ['Alpha.ini', 'Beta.ini'].map((name) =>
+              readFile(join(connections, name), 'utf8')
+            )
+          );
+          for (const content of contents)
+            expect(content).toMatch(/^connection_id=[0-9a-f-]{36}$/mu);
+          expect(
+            contents.map((content) =>
+              content
+                .replace(/^\[general\]\nconnection_id=[0-9a-f-]{36}\n$/mu, '')
+                .trim()
+            )
+          ).toEqual(['[terminal]\nwidth=88', '[terminal]\nwidth=99']);
+          return contents;
+        });
         await expectElementKind(
           await app.getById('new_button'),
           'button'
@@ -2794,10 +2817,12 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
         await waitForWindowCount(app, 1);
         expect(await connectionRowCount(list)).toBe(3);
         expect(await width.text()).toBe('91');
-        if (list.kind === 'table')
-          expect((await (await list.cellAt(2, 0))?.info())?.name).toBe(
-            'unsaved draft'
-          );
+        expect(
+          await expectElementKind(
+            await app.getById('settings_general_name_entry'),
+            'entry'
+          ).text()
+        ).toBe('unsaved draft');
         await rightClickConnectionRow(app, list, 2);
         await expectElementKind(
           await app.getById('cancel_new_connection_menu_item'),
@@ -2814,10 +2839,10 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
           ).toContain('showing');
         });
         expect(await readFile(join(connections, 'Alpha.ini'), 'utf8')).toBe(
-          '[terminal]\nwidth=88\n'
+          savedProfiles[0]
         );
         expect(await readFile(join(connections, 'Beta.ini'), 'utf8')).toBe(
-          '[terminal]\nwidth=99\n'
+          savedProfiles[1]
         );
         await expect(
           readFile(join(connections, 'unsaved draft.ini'), 'utf8')
@@ -3054,7 +3079,10 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             },
             async ({ app, connections }) => {
               phase = 'configure profile';
-              const list = await app.getById('connection_list');
+              const list = expectElementKind(
+                await app.getById('connection_list'),
+                'table'
+              );
               await expectElementKind(
                 await app.getById('new_button'),
                 'button'
@@ -3136,7 +3164,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
                   expect(saved).toContain(value);
               });
               phase = 'reselect saved profile';
-              await selectConnectionRow(app, list, 1);
+              await list.selectRow(1);
               await waitForResult(async () => {
                 expect(
                   await expectElementKind(
@@ -3145,7 +3173,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
                   ).text()
                 ).toBe('');
               });
-              await selectConnectionRow(app, list, 0);
+              await list.selectRow(0);
               await waitForResult(async () => {
                 expect(
                   await expectElementKind(

@@ -1014,8 +1014,12 @@ describe.concurrent('elder-terms-terminal terminal layout', () => {
       });
       await delay(250);
 
+      // Keep the reduced grid wide enough for the header controls after the
+      // font returns to its original size.
       await zoomedLayout.mainWindow.resizeTo(
-        initialLayout.mainBounds.width,
+        Math.round(
+          (initialLayout.mainBounds.width + zoomedLayout.mainBounds.width) / 2
+        ),
         initialLayout.mainBounds.height
       );
       const constrainedLayout = await waitForResult(async () => {

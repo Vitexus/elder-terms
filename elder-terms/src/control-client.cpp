@@ -24,15 +24,31 @@ extern char **environ;
 static void print_usage() {
   std::cout << "Usage: etctl open-application\n"
                "       etctl open-connection <saved-connection-name>\n"
+               "       etctl open-connection-id <connection-uuid>\n"
                "       etctl setup\n"
                "       etctl unsetup\n"
                "Controls the launcher in the same XDG_RUNTIME_DIR.\n"
-               "Setup starts the launcher when needed.\n"
+               "Setup and open-connection-id start the launcher when needed.\n"
                "Unsetup removes shortcuts saved in Sway or labwc configuration.\n";
 }
 
 static std::runtime_error io_error() {
   return std::runtime_error(std::string("Control socket: ") + std::strerror(errno));
+}
+
+static bool valid_uuid(const std::string &value) {
+  if (value.size() != 36) return false;
+  for (std::size_t index = 0; index < value.size(); ++index) {
+    const char character = value[index];
+    if (index == 8 || index == 13 || index == 18 || index == 23) {
+      if (character != '-') return false;
+    } else if (!((character >= '0' && character <= '9') ||
+                 (character >= 'a' && character <= 'f') ||
+                 (character >= 'A' && character <= 'F'))) {
+      return false;
+    }
+  }
+  return true;
 }
 
 class LauncherUnavailable : public std::runtime_error {
@@ -168,7 +184,9 @@ int main(int argc, char **argv) {
   if (!((command == "open-application" && argc == 2) ||
         (command == "setup" && argc == 2) ||
         (command == "unsetup" && argc == 2) ||
-        (command == "open-connection" && argc == 3 && argv[2][0] != '\0'))) {
+        (command == "open-connection" && argc == 3 && argv[2][0] != '\0') ||
+        (command == "open-connection-id" && argc == 3 &&
+         valid_uuid(argv[2])))) {
     print_usage();
     return 2;
   }
@@ -176,7 +194,9 @@ int main(int argc, char **argv) {
     if (command == "unsetup") {
       run_unsetup();
     }
-    const std::string connection = command == "open-connection" ? argv[2] : "";
+    const std::string connection =
+        command == "open-connection" || command == "open-connection-id"
+            ? argv[2] : "";
     bool launched = false;
     pid_t launched_pid = 0;
     const auto deadline = std::chrono::steady_clock::now() +
@@ -204,7 +224,7 @@ int main(int argc, char **argv) {
                 ? "Timed out waiting for hotkey registration"
                 : "Invalid control response");
       } catch (const LauncherUnavailable &) {
-        if (command != "setup") {
+        if (command != "setup" && command != "open-connection-id") {
           throw;
         }
         if (!launched) {
@@ -213,7 +233,7 @@ int main(int argc, char **argv) {
           if ((display == nullptr || *display == '\0') &&
               (wayland == nullptr || *wayland == '\0')) {
             throw std::runtime_error(
-                "Run setup inside a graphical desktop session");
+                "Run this command inside a graphical desktop session");
           }
           launched_pid = start_launcher();
           launched = true;
@@ -221,7 +241,7 @@ int main(int argc, char **argv) {
           int status = 0;
           if (waitpid(launched_pid, &status, WNOHANG) == launched_pid) {
             throw std::runtime_error(
-                "The launcher exited before hotkey setup completed");
+                "The launcher exited before the command completed");
           }
         }
         if (std::chrono::steady_clock::now() >= deadline) {

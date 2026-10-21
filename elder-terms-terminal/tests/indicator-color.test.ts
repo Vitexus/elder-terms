@@ -495,6 +495,14 @@ describe.concurrent('terminal indicator color', () => {
               ...(latched ? ['--test-latch-activity-indicators'] : []),
             ],
             async (app, evidence) => {
+              const savedAtStartup = await waitForResult(async () => {
+                const saved = await readFile(configPath, 'utf8');
+                expect(saved).toMatch(/^connection_id=[0-9a-f-]{36}$/mu);
+                expect(
+                  saved.replace(/^connection_id=[0-9a-f-]{36}\n/mu, '')
+                ).toBe(config);
+                return saved;
+              });
               await waitForResult(async () => {
                 expect(sockets.length).toBe(1);
               });
@@ -667,7 +675,7 @@ describe.concurrent('terminal indicator color', () => {
                   traffic = undefined;
                   await expectNextFrame('green-off');
                 }
-                expect(await readFile(configPath, 'utf8')).toBe(config);
+                expect(await readFile(configPath, 'utf8')).toBe(savedAtStartup);
               } finally {
                 clearInterval(traffic);
                 traffic = undefined;

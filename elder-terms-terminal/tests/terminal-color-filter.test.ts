@@ -123,6 +123,14 @@ for (const backend of ['cairo', 'opengl'])
           context,
           ['-c', config],
           async (app, evidence) => {
+            const savedAtStartup = await waitForResult(async () => {
+              const saved = await readFile(config, 'utf8');
+              expect(saved).toMatch(/^connection_id=[0-9a-f-]{36}$/mu);
+              expect(
+                saved.replace(/^connection_id=[0-9a-f-]{36}\n/mu, '')
+              ).toBe(original);
+              return saved;
+            });
             const terminal = await app.getById('terminal_view');
             await waitForResult(async () =>
               expectColors((await terminal.capture()).image, false)
@@ -146,13 +154,15 @@ for (const backend of ['cairo', 'opengl'])
               for (let index = 0; index < (await tabs.getChildCount()); index++)
                 if (
                   (await (await tabs.childAt(index))?.info())?.name ===
-                  'Terminal'
+                  'Terminal appearance'
                 ) {
                   await tabs.selectChildAt(index);
                   break;
                 }
               const scroll = expectElementKind(
-                await app.getById('settings_terminal_page_scrollbar'),
+                await app.getById(
+                  'settings_terminal_appearance_page_scrollbar'
+                ),
                 'scrollbar'
               );
               await scroll.setValue((await scroll.valueInfo()).maximum);
@@ -197,7 +207,7 @@ for (const backend of ['cairo', 'opengl'])
             await waitForResult(async () =>
               expectColors((await terminal.capture()).image, true)
             );
-            expect(await readFile(config, 'utf8')).toBe(original);
+            expect(await readFile(config, 'utf8')).toBe(savedAtStartup);
             await evidence.captureEvidence('filter-on', async () =>
               app.capture()
             );

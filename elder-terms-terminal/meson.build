@@ -90,6 +90,7 @@ custom_target('boxrig-regex',
 telnet_protocol_source = 'src/terminal-sessions/telnet-session/telnet-protocol.cpp'
 elder_terms_sources = [
   'src/activity-indicator.cpp',
+  'src/compact-header.cpp',
   'src/indicator-color.cpp',
   'src/inline-prompt.cpp',
   'src/launch-options.cpp',
@@ -219,6 +220,7 @@ endif
 executable(
   'elder-terms-file-transfer',
   [
+    'src/compact-header.cpp',
     'src/inline-prompt.cpp',
     'src/launch-options.cpp',
     'src/ftp/ftp-client.cpp',
@@ -545,6 +547,7 @@ endforeach
 file_transfer_window_lifetime_test = executable(
   'file-transfer-window-lifetime-test',
   [
+    'src/compact-header.cpp',
     'tests/cpp/file-transfer-window-lifetime-test.cpp',
     'src/inline-prompt.cpp',
     'src/widget-background.cpp',

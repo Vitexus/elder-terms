@@ -1,5 +1,5 @@
 import { execFileSync, spawn } from 'node:child_process';
-import { cp, mkdir } from 'node:fs/promises';
+import { cp, mkdir, rm } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -62,3 +62,20 @@ const includeDirectory = execFileSync(
   { encoding: 'utf8' }
 ).trim();
 await cp(includeDirectory, join(output, 'include'), { recursive: true });
+
+const renderedIcons = join(output, 'material-presets-rendered');
+await run(
+  process.execPath,
+  [
+    join(root, 'scripts/render-material-connection-icons.mts'),
+    join(root, 'data/connection-icons/material-svg'),
+    join(root, 'shared/connection-icon-material.gresource.xml'),
+    join(output, 'elder-terms-material-presets.c'),
+    renderedIcons,
+    'convert',
+    'glib-compile-resources',
+    'gdk-pixbuf-thumbnailer',
+  ],
+  root
+);
+await rm(renderedIcons, { recursive: true, force: true });

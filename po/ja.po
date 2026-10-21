@@ -590,6 +590,60 @@ msgstr "ローカル"
 msgid "Terminal"
 msgstr "端末"
 
+msgid "Terminal appearance"
+msgstr "端末の外観"
+
+msgid "Connection icon"
+msgstr "接続アイコン"
+
+msgid "Default icon"
+msgstr "デフォルトアイコン"
+
+msgid "Choose icon…"
+msgstr "アイコンを選択…"
+
+msgid "Glyph color"
+msgstr "図柄の色"
+
+msgid "Black"
+msgstr "黒"
+
+msgid "White"
+msgstr "白"
+
+msgid "Choose image file…"
+msgstr "画像ファイルを選択…"
+
+msgid "Select a connection icon"
+msgstr "接続アイコンを選択"
+
+msgid "Select an absolute local icon file path"
+msgstr "アイコン画像をローカルファイルの絶対パスで指定してください"
+
+msgid "Select a regular local icon file"
+msgstr "アイコン画像には通常のローカルファイルを指定してください"
+
+msgid "Icon image exceeds the 64 MiB limit"
+msgstr "アイコン画像が64MiBの上限を超えています"
+
+msgid "Select a PNG or JPEG icon image"
+msgstr "PNGまたはJPEGのアイコン画像を選択してください"
+
+msgid "Icon image dimensions are invalid"
+msgstr "アイコン画像の寸法が対応範囲外です"
+
+msgid "Icon image could not be decoded"
+msgstr "アイコン画像を解析できませんでした"
+
+msgid "Icon preset is unavailable"
+msgstr "指定されたプリセットアイコンは利用できません"
+
+msgid "Icon specification is not supported"
+msgstr "このアイコン指定には対応していません"
+
+msgid "Icon file could not be read"
+msgstr "アイコン画像ファイルを読み込めませんでした"
+
 #: shared/src/settings-widget/settings-presentation.cpp:238
 msgid "Macro"
 msgstr "マクロ"
@@ -2643,3 +2697,12 @@ msgstr "補正前"
 
 msgid "With current settings"
 msgstr "編集中の設定"
+
+msgid "Connections"
+msgstr "接続"
+
+msgid "No saved connections"
+msgstr "保存済みの接続はありません"
+
+msgid "The saved connection has changed. Reopen the Connections menu."
+msgstr "保存済みの接続が変更されています。「接続」メニューを開き直してください。"

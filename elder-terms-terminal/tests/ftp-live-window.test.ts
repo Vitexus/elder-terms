@@ -312,6 +312,7 @@ for (const testCase of [
           LANGUAGE: japanese ? 'ja' : 'en',
           LC_ALL: 'C.UTF-8',
           XDG_CONFIG_HOME: configHome,
+          XDG_DATA_HOME: join(configHome, 'data'),
           ELDER_TERMS_LOCALE_DIR: fileURLToPath(
             new URL('../../.build/po/', import.meta.url)
           ),

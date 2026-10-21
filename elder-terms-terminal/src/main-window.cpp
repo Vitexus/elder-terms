@@ -19,6 +19,7 @@
 #include <glib/gi18n-lib.h>
 
 #include "main-window.h"
+#include "compact-header.h"
 #include "indicator-color.h"
 #include "inline-prompt.h"
 #include "widget-background.h"
@@ -27,15 +28,6 @@ namespace elder_terms {
 
 static constexpr int indicator_icon_pixel_size = 18;
 static constexpr const char *header_style_class = "terminal-header";
-static constexpr const char *compact_header_style_class =
-    "terminal-compact-header";
-// Apply geometry changes atomically in both directions. Intermediate theme
-// sizes can otherwise become terminal resize requests. Keep visual transitions.
-static constexpr const char *header_css =
-    ".terminal-header, .terminal-header button {"
-    "transition-property: color, background, border-color, box-shadow,"
-    " text-shadow, -gtk-icon-shadow, -gtk-icon-transform, opacity;"
-    "}";
 static constexpr guint transfer_progress_pulse_period_ms = 120;
 static constexpr const char *terminal_dim_overlay_style_class =
     "terminal-dim-overlay";
@@ -385,6 +377,7 @@ static GtkWidget *required_widget(GtkBuilder *builder, const char *id) {
 
 static bool main_window_has_required_widgets(const MainWindow &main_window) {
   return main_window.window != nullptr && main_window.header_bar != nullptr &&
+         main_window.header_connection_icon != nullptr &&
          main_window.header_title_label != nullptr &&
          main_window.header_title_box != nullptr &&
          main_window.transfer_button != nullptr &&
@@ -1039,16 +1032,8 @@ static void apply_main_window_style(MainWindow *main_window) {
 
   g_object_unref(provider);
 
-  gtk_style_context_add_class(
-      gtk_widget_get_style_context(main_window->header_bar), header_style_class);
-  main_window->header_provider = gtk_css_provider_new();
-  gtk_css_provider_load_from_data(
-      main_window->header_provider, header_css, -1, nullptr);
-  // A screen provider also reaches GTK-created window control buttons.
-  gtk_style_context_add_provider_for_screen(
-      gtk_widget_get_screen(main_window->header_bar),
-      GTK_STYLE_PROVIDER(main_window->header_provider),
-      GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+  main_window->header_provider = create_compact_header_provider(
+      main_window->header_bar, header_style_class);
 }
 
 static std::string display_title(const MainWindow &main_window) {
@@ -1186,6 +1171,8 @@ std::optional<MainWindow> load_main_window() {
   main_window.window = required_widget(main_window.builder, "main_window");
   if (main_window.window) prepare_terminal_background_window(main_window.window);
   main_window.header_bar = required_widget(main_window.builder, "header_bar");
+  main_window.header_connection_icon =
+      required_widget(main_window.builder, "header_connection_icon");
   main_window.transfer_button =
       required_widget(main_window.builder, "transfer_button");
   main_window.application_menu_button =
@@ -1709,48 +1696,21 @@ static void clear_main_window_compact_header(MainWindow *main_window) {
     return;
   }
 
-  update_widget_style_class(
-      main_window->header_bar, compact_header_style_class, false);
+  set_compact_header_enabled(main_window->header_bar,
+      main_window->header_provider, header_style_class, false);
   gtk_widget_set_valign(main_window->transfer_button, GTK_ALIGN_FILL);
   gtk_widget_set_valign(main_window->application_menu_button, GTK_ALIGN_FILL);
 }
 
 static void apply_main_window_compact_header(MainWindow *main_window) {
-  GtkWidget *header = main_window->header_bar;
-  int natural_height = 0;
-  gtk_widget_get_preferred_height(header, nullptr, &natural_height);
+  set_compact_header_enabled(main_window->header_bar,
+      main_window->header_provider, header_style_class, true);
   gtk_widget_set_margin_top(main_window->activity_indicator_bar, 0);
   gtk_widget_set_margin_bottom(main_window->activity_indicator_bar, 0);
   // GTK centers its window controls. Match that alignment so application
   // buttons also keep their natural square size instead of filling the bar.
   gtk_widget_set_valign(main_window->transfer_button, GTK_ALIGN_CENTER);
   gtk_widget_set_valign(main_window->application_menu_button, GTK_ALIGN_CENTER);
-  GtkStyleContext *context = gtk_widget_get_style_context(header);
-  GtkBorder border{};
-  gtk_style_context_get_border(
-      context, gtk_style_context_get_state(context), &border);
-
-  // Measure the unmodified theme with the indicators in place. GTK's CSS
-  // minimum height excludes borders. Reset vertical margins as well as
-  // padding: solid-CSD themes can use a negative top margin. The existing
-  // icons and labels then fit without resampling or shrinking text.
-  const int content_height = std::max(
-      0, (natural_height * 3 + 2) / 4 - border.top - border.bottom);
-  // Keep the standard 16px icons and equal padding on all sides. Reset both
-  // dimensions and margins together so themed circular controls stay round.
-  const std::string css =
-      std::string(header_css) + " ." + compact_header_style_class + " {"
-      "min-height: " + std::to_string(content_height) + "px;"
-      "padding-top: 0; padding-bottom: 0;"
-      "margin-top: 0; margin-bottom: 0;"
-      "} ." + compact_header_style_class + " button {"
-      "min-width: 16px; min-height: 16px;"
-      "padding: 4px;"
-      "margin: 0;"
-      "}";
-  gtk_css_provider_load_from_data(
-      main_window->header_provider, css.c_str(), -1, nullptr);
-  update_widget_style_class(header, compact_header_style_class, true);
 }
 
 void set_main_window_compact_mode(MainWindow *main_window, bool compact_mode) {

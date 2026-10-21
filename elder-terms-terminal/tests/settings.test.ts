@@ -260,11 +260,39 @@ const expectFileContent = async (
   });
 };
 
+const expectConnectionIdentityOnly = async (
+  path: string,
+  original: string
+): Promise<string> =>
+  await waitForResult(async () => {
+    const saved = await readFile(path, 'utf8');
+    expect(saved).toMatch(/^connection_id=[0-9a-f-]{36}$/mu);
+    const withoutIdentity = saved.replace(
+      /^connection_id=[0-9a-f-]{36}\n/mu,
+      ''
+    );
+    // The identity adds a general group when the original profile has none.
+    expect(withoutIdentity).toBe(
+      original.startsWith('[general]\n') ? original : `${original}\n[general]\n`
+    );
+    return saved;
+  });
+
 const showTerminalSettingsPage = async (app: GtkApp): Promise<void> => {
   await selectSettingsNotebookTab(
     app,
     'Terminal',
     'settings_terminal_width_entry'
+  );
+};
+
+const showTerminalAppearanceSettingsPage = async (
+  app: GtkApp
+): Promise<void> => {
+  await selectSettingsNotebookTab(
+    app,
+    'Terminal appearance',
+    'settings_terminal_font_size_dip_entry'
   );
 };
 
@@ -647,7 +675,7 @@ const captureWindowBackgroundPixels = async (
     (await app.getById('terminal_view')).capture(),
   ]);
   return {
-    header: capturePixel(header, 0.02, 0.5),
+    header: capturePixel(header, 0.5, 0.1),
     status: capturePixel(status, 0.45, 0.5),
     terminal: capturePixel(terminal, 0.5, 0.5),
   };
@@ -1169,6 +1197,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
   });
 
   it('uses the configured terminal grid size from an INI file', async (context) => {
+    const fixtureSource = await readFile(terminalGrid81x25ConfigPath, 'utf8');
     await runGtkTest(
       context,
       ['--test-fixture', '-c', terminalGrid81x25ConfigPath],
@@ -1199,6 +1228,9 @@ describe.concurrent('elder-terms-terminal settings', () => {
           evidence
         );
       }
+    );
+    expect(await readFile(terminalGrid81x25ConfigPath, 'utf8')).toBe(
+      fixtureSource
     );
   });
 
@@ -1355,6 +1387,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
               'entry'
             ).text()
           ).toBe('');
+          await showTerminalAppearanceSettingsPage(app);
           expect(
             await numericEntryValue(
               expectElementKind(
@@ -1363,6 +1396,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
               )
             )
           ).toBeCloseTo(16.25);
+          await showTerminalSettingsPage(app);
           await expectSelectedComboValue(
             app,
             'settings_terminal_backspace_code_combo',
@@ -1721,6 +1755,10 @@ describe.concurrent('elder-terms-terminal settings', () => {
           context,
           ['-c', configPath],
           async (app, evidence) => {
+            const identityConfig = await expectConnectionIdentityOnly(
+              configPath,
+              initialConfig
+            );
             await toPass(
               async () => {
                 expect(acceptedSocket).not.toBeUndefined();
@@ -2122,7 +2160,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
                 masks: [await connectionStatusTextMask(app, runtimeCapture)],
               }
             );
-            await expectFileContent(configPath, initialConfig);
+            await expectFileContent(configPath, identityConfig);
           },
           {
             env: {
@@ -2146,11 +2184,13 @@ describe.concurrent('elder-terms-terminal settings', () => {
       ['--test-fixture'],
       async (app, evidence) => {
         await openSettingsDialog(app);
-        await showTerminalSettingsPage(app);
+        await showTerminalAppearanceSettingsPage(app);
 
-        const terminalPage = await app.getById('settings_terminal_page');
+        const terminalPage = await app.getById(
+          'settings_terminal_appearance_page'
+        );
         const scrollbar = expectElementKind(
-          await app.getById('settings_terminal_page_scrollbar'),
+          await app.getById('settings_terminal_appearance_page_scrollbar'),
           'scrollbar'
         );
         const topCapture = await evidence.captureEvidence(
@@ -2321,6 +2361,10 @@ describe.concurrent('elder-terms-terminal settings', () => {
         await writeFile(configPath, initialConfig, 'utf8');
 
         await runGtkTest(context, ['-c', configPath], async (app) => {
+          const identityConfig = await expectConnectionIdentityOnly(
+            configPath,
+            initialConfig
+          );
           await toPass(
             async () => {
               expect(acceptedSocket).not.toBeUndefined();
@@ -2337,7 +2381,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
           expect((await logItem.info()).states).not.toContain('checked');
           await toggleLogRecordingMenuItem(app, logItem);
           await waitForActivityIndicatorImageState(app, 'log', 'on');
-          await expectFileContent(configPath, initialConfig);
+          await expectFileContent(configPath, identityConfig);
 
           acceptedSocket?.write('MENU_LOGGED\r\n');
           await toPass(
@@ -2427,6 +2471,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
           'entry'
         ).text()
       ).toBe('');
+      await showTerminalAppearanceSettingsPage(app);
       expect(
         await expectElementKind(
           await app.getById('settings_terminal_font_size_dip_entry'),
@@ -2457,7 +2502,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expect((await endBorder.info()).states).not.toContain('showing');
 
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
       await expectSelectedComboValue(
         app,
         'settings_terminal_show_border_combo',
@@ -2502,7 +2547,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expectWindowCellSize(borderedLayout, defaultColumns, defaultRows);
 
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
       await expectSelectedComboValue(
         app,
         'settings_terminal_show_border_combo',
@@ -2533,7 +2578,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expectWindowCellSize(widenedLayout, defaultColumns, defaultRows);
 
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
       await expectSelectedComboValue(
         app,
         'settings_terminal_show_border_combo',
@@ -2894,7 +2939,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
       });
 
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
       expect(
         await numericEntryValue(
           expectElementKind(
@@ -3206,6 +3251,10 @@ describe.concurrent('elder-terms-terminal settings', () => {
         context,
         ['--test-fixture', '-c', configPath],
         async (app) => {
+          const identityConfig = await expectConnectionIdentityOnly(
+            configPath,
+            initialConfig
+          );
           await openSettingsDialog(app);
           await showTerminalSettingsPage(app);
 
@@ -3232,7 +3281,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
             const layout = await readWindowCellLayout(app);
             expectWindowCellSize(layout, defaultColumns, defaultRows);
           });
-          await expectFileContent(configPath, initialConfig);
+          await expectFileContent(configPath, identityConfig);
         }
       );
     });
@@ -3241,7 +3290,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
   it('does not apply runtime terminal font size changes when cancelled', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app, evidence) => {
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
 
       await expectElementKind(
         await app.getById('settings_terminal_font_size_dip_entry'),
@@ -3326,6 +3375,10 @@ describe.concurrent('elder-terms-terminal settings', () => {
         context,
         ['--test-fixture', '-c', configPath],
         async (app) => {
+          const identityConfig = await expectConnectionIdentityOnly(
+            configPath,
+            initialConfig
+          );
           await openSettingsDialog(app);
           await showTerminalSettingsPage(app);
 
@@ -3354,7 +3407,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
             const layout = await readWindowCellLayout(app);
             expectWindowCellSize(layout, defaultColumns + 1, defaultRows + 1);
           });
-          await expectFileContent(configPath, initialConfig);
+          await expectFileContent(configPath, identityConfig);
         }
       );
     });
@@ -3438,7 +3491,7 @@ describe.concurrent('elder-terms-terminal settings', () => {
   it('applies runtime terminal font size changes', async (context) => {
     await runGtkTest(context, ['--test-fixture'], async (app, evidence) => {
       await openSettingsDialog(app);
-      await showTerminalSettingsPage(app);
+      await showTerminalAppearanceSettingsPage(app);
 
       const zoom = expectElementKind(
         await app.getById('settings_terminal_font_size_dip_entry'),

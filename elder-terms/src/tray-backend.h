@@ -66,6 +66,18 @@ struct TrayIconPixmap {
   std::vector<std::uint8_t> argb_pixels;
 };
 
+/** One saved connection offered by the tray's Connections submenu. */
+struct TrayConnectionItem {
+  /** Opaque stable key returned unchanged when this item is activated. */
+  std::string key;
+  /** Literal connection name, including any underscore characters. */
+  std::string name;
+  /** Display shortcut such as `Ctrl+Alt+X`, or empty when unset. */
+  std::string shortcut;
+  /** Saved connection icon specification. */
+  std::string icon;
+};
+
 /**
  * Receives events produced by a tray backend.
  */
@@ -78,6 +90,9 @@ struct TrayBackendCallbacks {
   std::function<void()> about;
   /** Requests an explicit application quit. */
   std::function<void()> quit;
+  /** Opens the current connection for an opaque key and event context. */
+  std::function<void(const std::string &, const TrayActivationContext &)>
+      open_connection;
   /** Reports changes to tray discovery and host availability. */
   std::function<void(TrayBackendAvailabilityState)> availability_changed;
 };
@@ -166,6 +181,19 @@ TrayBackendState *create_tray_backend(TrayBackendOptions options);
  * @param state Backend state, or null.
  */
 void destroy_tray_backend(TrayBackendState *state);
+
+/**
+ * Replaces the tray's current saved-connection menu items.
+ *
+ * @param state Backend state, or null. The call has no effect for null.
+ * @param connections Items in display order. Their keys are owned copies.
+ * @remarks The function updates both StatusNotifierItem and XEmbed menus.
+ * Icons load asynchronously; until each completes, the default icon is shown.
+ * An activation from a removed item is ignored and never reassigned to a new
+ * connection.
+ */
+void update_tray_connections(TrayBackendState *state,
+                             std::vector<TrayConnectionItem> connections);
 
 /**
  * Returns the currently selected backend kind.

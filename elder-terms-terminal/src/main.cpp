@@ -24,6 +24,8 @@
 #include <gestament/gtk.h>
 
 #include <elder-terms/application-icon.h>
+#include <elder-terms/connection-desktop-session.h>
+#include <elder-terms/connection-icon-image.h>
 #include <elder-terms/localization.h>
 #include <elder-terms/settings/application-settings.h>
 #include <elder-terms/settings.h>
@@ -275,6 +277,7 @@ static void maybe_shutdown_application(ApplicationState *state) {
       state->sftp_opening) {
     return;
   }
+  elder_terms::shutdown_connection_desktop_session();
   state->dispatcher_group->shutdown();
 }
 
@@ -806,6 +809,10 @@ static bool apply_runtime_settings(ApplicationState *state,
     return false;
   }
   state->settings_store = store;
+  elder_terms::update_connection_desktop_session(state->settings_store);
+  elder_terms::set_connection_window_icon(GTK_WINDOW(state->main_window->window),
+      GTK_IMAGE(state->main_window->header_connection_icon),
+      elder_terms::general_connection_icon(state->settings_store), 20);
   elder_terms::apply_terminal_bell_settings(
       state->bell_state,
       elder_terms::terminal_bell_settings(state->settings_store));
@@ -819,6 +826,9 @@ static bool apply_runtime_settings(ApplicationState *state,
       state->main_window, elder_terms::general_indicator_color(state->settings_store),
       elder_terms::general_indicator_off_color(state->settings_store));
   if (state->sftp_window != nullptr) {
+    elder_terms::set_file_transfer_window_connection_icon(
+        state->sftp_window,
+        elder_terms::general_connection_icon(state->settings_store));
     elder_terms::set_file_transfer_window_colors(
         state->sftp_window, colors);
     elder_terms::set_file_transfer_window_indicator_colors(
@@ -1819,6 +1829,36 @@ int main(int argc, char **argv) {
   g_set_prgname(terminal_application_id);
   (void)elder_terms::initialize_application_window_icon();
 
+  const double default_font_size_dip = 12.0;
+  const elder_terms::SettingsLoadOptions settings_load_options{
+      .config_path = launch_options.config_path,
+      .startup_config_path = launch_options.startup_config_path,
+      .global_config_path = elder_terms::default_global_config_path(),
+  };
+  auto settings_result =
+    elder_terms::load_settings(settings_load_options, default_font_size_dip);
+
+  for (const std::string &warning : settings_result.warnings) {
+    std::cerr << warning << '\n';
+  }
+
+  if (launch_options.new_window && !settings_result.loaded) {
+    std::cerr << "Error: failed to load the New Window connection\n";
+    return 1;
+  }
+
+  const std::optional<elder_terms::TerminalConnectionProfile>
+      connection_profile =
+          elder_terms::terminal_connection_profile(settings_result.store);
+  if (!connection_profile.has_value()) {
+    std::cerr << "Error: configured connection type is not a terminal "
+                 "connection\n";
+    return 1;
+  }
+  (void)elder_terms::initialize_connection_desktop_session(
+      &settings_result.store, launch_options.config_path,
+      launch_options.startup_config_path, argv[0]);
+
   cardio::dispatcher_group_glib dispatcher_group;
   // Let GLib prioritize ready I/O alongside native events. Pumping GTK before
   // every continuation repeatedly renders partially received output batches.
@@ -1830,37 +1870,6 @@ int main(int argc, char **argv) {
   }
   elder_terms::set_main_window_activity_indicators_latched(
       &*main_window, launch_options.test.latch_activity_indicators);
-
-  const double default_font_size_dip = 12.0;
-  const elder_terms::SettingsLoadOptions settings_load_options{
-      .config_path = launch_options.config_path,
-      .startup_config_path = launch_options.startup_config_path,
-      .global_config_path = elder_terms::default_global_config_path(),
-  };
-  const auto settings_result =
-    elder_terms::load_settings(settings_load_options, default_font_size_dip);
-
-  for (const std::string &warning : settings_result.warnings) {
-    std::cerr << warning << '\n';
-  }
-
-  if (launch_options.new_window && !settings_result.loaded) {
-    std::cerr << "Error: failed to load the New Window connection\n";
-    gtk_widget_destroy(main_window->window);
-    elder_terms::release_main_window(&*main_window);
-    return 1;
-  }
-
-  const std::optional<elder_terms::TerminalConnectionProfile>
-      connection_profile =
-          elder_terms::terminal_connection_profile(settings_result.store);
-  if (!connection_profile.has_value()) {
-    std::cerr << "Error: configured connection type is not a terminal "
-                 "connection\n";
-    gtk_widget_destroy(main_window->window);
-    elder_terms::release_main_window(&*main_window);
-    return 1;
-  }
   elder_terms::set_main_window_colors(
       &*main_window,
       elder_terms::general_color_settings(settings_result.store));
@@ -1876,6 +1885,9 @@ int main(int argc, char **argv) {
   app_state.active_profile = *connection_profile;
   app_state.dispatcher_group = &dispatcher_group;
   app_state.settings_store = settings_result.store;
+  elder_terms::set_connection_window_icon(GTK_WINDOW(main_window->window),
+      GTK_IMAGE(main_window->header_connection_icon),
+      elder_terms::general_connection_icon(app_state.settings_store), 20);
   app_state.config_path = launch_options.config_path;
   app_state.test_options = launch_options.test;
   app_state.auto_close = elder_terms::general_auto_close(settings_result.store);

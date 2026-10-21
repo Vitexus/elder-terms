@@ -172,16 +172,35 @@ const showTerminalPage = async (app: GtkApp): Promise<void> => {
   });
 };
 
+const showTerminalAppearancePage = async (app: GtkApp): Promise<void> => {
+  await waitForResult(async () => {
+    const fonts = await app.getById('settings_terminal_fonts_mode_combo');
+    expect((await fonts.info()).states).toContain('showing');
+  });
+};
+
 const scrollTerminalFieldIntoView = async (
   app: GtkApp,
   id: string
 ): Promise<void> => {
+  const prefix = id.startsWith('global_settings_')
+    ? 'global_settings'
+    : 'settings';
+  const appearance =
+    /_terminal_(font|show_border|border_width|cursor_shape|cursor_blink|background|color_)/.test(
+      id
+    );
+  const pageId = `${prefix}_terminal${appearance ? '_appearance' : ''}_page`;
+  await selectSettingsTab(
+    app,
+    appearance ? ['Terminal appearance', '端末の外観'] : ['Terminal', '端末'],
+    prefix
+  );
   const scrollbar = expectElementKind(
-    await app.getById('settings_terminal_page_scrollbar'),
+    await app.getById(`${pageId}_scrollbar`),
     'scrollbar'
   );
-  const page = (await (await app.getById('settings_terminal_page')).capture())
-    .bounds;
+  const page = (await (await app.getById(pageId)).capture()).bounds;
   const range = await scrollbar.valueInfo();
   const field = await app.getById(id);
   // Find the requested row instead of assuming it is at the end of the page.
@@ -543,7 +562,7 @@ const visibleSettingsTabNames = async (
 
 const selectSettingsTab = async (
   app: GtkApp,
-  expectedName: string,
+  expectedName: string | readonly string[],
   idPrefix = 'settings'
 ): Promise<void> => {
   const notebook = expectElementKind(
@@ -553,7 +572,13 @@ const selectSettingsTab = async (
   const childCount = await notebook.getChildCount();
   for (let index = 0; index < childCount; ++index) {
     const tab = await notebook.childAt(index);
-    if (tab !== undefined && (await tab.info()).name === expectedName) {
+    if (
+      tab !== undefined &&
+      (typeof expectedName === 'string'
+        ? [expectedName]
+        : expectedName
+      ).includes((await tab.info()).name)
+    ) {
       await notebook.selectChildAt(index);
       return;
     }
@@ -837,6 +862,7 @@ describe.concurrent('shared settings widget', () => {
           'General',
           'Local',
           'Terminal',
+          'Terminal appearance',
           'Transfer',
           'Logging',
           'Macro',
@@ -850,6 +876,7 @@ describe.concurrent('shared settings widget', () => {
           'TELNET',
           'SSH proxy',
           'Terminal',
+          'Terminal appearance',
           'Transfer',
           'Logging',
           'Macro',
@@ -862,6 +889,7 @@ describe.concurrent('shared settings widget', () => {
           'General',
           'Serial',
           'Terminal',
+          'Terminal appearance',
           'Transfer',
           'Logging',
           'Macro',
@@ -875,6 +903,7 @@ describe.concurrent('shared settings widget', () => {
           'SSH',
           'SSH proxy',
           'Terminal',
+          'Terminal appearance',
           'Transfer',
           'Logging',
           'Macro',
@@ -1063,13 +1092,18 @@ describe.concurrent('shared settings widget', () => {
               'Columns',
               'Rows',
               'Scrollback lines',
+              'Zoom in shortcut',
+              'Zoom out shortcut',
+              'Send BREAK shortcut',
+            ],
+          },
+          {
+            id: 'global_settings_terminal_appearance_page',
+            labels: [
               'Font size (DIP)',
               'Font families',
               'Show window side borders',
               'Window side border width (px)',
-              'Zoom in shortcut',
-              'Zoom out shortcut',
-              'Send BREAK shortcut',
             ],
           },
           {
@@ -1124,6 +1158,7 @@ describe.concurrent('shared settings widget', () => {
           'WebDAV',
           'SSH proxy',
           '端末',
+          '端末の外観',
           '転送',
           'ログ',
         ]);
@@ -1224,13 +1259,18 @@ describe.concurrent('shared settings widget', () => {
               '列数',
               '行数',
               'スクロールバッファ行数',
+              '拡大ショートカット',
+              '縮小ショートカット',
+              'BREAK送信ショートカット',
+            ],
+          },
+          {
+            id: 'global_settings_terminal_appearance_page',
+            labels: [
               '文字サイズ（DIP）',
               'フォントファミリー',
               'ウィンドウの左右にボーダーを表示する',
               'ウィンドウ左右のボーダー幅（px）',
-              '拡大ショートカット',
-              '縮小ショートカット',
-              'BREAK送信ショートカット',
             ],
           },
           {
@@ -1783,7 +1823,21 @@ describe.concurrent('shared settings widget', () => {
         prepare: showTerminalPage,
       },
       {
-        args: ['--page=terminal', '--font-size-dip=15'],
+        args: ['--page=terminal_appearance'],
+        assert: async (app) => {
+          await expectInheritedEntry(
+            app,
+            'settings_terminal_font_size_dip_entry',
+            '12 (built-in default)'
+          );
+        },
+        differsFrom: undefined,
+        fixtureName: 'settings-widget-terminal-appearance-default',
+        pageId: 'settings_terminal_appearance_page',
+        prepare: showTerminalAppearancePage,
+      },
+      {
+        args: ['--page=terminal_appearance', '--font-size-dip=15'],
         assert: async (app) => {
           await expectNumericEntryValue(
             expectElementKind(
@@ -1793,10 +1847,10 @@ describe.concurrent('shared settings widget', () => {
             15
           );
         },
-        differsFrom: 'settings-widget-terminal-page-default',
+        differsFrom: 'settings-widget-terminal-appearance-default',
         fixtureName: 'settings-widget-terminal-font-15',
-        pageId: 'settings_terminal_page',
-        prepare: showTerminalPage,
+        pageId: 'settings_terminal_appearance_page',
+        prepare: showTerminalAppearancePage,
       },
       {
         args: ['--page=general', '--auto-close=false'],
@@ -1839,13 +1893,13 @@ describe.concurrent('shared settings widget', () => {
       await runSharedGtkTest(
         context,
         [
-          '--page=terminal',
+          '--page=terminal_appearance',
           '--save',
           ...(global ? ['--global=terminal.font_families=Global Font;'] : []),
           '--rebase-global=terminal.font_families=Rebased Font;',
         ],
         async ({ app }) => {
-          await showTerminalPage(app);
+          await showTerminalAppearancePage(app);
           const id = 'settings_terminal_fonts_mode_combo';
           expect(await comboOptionNames(app, id)).toEqual([
             global
@@ -1887,7 +1941,7 @@ describe.concurrent('shared settings widget', () => {
     try {
       await runSharedGtkTest(
         context,
-        ['--global-mode', '--page=terminal', `--save-file=${path}`],
+        ['--global-mode', '--page=terminal_appearance', `--save-file=${path}`],
         async ({ app }) => {
           const id = 'global_settings_terminal_fonts_mode_combo';
           expect(await comboOptionNames(app, id)).toEqual([
@@ -1930,7 +1984,7 @@ describe.concurrent('shared settings widget', () => {
     try {
       await runSharedGtkTest(
         context,
-        ['--page=terminal', `--save-file=${path}`],
+        ['--page=terminal_appearance', `--save-file=${path}`],
         async ({ app }) => {
           const id = 'settings_terminal_color_vision_combo';
           await scrollTerminalFieldIntoView(app, id);
@@ -1998,12 +2052,14 @@ describe.concurrent('shared settings widget', () => {
       await runSharedGtkTest(
         context,
         [
-          '--page=terminal',
+          '--page=terminal_appearance',
           mode === 'runtime' ? '--runtime' : '--hide-actions',
         ],
         async ({ app, directory }) => {
           const reference = (
-            await (await app.getById('settings_terminal_width_entry')).capture()
+            await (
+              await app.getById('settings_terminal_font_size_dip_entry')
+            ).capture()
           ).bounds.x;
           for (const suffix of [
             'cursor_shape_combo',
@@ -2036,85 +2092,95 @@ describe.concurrent('shared settings widget', () => {
   }
 
   it('places image opacity below the background image controls and before image placement', async (context) => {
-    await runSharedGtkTest(context, ['--page=terminal'], async ({ app }) => {
-      await scrollTerminalFieldIntoView(
-        app,
-        'settings_terminal_background_image_entry'
-      );
-      const path = (
-        await (
-          await app.getById('settings_terminal_background_image_entry')
-        ).capture()
-      ).bounds;
-      const browse = (
-        await (
-          await app.getById('settings_terminal_background_image_browse')
-        ).capture()
-      ).bounds;
-      const opacity = (
-        await (
-          await app.getById('settings_terminal_background_image_opacity_entry')
-        ).capture()
-      ).bounds;
-      const fit = (
-        await (
-          await app.getById('settings_terminal_background_image_fit_combo')
-        ).capture()
-      ).bounds;
-      expect(browse.y).toBeGreaterThan(path.y + path.height);
-      expect(opacity.y).toBeGreaterThan(browse.y + browse.height);
-      expect(fit.y).toBeGreaterThan(opacity.y + opacity.height);
-    });
+    await runSharedGtkTest(
+      context,
+      ['--page=terminal_appearance'],
+      async ({ app }) => {
+        await scrollTerminalFieldIntoView(
+          app,
+          'settings_terminal_background_image_entry'
+        );
+        const path = (
+          await (
+            await app.getById('settings_terminal_background_image_entry')
+          ).capture()
+        ).bounds;
+        const browse = (
+          await (
+            await app.getById('settings_terminal_background_image_browse')
+          ).capture()
+        ).bounds;
+        const opacity = (
+          await (
+            await app.getById(
+              'settings_terminal_background_image_opacity_entry'
+            )
+          ).capture()
+        ).bounds;
+        const fit = (
+          await (
+            await app.getById('settings_terminal_background_image_fit_combo')
+          ).capture()
+        ).bounds;
+        expect(browse.y).toBeGreaterThan(path.y + path.height);
+        expect(opacity.y).toBeGreaterThan(browse.y + browse.height);
+        expect(fit.y).toBeGreaterThan(opacity.y + opacity.height);
+      }
+    );
   });
 
   it('aligns the font label with the top and places every candidate in the page', async (context) => {
-    await runSharedGtkTest(context, ['--page=terminal'], async ({ app }) => {
-      await showTerminalPage(app);
-      await scrollTerminalFieldIntoView(
-        app,
-        'settings_terminal_fonts_mode_combo'
-      );
-      const window = expectElementKind(await app.windowAt(0), 'window');
-      const original = (await window.capture()).bounds;
-      const label = await findDescendantByName(
-        await app.getById('settings_terminal_page'),
-        'label',
-        'Font families'
-      );
-      expect(label).toBeDefined();
-      const mode = await app.getById('settings_terminal_fonts_mode_combo');
-      const labelBounds = (await label!.capture()).bounds;
-      expect(labelBounds.height).toBeLessThanOrEqual(
-        (await mode.capture()).bounds.height
-      );
-      expect(
-        Math.abs(labelBounds.y - (await mode.capture()).bounds.y)
-      ).toBeLessThan(12);
-      const add = expectElementKind(
-        await app.getById('settings_terminal_fonts_add_button'),
-        'button'
-      );
-      await add.click();
-      const third = expectElementKind(
-        await app.getById('settings_terminal_font_family_2'),
-        'entry'
-      );
-      await waitForResult(async () => {
-        expect((await third.info()).states).toContain('showing');
-        expect((await third.info()).states).toContain('focused');
-      });
-      await third.setText('Third Candidate');
-      await scrollTerminalFieldIntoView(
-        app,
-        'settings_terminal_fonts_mode_combo'
-      );
-      const first = (
-        await (await app.getById('settings_terminal_font_family_0')).capture()
-      ).bounds;
-      const last = (await third.capture()).bounds;
-      expect(last.y - first.y).toBeGreaterThan(first.height * 2);
-      expect((await window.capture()).bounds.height).toBe(original.height);
-    });
+    await runSharedGtkTest(
+      context,
+      ['--page=terminal_appearance'],
+      async ({ app }) => {
+        await showTerminalAppearancePage(app);
+        await scrollTerminalFieldIntoView(
+          app,
+          'settings_terminal_fonts_mode_combo'
+        );
+        const window = expectElementKind(await app.windowAt(0), 'window');
+        const original = (await window.capture()).bounds;
+        const label = await findDescendantByName(
+          await app.getById('settings_terminal_appearance_page'),
+          'label',
+          'Font families'
+        );
+        expect(label).toBeDefined();
+        const mode = await app.getById('settings_terminal_fonts_mode_combo');
+        const labelBounds = (await label!.capture()).bounds;
+        expect(labelBounds.height).toBeLessThanOrEqual(
+          (await mode.capture()).bounds.height
+        );
+        expect(
+          Math.abs(labelBounds.y - (await mode.capture()).bounds.y)
+        ).toBeLessThan(12);
+        const add = expectElementKind(
+          await app.getById('settings_terminal_fonts_add_button'),
+          'button'
+        );
+        await add.click();
+        const third = expectElementKind(
+          await app.getById('settings_terminal_font_family_2'),
+          'entry'
+        );
+        await waitForResult(async () => {
+          expect((await third.info()).states).toContain('showing');
+          expect((await third.info()).states).toContain('focused');
+        });
+        await third.setText('Third Candidate');
+        await scrollTerminalFieldIntoView(
+          app,
+          'settings_terminal_fonts_mode_combo'
+        );
+        const first = (
+          await (await app.getById('settings_terminal_font_family_0')).capture()
+        ).bounds;
+        const last = (await third.capture()).bounds;
+        expect(last.y - first.y).toBeGreaterThan(first.height * 2);
+        expect((await window.capture()).bounds.height).toBe(original.height);
+      }
+    );
   });
 
   for (const connectionType of [
@@ -2253,9 +2319,9 @@ describe.concurrent('shared settings widget', () => {
     try {
       await runSharedGtkTest(
         context,
-        ['--page=terminal', `--save-file=${savedPath}`],
+        ['--page=terminal_appearance', `--save-file=${savedPath}`],
         async ({ app }) => {
-          await showTerminalPage(app);
+          await showTerminalAppearancePage(app);
           await scrollTerminalFieldIntoView(
             app,
             'settings_terminal_fonts_mode_combo'
@@ -2294,12 +2360,12 @@ describe.concurrent('shared settings widget', () => {
       await runSharedGtkTest(
         context,
         [
-          '--page=terminal',
+          '--page=terminal_appearance',
           '--connection=terminal.font_families=Monospace;IPAGothic;DejaVu Sans Mono;',
           `--save-file=${path}`,
         ],
         async ({ app }) => {
-          await showTerminalPage(app);
+          await showTerminalAppearancePage(app);
           await scrollTerminalFieldIntoView(
             app,
             'settings_terminal_fonts_mode_combo'
@@ -2352,13 +2418,13 @@ describe.concurrent('shared settings widget', () => {
     await runSharedGtkTest(
       context,
       [
-        '--page=terminal',
+        '--page=terminal_appearance',
         '--global=terminal.font_families=Global One;Global Two;',
         '--rebase-global=terminal.font_families=Replacement One;Replacement Two;Replacement Three;',
         '--save',
       ],
       async ({ app }) => {
-        await showTerminalPage(app);
+        await showTerminalAppearancePage(app);
         await scrollTerminalFieldIntoView(
           app,
           'settings_terminal_fonts_mode_combo'
@@ -2424,17 +2490,17 @@ describe.concurrent('shared settings widget', () => {
     await runSharedGtkTest(
       context,
       [
-        '--page=terminal',
+        '--page=terminal_appearance',
         `--connection=terminal.font_families=${names.join(';')};`,
       ],
       async ({ app, directory }) => {
-        await showTerminalPage(app);
+        await showTerminalAppearancePage(app);
         await scrollTerminalFieldIntoView(
           app,
           'settings_terminal_fonts_mode_combo'
         );
         const scrollbar = expectElementKind(
-          await app.getById('settings_terminal_page_scrollbar'),
+          await app.getById('settings_terminal_appearance_page_scrollbar'),
           'scrollbar'
         );
         const range = await scrollbar.valueInfo();
@@ -2477,7 +2543,7 @@ describe.concurrent('shared settings widget', () => {
             `APPLIED_FONTS ${JSON.stringify([...names.slice(0, -1), 'Last Font', 'Added Font'])}`
           )
         );
-        const page = await app.getById('settings_terminal_page');
+        const page = await app.getById('settings_terminal_appearance_page');
         await writeFile(
           join(directory, 'long-font-list.png'),
           (await page.capture()).image
@@ -2486,14 +2552,14 @@ describe.concurrent('shared settings widget', () => {
     );
     await runSharedGtkTest(
       context,
-      ['--page=terminal'],
+      ['--page=terminal_appearance'],
       async ({ app, directory }) => {
-        await showTerminalPage(app);
+        await showTerminalAppearancePage(app);
         await scrollTerminalFieldIntoView(
           app,
           'settings_terminal_fonts_mode_combo'
         );
-        await expectPageLabels(app, 'settings_terminal_page', [
+        await expectPageLabels(app, 'settings_terminal_appearance_page', [
           'フォントファミリー',
         ]);
         const add = await app.getById('settings_terminal_fonts_add_button');
@@ -2503,7 +2569,11 @@ describe.concurrent('shared settings widget', () => {
         ).toEqual(['継承元：アプリ標準', 'アプリ標準に固定', 'この接続で指定']);
         await writeFile(
           join(directory, 'font-list-ja.png'),
-          (await (await app.getById('settings_terminal_page')).capture()).image
+          (
+            await (
+              await app.getById('settings_terminal_appearance_page')
+            ).capture()
+          ).image
         );
       },
       { env: japaneseTestEnvironment }
@@ -5270,16 +5340,18 @@ describe.concurrent('shared settings widget', () => {
         await setNumericEntryValue(width, 81);
         await setNumericEntryValue(height, 25);
         await setNumericEntryValue(scrollbackLines, 50000);
+        await selectSettingsTab(app, 'Terminal appearance');
+        await showTerminalAppearancePage(app);
         await setNumericEntryValue(zoom, 14.5);
         await selectSettingsTab(app, 'General');
         await autoClose.selectChildAt(1);
-        await selectSettingsTab(app, 'Terminal');
-        await showTerminalPage(app);
+        await selectSettingsTab(app, 'Terminal appearance');
+        await showTerminalAppearancePage(app);
         await showBorder.selectChildAt(2);
         await setNumericEntryValue(borderWidth, 6);
         await scrollTerminalFieldIntoView(
           app,
-          'settings_terminal_fonts_mode_combo'
+          'settings_terminal_zoom_in_key_entry'
         );
         await captureKeyBinding(app, zoomInKey, ['alt'], 'Up');
         await captureKeyBinding(app, sendBreakKey, ['shift'], 'F12');
@@ -5318,12 +5390,12 @@ describe.concurrent('shared settings widget', () => {
     await runSharedGtkTest(
       context,
       [
-        '--page=terminal',
+        '--page=terminal_appearance',
         '--save',
         '--global=terminal.font_families=Monospace;IPAGothic;',
       ],
       async ({ app, directory }) => {
-        await showTerminalPage(app);
+        await showTerminalAppearancePage(app);
         await scrollTerminalFieldIntoView(
           app,
           'settings_terminal_fonts_mode_combo'
@@ -5333,7 +5405,7 @@ describe.concurrent('shared settings widget', () => {
           'settings_terminal_fonts_mode_combo',
           'Inherited from: global settings'
         );
-        const page = await app.getById('settings_terminal_page');
+        const page = await app.getById('settings_terminal_appearance_page');
         const capture = await captureWhenVisuallyStable(
           page,
           'settings-widget-terminal-font-families'
@@ -5651,9 +5723,9 @@ describe.concurrent('shared settings widget', () => {
   it('accepts only terminal border widths from 1 through 1000 pixels', async (context) => {
     await runSharedGtkTest(
       context,
-      ['--page=terminal', '--save'],
+      ['--page=terminal_appearance', '--save'],
       async ({ app }) => {
-        await showTerminalPage(app);
+        await showTerminalAppearancePage(app);
         const borderWidth = expectElementKind(
           await app.getById('settings_terminal_border_width_entry'),
           'entry'
@@ -5703,7 +5775,7 @@ describe.concurrent('shared settings widget', () => {
         await showTerminalPage(app);
         await scrollTerminalFieldIntoView(
           app,
-          'settings_terminal_fonts_mode_combo'
+          'settings_terminal_zoom_in_key_entry'
         );
         const zoomInKey = expectElementKind(
           await app.getById('settings_terminal_zoom_in_key_entry'),
@@ -5827,7 +5899,7 @@ describe.concurrent('shared settings widget', () => {
 
         await scrollTerminalFieldIntoView(
           app,
-          'settings_terminal_fonts_mode_combo'
+          'settings_terminal_zoom_in_key_entry'
         );
         await captureKeyBinding(app, zoomInKey, ['alt'], 'F1');
         await expectEntryText(zoomInKey, 'alt+F1');
@@ -6340,7 +6412,7 @@ describe.concurrent('shared settings widget', () => {
         await showTerminalPage(app);
         await scrollTerminalFieldIntoView(
           app,
-          'settings_terminal_fonts_mode_combo'
+          'settings_terminal_zoom_in_key_entry'
         );
         await captureKeyBinding(app, zoomIn, ['alt'], 'F1');
         await selectSettingsTab(app, 'TELNET');
@@ -6538,7 +6610,7 @@ describe.concurrent('shared settings widget', () => {
 
         await scrollTerminalFieldIntoView(
           app,
-          'settings_terminal_fonts_mode_combo'
+          'settings_terminal_zoom_in_key_entry'
         );
         await captureKeyBinding(app, zoomOut, ['alt'], 'F2');
         await waitForResult(async () => {
@@ -6663,6 +6735,7 @@ describe.concurrent('shared settings widget', () => {
           'WebDAV',
           'SSH proxy',
           'Terminal',
+          'Terminal appearance',
           'Transfer',
           'Logging',
         ]);

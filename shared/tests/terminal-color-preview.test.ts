@@ -14,13 +14,13 @@ for (const [profile, reference] of [
     await runSharedGtkTest(
       context,
       [
-        '--page=terminal',
+        '--page=terminal_appearance',
         `--connection=terminal.color_vision=${profile}`,
         '--connection=terminal.color_filter=oklch',
       ],
       async ({ app, directory }) => {
         const scroll = expectElementKind(
-          await app.getById('settings_terminal_page_scrollbar'),
+          await app.getById('settings_terminal_appearance_page_scrollbar'),
           'scrollbar'
         );
         await scroll.setValue((await scroll.valueInfo()).maximum);
@@ -39,7 +39,7 @@ for (const [profile, reference] of [
         );
         // Expansion changes the scroll range on GTK's next allocation.
         // Follow that range until both samples are fully inside the viewport.
-        const page = await app.getById('settings_terminal_page');
+        const page = await app.getById('settings_terminal_appearance_page');
         await waitForResult(async () => {
           await scroll.setValue((await scroll.valueInfo()).maximum);
           const viewport = (await page.capture()).bounds;

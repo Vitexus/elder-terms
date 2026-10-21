@@ -52,6 +52,7 @@ libgl-dev
 libegl-dev
 libssh-dev
 libudev-dev
+libsystemd-dev
 liburing-dev
 libx11-dev
 libxfixes-dev

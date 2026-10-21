@@ -1,7 +1,14 @@
 import { createRequire } from 'node:module';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import {
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { expect, type TestContext } from 'vitest';
 import {
@@ -34,6 +41,7 @@ const appPath = fileURLToPath(
     import.meta.url
   )
 );
+const fixtureDirectory = fileURLToPath(new URL('./fixtures/', import.meta.url));
 
 /** Test-only synchronous XYZMODEM peer used by transfer progress notice tests. */
 export const xyzmPausePeerPath = fileURLToPath(
@@ -645,8 +653,9 @@ export const assertDisconnectedNoticeMatches = async (
 /**
  * Launches the GTK app and records evidence for one Vitest test.
  *
- * @remarks A temporary XDG config home isolates each launch unless overridden
- * through `options.env`.
+ * @remarks Temporary XDG config and data homes isolate each launch unless overridden
+ * through `options.env`. Repository INI fixtures passed with `-c` are copied
+ * into the temporary directory before launch so startup writes leave sources intact.
  *
  * @param context Vitest test context.
  * @param args Application arguments.
@@ -664,6 +673,19 @@ export const runGtkTest = async (
     join(tmpdir(), 'elder-terms-terminal-xdg-config-')
   );
   try {
+    const launchArgs = [...args];
+    const configArgIndex = launchArgs.indexOf('-c');
+    if (configArgIndex >= 0 && configArgIndex + 1 < launchArgs.length) {
+      const configPath = launchArgs[configArgIndex + 1];
+      if (
+        dirname(resolve(configPath)) === resolve(fixtureDirectory) &&
+        extname(configPath) === '.ini'
+      ) {
+        const copiedPath = join(configHome, basename(configPath));
+        await copyFile(configPath, copiedPath);
+        launchArgs[configArgIndex + 1] = copiedPath;
+      }
+    }
     if (options?.globalSettings !== undefined) {
       const globalDirectory = join(configHome, 'elder-terms');
       await mkdir(globalDirectory, { recursive: true });
@@ -680,6 +702,7 @@ export const runGtkTest = async (
         LANGUAGE: 'C',
         LC_ALL: 'C.UTF-8',
         XDG_CONFIG_HOME: configHome,
+        XDG_DATA_HOME: join(configHome, 'data'),
         ...options?.env,
       },
       onSystemOutput: evidence.recordSystemOutputEvent,
@@ -695,8 +718,8 @@ export const runGtkTest = async (
     const apps: GtkApp[] = [];
 
     try {
-      await evidence.log('launching app', { appPath, args });
-      const app = await launcher.launch(args, {
+      await evidence.log('launching app', { appPath, args: launchArgs });
+      const app = await launcher.launch(launchArgs, {
         onOutput: (event) => {
           evidence.recordAppOutputEvent(event);
           options?.onOutput?.(event);

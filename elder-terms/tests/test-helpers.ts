@@ -423,6 +423,7 @@ export const runLauncherGtkTest = async (
       LANGUAGE: 'C',
       LC_ALL: 'C.UTF-8',
       XDG_CONFIG_HOME: configHome,
+      XDG_DATA_HOME: join(directory, 'data'),
       XDG_RUNTIME_DIR: runtimeDirectory,
       XDG_ACTIVATION_TOKEN: undefined,
       ...options?.env,

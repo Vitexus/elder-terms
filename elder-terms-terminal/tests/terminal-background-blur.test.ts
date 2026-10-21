@@ -157,13 +157,16 @@ for (const backend of ['cairo', 'opengl']) {
               );
               for (let i = 0; i < (await tabs.getChildCount()); i++)
                 if (
-                  (await (await tabs.childAt(i))?.info())?.name === 'Terminal'
+                  (await (await tabs.childAt(i))?.info())?.name ===
+                  'Terminal appearance'
                 ) {
                   await tabs.selectChildAt(i);
                   break;
                 }
               const scrollbar = expectElementKind(
-                await app.getById('settings_terminal_page_scrollbar'),
+                await app.getById(
+                  'settings_terminal_appearance_page_scrollbar'
+                ),
                 'scrollbar'
               );
               await scrollbar.setValue((await scrollbar.valueInfo()).maximum);
@@ -174,11 +177,15 @@ for (const backend of ['cairo', 'opengl']) {
                 'comboBox'
               );
               const scrollbar = expectElementKind(
-                await app.getById('settings_terminal_page_scrollbar'),
+                await app.getById(
+                  'settings_terminal_appearance_page_scrollbar'
+                ),
                 'scrollbar'
               );
               const page = (
-                await (await app.getById('settings_terminal_page')).capture()
+                await (
+                  await app.getById('settings_terminal_appearance_page')
+                ).capture()
               ).bounds;
               const range = await scrollbar.valueInfo();
               const step = Math.max(1, Math.floor(page.height / 3));
