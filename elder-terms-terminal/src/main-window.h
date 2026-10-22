@@ -63,6 +63,10 @@ struct MainWindow {
   GtkWidget *header_bar = nullptr;
   /** Connection icon at the start of the header bar. */
   GtkWidget *header_connection_icon = nullptr;
+  /** Symbolic image inside the transfer button. */
+  GtkWidget *transfer_button_image = nullptr;
+  /** Symbolic image inside the application menu button. */
+  GtkWidget *application_menu_button_image = nullptr;
   /** Single-line title that expands ahead of title-bar controls. */
   GtkWidget *header_title_label = nullptr;
   /** Custom title container that accepts the activity indicators. */

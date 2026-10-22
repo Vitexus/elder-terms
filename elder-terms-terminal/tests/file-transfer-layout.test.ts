@@ -61,6 +61,7 @@ describe.concurrent('file transfer compact title bar', () => {
           '',
         ].join('\n');
         let regularHeight = 0;
+        let regularConnectionIconSize = 0;
         for (const compact of [false, true]) {
           await writeFile(
             configPath,
@@ -80,6 +81,11 @@ describe.concurrent('file transfer compact title bar', () => {
           );
           if (!compact) {
             regularHeight = capture.bounds.height;
+            regularConnectionIconSize = (
+              await (
+                await app.getById('file_transfer_connection_icon')
+              ).capture()
+            ).bounds.width;
             expect(regularHeight).toBeGreaterThan(0);
             await app.release();
             continue;
@@ -87,6 +93,12 @@ describe.concurrent('file transfer compact title bar', () => {
 
           const compactHeight = Math.round(regularHeight * 0.75);
           expect(capture.bounds.height).toBe(compactHeight);
+          const compactConnectionIconSize = (
+            await (await app.getById('file_transfer_connection_icon')).capture()
+          ).bounds.width;
+          expect(compactConnectionIconSize).toBeLessThan(
+            regularConnectionIconSize
+          );
           expect(capture.clipped).toBe(false);
           for (const id of [
             'file_transfer_connection_icon',
@@ -191,6 +203,15 @@ describe.concurrent('file transfer compact title bar', () => {
               expect(await app.getWindowCount()).toBe(1);
               expect((await header.capture()).bounds.height).toBe(
                 enabled ? compactHeight : regularHeight
+              );
+              expect(
+                (
+                  await (
+                    await app.getById('file_transfer_connection_icon')
+                  ).capture()
+                ).bounds.width
+              ).toBe(
+                enabled ? compactConnectionIconSize : regularConnectionIconSize
               );
               const status = await (
                 await app.getById('file_transfer_status_bar')

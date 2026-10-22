@@ -382,6 +382,8 @@ static GtkWidget *required_widget(GtkBuilder *builder, const char *id) {
 static bool main_window_has_required_widgets(const MainWindow &main_window) {
   return main_window.window != nullptr && main_window.header_bar != nullptr &&
          main_window.header_connection_icon != nullptr &&
+         main_window.transfer_button_image != nullptr &&
+         main_window.application_menu_button_image != nullptr &&
          main_window.header_title_label != nullptr &&
          main_window.header_title_box != nullptr &&
          main_window.transfer_button != nullptr &&
@@ -1177,6 +1179,10 @@ std::optional<MainWindow> load_main_window() {
   main_window.header_bar = required_widget(main_window.builder, "header_bar");
   main_window.header_connection_icon =
       required_widget(main_window.builder, "header_connection_icon");
+  main_window.transfer_button_image =
+      required_widget(main_window.builder, "transfer_button_image");
+  main_window.application_menu_button_image =
+      required_widget(main_window.builder, "application_menu_button_image");
   main_window.transfer_button =
       required_widget(main_window.builder, "transfer_button");
   main_window.application_menu_button =
@@ -1704,6 +1710,8 @@ static void clear_main_window_compact_header(MainWindow *main_window) {
       main_window->header_provider, header_style_class, false);
   gtk_widget_set_valign(main_window->transfer_button, GTK_ALIGN_FILL);
   gtk_widget_set_valign(main_window->application_menu_button, GTK_ALIGN_FILL);
+  gtk_image_set_pixel_size(GTK_IMAGE(main_window->transfer_button_image), 20);
+  gtk_image_set_pixel_size(GTK_IMAGE(main_window->application_menu_button_image), 20);
 }
 
 static void apply_main_window_compact_header(MainWindow *main_window) {
@@ -1715,6 +1723,8 @@ static void apply_main_window_compact_header(MainWindow *main_window) {
   // buttons also keep their natural square size instead of filling the bar.
   gtk_widget_set_valign(main_window->transfer_button, GTK_ALIGN_CENTER);
   gtk_widget_set_valign(main_window->application_menu_button, GTK_ALIGN_CENTER);
+  gtk_image_set_pixel_size(GTK_IMAGE(main_window->transfer_button_image), 16);
+  gtk_image_set_pixel_size(GTK_IMAGE(main_window->application_menu_button_image), 16);
 }
 
 void set_main_window_compact_mode(MainWindow *main_window, bool compact_mode) {

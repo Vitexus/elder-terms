@@ -812,7 +812,8 @@ static bool apply_runtime_settings(ApplicationState *state,
   elder_terms::update_connection_desktop_session(state->settings_store);
   elder_terms::set_connection_window_icon(GTK_WINDOW(state->main_window->window),
       GTK_IMAGE(state->main_window->header_connection_icon),
-      elder_terms::general_connection_icon(state->settings_store), 20);
+      elder_terms::general_connection_icon(state->settings_store),
+      state->main_window->compact_mode ? 18 : 24);
   elder_terms::apply_terminal_bell_settings(
       state->bell_state,
       elder_terms::terminal_bell_settings(state->settings_store));
@@ -1876,6 +1877,9 @@ int main(int argc, char **argv) {
   elder_terms::set_main_window_indicator_color(
       &*main_window, elder_terms::general_indicator_color(settings_result.store),
       elder_terms::general_indicator_off_color(settings_result.store));
+  elder_terms::set_connection_window_icon(GTK_WINDOW(main_window->window),
+      GTK_IMAGE(main_window->header_connection_icon),
+      elder_terms::general_connection_icon(settings_result.store), 24);
   elder_terms::set_main_window_compact_mode(
       &*main_window, elder_terms::general_compact_mode(settings_result.store));
 
@@ -1885,9 +1889,11 @@ int main(int argc, char **argv) {
   app_state.active_profile = *connection_profile;
   app_state.dispatcher_group = &dispatcher_group;
   app_state.settings_store = settings_result.store;
-  elder_terms::set_connection_window_icon(GTK_WINDOW(main_window->window),
-      GTK_IMAGE(main_window->header_connection_icon),
-      elder_terms::general_connection_icon(app_state.settings_store), 20);
+  if (main_window->compact_mode) {
+    elder_terms::set_connection_window_icon(GTK_WINDOW(main_window->window),
+        GTK_IMAGE(main_window->header_connection_icon),
+        elder_terms::general_connection_icon(app_state.settings_store), 18);
+  }
   app_state.config_path = launch_options.config_path;
   app_state.test_options = launch_options.test;
   app_state.auto_close = elder_terms::general_auto_close(settings_result.store);

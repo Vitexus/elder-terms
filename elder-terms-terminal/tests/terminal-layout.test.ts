@@ -49,12 +49,16 @@ describe.concurrent('elder-terms-terminal terminal layout', () => {
         const env = { GTK_THEME: theme, GDK_SCALE: String(scale) };
         await writeFile(configPath, settings + terminalSettings, 'utf8');
         let regularHeight = 0;
+        let regularConnectionIconSize = 0;
         await runGtkTest(
           context,
           ['--test-fixture', '-c', configPath],
           async (app, evidence) => {
             const header = await (await app.getById('header_bar')).capture();
             regularHeight = header.bounds.height;
+            regularConnectionIconSize = (
+              await (await app.getById('header_connection_icon')).capture()
+            ).bounds.width;
             await evidence.captureEvidence('regular-serial-screen', async () =>
               app.capture()
             );
@@ -86,6 +90,10 @@ describe.concurrent('elder-terms-terminal terminal layout', () => {
             // GTK3 AT-SPI bounds use logical pixels; X11 input and screen
             // captures use physical pixels, including on HiDPI displays.
             expect(header.bounds.height).toBe(Math.round(regularHeight * 0.75));
+            expect(
+              (await (await app.getById('header_connection_icon')).capture())
+                .bounds.width
+            ).toBeLessThan(regularConnectionIconSize);
             expect(
               layout.mainBounds.x + layout.mainBounds.width
             ).toBeLessThanOrEqual(screen.bounds.width);

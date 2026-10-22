@@ -45,6 +45,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="icon-name">open-menu-symbolic</property>
+                <property name="pixel-size">20</property>
               </object>
             </child>
           </object>
@@ -62,6 +63,7 @@
                 <property name="visible">True</property>
                 <property name="can-focus">False</property>
                 <property name="icon-name">document-send-symbolic</property>
+                <property name="pixel-size">20</property>
               </object>
             </child>
           </object>

@@ -148,6 +148,7 @@ struct FileTransferWindow {
   GtkWidget *header_bar = nullptr;
   GtkCssProvider *header_provider = nullptr;
   GtkWidget *application_menu_button = nullptr;
+  GtkWidget *application_menu_button_image = nullptr;
   GtkWidget *header_connection_icon = nullptr;
   GtkWidget *title_box = nullptr;
   GtkWidget *title_label = nullptr;
@@ -2099,6 +2100,7 @@ static void on_file_transfer_window_destroy(GtkWidget *, gpointer data) {
   window->window = nullptr;
   window->header_bar = nullptr;
   window->application_menu_button = nullptr;
+  window->application_menu_button_image = nullptr;
   window->header_connection_icon = nullptr;
   window->root_overlay = nullptr;
   window->paned = nullptr;
@@ -2596,6 +2598,11 @@ static void apply_file_transfer_compact_mode(FileTransferWindow *window,
   }
   set_compact_header_enabled(window->header_bar, window->header_provider,
       file_transfer_header_style_class, compact_mode);
+  gtk_image_set_pixel_size(GTK_IMAGE(window->application_menu_button_image),
+                           compact_mode ? 16 : 20);
+  set_connection_window_icon(GTK_WINDOW(window->window),
+      GTK_IMAGE(window->header_connection_icon),
+      general_connection_icon(window->settings), compact_mode ? 18 : 24);
   // Match GTK's centered window controls without stretching the menu button.
   gtk_widget_set_valign(window->application_menu_button,
                          compact_mode ? GTK_ALIGN_CENTER : GTK_ALIGN_FILL);
@@ -2732,8 +2739,10 @@ static void create_file_settings_menu(FileTransferWindow *window) {
   window->application_menu_button = button;
   gestament_gtk_assign_accessible_id(button, "application_menu_button");
   gtk_widget_set_tooltip_text(button, _("Application"));
-  gtk_container_add(GTK_CONTAINER(button),
-      gtk_image_new_from_icon_name("open-menu-symbolic", GTK_ICON_SIZE_BUTTON));
+  window->application_menu_button_image =
+      gtk_image_new_from_icon_name("open-menu-symbolic", GTK_ICON_SIZE_BUTTON);
+  gtk_image_set_pixel_size(GTK_IMAGE(window->application_menu_button_image), 20);
+  gtk_container_add(GTK_CONTAINER(button), window->application_menu_button_image);
   GtkWidget *menu = gtk_menu_new();
   GtkWidget *settings = gtk_menu_item_new_with_label(_("Settings"));
   GtkWidget *about = gtk_menu_item_new_with_label(_("About elder-terms"));
@@ -2789,7 +2798,7 @@ create_file_transfer_window(FileTransferWindowOptions options) {
                             state->header_connection_icon);
   set_connection_window_icon(GTK_WINDOW(state->window),
       GTK_IMAGE(state->header_connection_icon),
-      general_connection_icon(state->settings), 20);
+      general_connection_icon(state->settings), 24);
   state->title_box = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 6);
   state->title_label = gtk_label_new(title.c_str());
   gestament_gtk_assign_accessible_id(
@@ -3255,7 +3264,8 @@ void set_file_transfer_window_connection_icon(
         &window->settings, general_icon_setting_key(), specification);
   }
   set_connection_window_icon(GTK_WINDOW(window->window),
-      GTK_IMAGE(window->header_connection_icon), specification, 20);
+      GTK_IMAGE(window->header_connection_icon), specification,
+      general_compact_mode(window->settings) ? 18 : 24);
 }
 
 void present_file_transfer_window(
