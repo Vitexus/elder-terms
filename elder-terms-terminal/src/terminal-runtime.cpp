@@ -1053,6 +1053,10 @@ static bool attach_widget(TerminalRuntime *runtime) {
   auto *previous_widget = runtime->widget;
   auto *previous_scroll = runtime->scroll;
   auto widget_config = boxrig_gtk3_terminal_widget_config_default();
+  // Background colors also use a display-color filter. A large maximized
+  // window at minimum zoom exceeds the default 64 MiB retained-paint budget.
+  // Allow the supported bounded capacity; storage grows with the actual grid.
+  widget_config.view.maximum_retained_color_bytes = BOXRIG_UI_COLOR_PAINT_BYTES_MAX;
   boxrig_font_specification font{};
   boxrig_font_effective_metrics metrics{};
   if (previous_widget &&
