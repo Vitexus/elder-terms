@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include "../../src/terminal-sessions/ssh-session/ssh-channel-connection.h"
 #include "../../src/terminal-sessions/ssh-session/ssh-proxy.h"
 #include "../../src/terminal-sessions/ssh-session/ssh-socks-proxy.h"

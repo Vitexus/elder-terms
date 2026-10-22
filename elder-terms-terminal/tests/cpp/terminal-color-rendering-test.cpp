@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include "../../src/terminal-runtime.h"
 #include "../../src/terminal-presentation.h"
 #include <elder-terms/terminal-color-filter.h>

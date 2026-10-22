@@ -17,7 +17,7 @@ A Terminal emulator for local shell, serial, TELNET, FTP, FTPS, SSH, and SFTP co
 
 ## What Is This?
 
-elder-terms is a GTK terminal for local shell, serial, TELNET, FTP, SSH and SFTP connections, inspired by personal computing in the 1990s.
+A terminal application, inspired by personal computing in the 1990s.
 
 ![Terminal](./images/terminal.png)
 

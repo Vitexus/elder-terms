@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { spawn, execFile, type ChildProcess } from 'node:child_process';
 import { chmod, readFile, writeFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
