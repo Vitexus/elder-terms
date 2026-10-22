@@ -37,6 +37,7 @@ elder_terms_launcher = executable(
   ],
   include_directories: elder_terms_launcher_include_dir,
   dependencies: [
+    jemalloc_dep,
     cardio_dep,
     elder_terms_dep,
     elder_terms_launcher_gdk_pixbuf_dep,

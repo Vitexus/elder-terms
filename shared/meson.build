@@ -197,6 +197,7 @@ elder_terms_dep = declare_dependency(
   include_directories: elder_terms_shared_include_dir,
   link_with: elder_terms_library,
   dependencies: [
+    jemalloc_dep,
     boxrig_deps['boxrig'],
     boxrig_deps['boxrig-ui'],
     cardio_dep,

@@ -7,3 +7,6 @@
 [submodule "deps/boxrig"]
 	path = deps/boxrig
 	url = https://github.com/kekyo/boxrig.git
+[submodule "deps/jemalloc"]
+	path = deps/jemalloc
+	url = https://github.com/jemalloc/jemalloc.git

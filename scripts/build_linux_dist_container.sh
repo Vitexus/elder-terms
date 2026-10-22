@@ -88,6 +88,7 @@ calculate_shlibdeps() {
 			"$private_dir/libboxrig-session.so.0" \
 			"$private_dir/libboxrig-posix.so.0" \
 			"$private_dir/libboxrig-gtk3.so.0" \
+			"$private_dir/libjemalloc.so.2" \
 			"$private_dir/launcher/elder-terms" \
 			"$private_dir/elder-terms-terminal/elder-terms-terminal" \
 			"$private_dir/elder-terms-terminal/elder-terms-file-transfer" |
@@ -143,6 +144,7 @@ validate_installed_package() {
 		/usr/lib/elder-terms/libboxrig-session.so.0 \
 		/usr/lib/elder-terms/libboxrig-posix.so.0 \
 		/usr/lib/elder-terms/libboxrig-gtk3.so.0 \
+		/usr/lib/elder-terms/libjemalloc.so.2 \
 		/usr/lib/elder-terms/launcher/elder-terms \
 		/usr/lib/elder-terms/launcher/main-window.ui \
 		/usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
@@ -168,6 +170,7 @@ validate_installed_package() {
 		/usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
 		/usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
 		/usr/share/doc/elder-terms/licenses/boxrig/Wayland-protocols-NOTICES.md \
+		/usr/share/doc/elder-terms/licenses/jemalloc/COPYING \
 		/usr/share/doc/elder-terms/copyright; do
 		assert_file "$installed_file"
 	done
@@ -212,6 +215,7 @@ require_command dpkg-architecture
 require_command dpkg-shlibdeps
 require_env ELDER_TERMS_PACKAGE_TOOLS
 require_command make
+require_command autoconf
 require_command meson
 require_command pkg-config
 
@@ -263,6 +267,11 @@ deb_arch=$(dpkg-architecture -qDEB_HOST_ARCH)
 control_dir="$stage_dir/DEBIAN"
 mkdir -p "$control_dir"
 shlib_depends=$(calculate_shlibdeps)
+case $shlib_depends in
+	*libjemalloc*)
+		fail "Packaged jemalloc must not depend on the system package: $shlib_depends"
+		;;
+esac
 runtime_depends='ca-certificates, dbus-user-session, hicolor-icon-theme, libcanberra-pulse, openssh-client, xdg-utils'
 write_control_file "$control_dir/control" "$shlib_depends, $runtime_depends"
 chmod 0644 "$control_dir/control"
@@ -275,6 +284,7 @@ for staged_file in \
 	usr/lib/elder-terms/libboxrig-session.so.0 \
 	usr/lib/elder-terms/libboxrig-posix.so.0 \
 	usr/lib/elder-terms/libboxrig-gtk3.so.0 \
+	usr/lib/elder-terms/libjemalloc.so.2 \
 	usr/lib/elder-terms/launcher/elder-terms \
 	usr/lib/elder-terms/launcher/main-window.ui \
 	usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
@@ -300,6 +310,7 @@ for staged_file in \
 	usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
 	usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
 	usr/share/doc/elder-terms/licenses/boxrig/Wayland-protocols-NOTICES.md \
+	usr/share/doc/elder-terms/licenses/jemalloc/COPYING \
 	usr/share/doc/elder-terms/copyright; do
 	assert_file "$stage_dir/$staged_file"
 done

@@ -69,7 +69,7 @@ boxrig_runtime_library = static_library('elder-terms-terminal-runtime',
 boxrig_runtime_dep = declare_dependency(
   link_with: boxrig_runtime_library,
   include_directories: elder_terms_shared_include_dir,
-  dependencies: [boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep, ssh_transport_dep],
+  dependencies: [jemalloc_dep, boxrig_deps['boxrig-gtk3'], boxrig_deps['boxrig-posix'], cardio_dep, ssh_transport_dep],
 )
 executable('boxrig-driver', ['src/boxrig-driver.cpp', 'src/inline-prompt.cpp', 'src/terminal-log.cpp',
     'src/sftp/sftp-client.cpp'],
@@ -84,8 +84,10 @@ boxrig_regex_flags = run_command(boxrig_pkg_config, '--cflags', '--libs', 'boxri
 custom_target('boxrig-regex',
   input: '../deps/boxrig/examples/core/regex.c', output: 'boxrig-regex',
   command: [find_program('cc'), '-std=c99', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
-    '@INPUT@', '-o', '@OUTPUT@', '-Wl,-rpath,' + boxrig_sdk_dir / 'lib'] + boxrig_regex_flags,
-  depends: boxrig_sdk_target, build_by_default: true)
+    '@INPUT@', '-o', '@OUTPUT@', '-L' + jemalloc_library_dir, '-ljemalloc',
+    '-Wl,-rpath,' + jemalloc_library_dir,
+    '-Wl,-rpath,' + boxrig_sdk_dir / 'lib'] + boxrig_regex_flags,
+  depends: [boxrig_sdk_target, jemalloc_build_target], build_by_default: true)
 
 telnet_protocol_source = 'src/terminal-sessions/telnet-session/telnet-protocol.cpp'
 elder_terms_sources = [
@@ -124,6 +126,7 @@ elder_terms_terminal = executable(
     '-I' + libxyzm_include_dir,
   ],
   dependencies: [
+    jemalloc_dep,
     cardio_dep,
     elder_terms_dep,
     canberra_dep,
@@ -278,6 +281,7 @@ executable(
     '-I' + gestament_include_dir,
   ],
   dependencies: [
+    jemalloc_dep,
     cardio_dep,
     elder_terms_dep,
     gio_dep,

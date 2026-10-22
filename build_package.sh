@@ -387,6 +387,9 @@ validate_deb_package() {
 		fail "Unexpected Version field in $package_path"
 	depends_value=$(dpkg-deb -f "$package_path" Depends)
 	[ -n "$depends_value" ] || fail "Missing Depends field in $package_path"
+	case $depends_value in
+	*libjemalloc*) fail "Bundled jemalloc must not depend on a system package: $depends_value" ;;
+	esac
 	for required_dependency in ca-certificates dbus-user-session hicolor-icon-theme openssh-client xdg-utils; do
 		assert_deb_dependency "$depends_value" "$required_dependency"
 	done
@@ -401,6 +404,7 @@ validate_deb_package() {
 		usr/lib/elder-terms/libboxrig-session.so.0 \
 		usr/lib/elder-terms/libboxrig-posix.so.0 \
 		usr/lib/elder-terms/libboxrig-gtk3.so.0 \
+		usr/lib/elder-terms/libjemalloc.so.2 \
 		usr/lib/elder-terms/launcher/elder-terms \
 		usr/lib/elder-terms/launcher/main-window.ui \
 		usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
@@ -428,6 +432,7 @@ validate_deb_package() {
 		usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
 		usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
 		usr/share/doc/elder-terms/licenses/boxrig/Wayland-protocols-NOTICES.md \
+		usr/share/doc/elder-terms/licenses/jemalloc/COPYING \
 		usr/share/doc/elder-terms/licenses/connection-icons/NOTO-LICENSE \
 		usr/share/doc/elder-terms/licenses/connection-icons/NOTO-FLAGS-NOTICE \
 		usr/share/doc/elder-terms/licenses/connection-icons/MATERIAL-LICENSE \
@@ -451,6 +456,7 @@ validate_deb_package() {
 		usr/lib/elder-terms/libboxrig-session.so.0 \
 		usr/lib/elder-terms/libboxrig-posix.so.0 \
 		usr/lib/elder-terms/libboxrig-gtk3.so.0 \
+		usr/lib/elder-terms/libjemalloc.so.2 \
 		usr/lib/elder-terms/launcher/elder-terms \
 		usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
 		usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer; do

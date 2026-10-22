@@ -30,6 +30,7 @@ await run(
   [
     join(root, 'node_modules/typescript/bin/tsc'),
     join(root, 'scripts/prepare-boxrig.mts'),
+    join(root, 'scripts/prepare-jemalloc.mts'),
     '--module',
     'NodeNext',
     '--target',

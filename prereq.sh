@@ -30,6 +30,7 @@ EOF
 container_packages() {
 	cat <<'EOF'
 binutils
+autoconf
 build-essential
 ca-certificates
 dbus-user-session

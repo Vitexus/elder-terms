@@ -100,6 +100,7 @@ const createPackageStage = (
     'usr/share/doc/elder-terms/docs/ja',
     'usr/share/doc/elder-terms/docs/en',
     'usr/share/doc/elder-terms/licenses/boxrig',
+    'usr/share/doc/elder-terms/licenses/jemalloc',
     'usr/share/doc/elder-terms/licenses/connection-icons',
     'usr/share/icons/hicolor/256x256/apps',
     'usr/share/locale/ja/LC_MESSAGES',
@@ -130,6 +131,7 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
     'usr/lib/elder-terms/libboxrig-session.so.0',
     'usr/lib/elder-terms/libboxrig-posix.so.0',
     'usr/lib/elder-terms/libboxrig-gtk3.so.0',
+    'usr/lib/elder-terms/libjemalloc.so.2',
     'usr/lib/elder-terms/launcher/elder-terms',
     'usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal',
     'usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer',
@@ -189,6 +191,10 @@ Description: GTK terminal for serial, TELNET, local shell, SSH, SFTP, and FTP co
       'license fixture\n'
     );
   }
+  textFiles.set(
+    'usr/share/doc/elder-terms/licenses/jemalloc/COPYING',
+    'license fixture\n'
+  );
   for (const name of [
     'NOTO-LICENSE',
     'NOTO-FLAGS-NOTICE',
@@ -340,6 +346,9 @@ container_image_for_target debian trixie riscv64
     );
     const relocated = join(temporaryRoot, 'relocated-tools');
     renameSync(prepared, relocated);
+    expect(lstatSync(join(relocated, 'prepare-jemalloc.mjs')).isFile()).toBe(
+      true
+    );
     const resourceDriver = join(temporaryRoot, 'material-resource-driver.c');
     const resourceExecutable = join(temporaryRoot, 'material-resource-driver');
     writeFileSync(
@@ -783,6 +792,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     );
     const containerfile = readFileSync(`${recordsPath}.containerfile`, 'utf8');
     for (const dependency of [
+      'autoconf',
       'libcanberra-dev',
       'libcanberra-pulse',
       'libgtk-3-dev',
@@ -847,6 +857,8 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
 
     const missingCaStage = join(temporaryRoot, 'missing-ca-stage');
     const missingCaPackage = join(temporaryRoot, 'missing-ca.deb');
+    const systemJemallocStage = join(temporaryRoot, 'system-jemalloc-stage');
+    const systemJemallocPackage = join(temporaryRoot, 'system-jemalloc.deb');
     const goodStage = join(temporaryRoot, 'good-stage');
     const badStage = join(temporaryRoot, 'bad-stage');
     const goodPackage = join(temporaryRoot, 'elder-terms-good.deb');
@@ -879,6 +891,21 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       undefined,
       true,
       true
+    );
+    createPackageStage(
+      systemJemallocStage,
+      debianArchitecture,
+      undefined,
+      true,
+      true
+    );
+    const systemJemallocControl = join(systemJemallocStage, 'DEBIAN/control');
+    writeFileSync(
+      systemJemallocControl,
+      readFileSync(systemJemallocControl, 'utf8').replace(
+        'Depends: libc6',
+        'Depends: libc6, libjemalloc2 (>= 5.4.0)'
+      )
     );
     const missingCaControl = join(missingCaStage, 'DEBIAN/control');
     writeFileSync(
@@ -916,6 +943,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     for (const [stage, output] of [
       [goodStage, goodPackage],
       [missingCaStage, missingCaPackage],
+      [systemJemallocStage, systemJemallocPackage],
       [badStage, badPackage],
       [missingFileTransferStage, missingFileTransferPackage],
       [missingOpenSshClientStage, missingOpenSshClientPackage],
@@ -935,6 +963,12 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       [goodPackage, canonicalArchitecture!]
     );
     expectSuccess(goodValidation, 'complete deb package was rejected');
+    const systemJemallocValidation = runSourced(
+      'VERSION=1.2.3\nvalidate_deb_package "$2" "$3"',
+      [systemJemallocPackage, canonicalArchitecture!]
+    );
+    expect(systemJemallocValidation.status).not.toBe(0);
+    expect(systemJemallocValidation.stderr).toContain('libjemalloc2');
     const missingControlStage = join(temporaryRoot, 'missing-control-stage');
     const missingControlPackage = join(temporaryRoot, 'missing-control.deb');
     createPackageStage(
@@ -994,6 +1028,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     for (const missingPath of [
       ...[
         'libcardio.so.0',
+        'libjemalloc.so.2',
         'libboxrig.so.0',
         'libboxrig-ui.so.0',
         'libboxrig-session.so.0',
@@ -1012,6 +1047,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
         'WHATWG-Encoding-LICENSE',
         'Wayland-protocols-NOTICES.md',
       ].map((name) => `usr/share/doc/elder-terms/licenses/boxrig/${name}`),
+      'usr/share/doc/elder-terms/licenses/jemalloc/COPYING',
       ...[
         'NOTO-LICENSE',
         'NOTO-FLAGS-NOTICE',
@@ -1138,6 +1174,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
     }
     for (const relativePath of [
       join(libraryDirectory, 'elder-terms/libelder-terms.so.0'),
+      join(libraryDirectory, 'elder-terms/libjemalloc.so.2'),
       join(libraryDirectory, 'elder-terms/launcher/elder-terms'),
       join(libraryDirectory, 'elder-terms/launcher/main-window.ui'),
       join(
@@ -1153,6 +1190,7 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       join(libraryDirectory, 'elder-terms/elder-terms-terminal/green-off.png'),
       'share/applications/net.kekyo.elder-terms.desktop',
       'share/applications/net.kekyo.elder-terms-terminal.desktop',
+      'share/doc/elder-terms/licenses/jemalloc/COPYING',
     ]) {
       expect(lstatSync(join(installedRoot, relativePath)).isFile()).toBe(true);
     }
@@ -1182,8 +1220,10 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       'boxrig-session',
       'boxrig-posix',
       'boxrig-gtk3',
+      'jemalloc',
     ]) {
-      const name = `lib${component}.so.0`;
+      const name =
+        component === 'jemalloc' ? 'libjemalloc.so.2' : `lib${component}.so.0`;
       const expectedPath = join(
         installedRoot,
         libraryDirectory,
@@ -1205,7 +1245,9 @@ cp "$containerfile" "$ELDER_TERMS_TEST_PREREQUISITE_RECORDS.containerfile"
       expect(libraryDynamicSection.stdout).toContain(
         `Library soname: [${name}]`
       );
-      expect(libraryDynamicSection.stdout).toContain('[$ORIGIN]');
+      if (component !== 'jemalloc') {
+        expect(libraryDynamicSection.stdout).toContain('[$ORIGIN]');
+      }
     }
 
     const configPath = join(temporaryRoot, 'installed-terminal.ini');

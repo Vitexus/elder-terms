@@ -16,12 +16,44 @@ boxrig_node = find_program('node')
 package_build_tools = get_option('package_build_tools')
 if package_build_tools == ''
   boxrig_prepare = files('scripts/prepare-boxrig.mts')
+  jemalloc_prepare = files('scripts/prepare-jemalloc.mts')
   gestament_config = find_program(meson.project_source_root() / 'node_modules/.bin/gestament-config')
   gestament_include_dir = run_command(gestament_config, '--includedir', check: true).stdout().strip()
 else
   boxrig_prepare = package_build_tools / 'prepare-boxrig.mjs'
+  jemalloc_prepare = package_build_tools / 'prepare-jemalloc.mjs'
   gestament_include_dir = package_build_tools / 'include'
 endif
+
+jemalloc_prepare_args = [boxrig_node, jemalloc_prepare,
+  meson.project_source_root(), meson.project_build_root()]
+run_command(jemalloc_prepare_args, check: true)
+jemalloc_build_target = custom_target(
+  'jemalloc-build',
+  output: 'jemalloc-build.stamp',
+  command: jemalloc_prepare_args,
+  build_by_default: true,
+  build_always_stale: true,
+)
+jemalloc_library_dir = meson.project_build_root() / 'jemalloc/lib'
+jemalloc_library = meson.get_compiler('cpp').find_library('jemalloc',
+  dirs: jemalloc_library_dir, static: false)
+jemalloc_dep = declare_dependency(
+  dependencies: jemalloc_library,
+  sources: jemalloc_build_target,
+)
+custom_target('jemalloc-private-runtime',
+  output: 'libjemalloc.so.2',
+  command: [find_program('cp'), jemalloc_library_dir / 'libjemalloc.so.2', '@OUTPUT@'],
+  depends: jemalloc_build_target,
+  build_by_default: true,
+  install: true,
+  install_dir: elder_terms_private_install_dir,
+)
+install_data('deps/jemalloc/COPYING',
+  install_dir: get_option('datadir') / 'doc/elder-terms/licenses/jemalloc',
+)
+
 boxrig_prepare_args = [boxrig_node, boxrig_prepare,
   meson.project_source_root(), meson.project_build_root(), package_build_tools]
 run_command(boxrig_prepare_args, check: true)
