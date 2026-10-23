@@ -3,7 +3,7 @@
 // Under MIT.
 // https://github.com/kekyo/elder-terms/
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +14,11 @@ import {
 } from 'gestament';
 import { waitForResult } from 'gestament/testing';
 import { describe, expect, it } from 'vitest';
-import { createTestEvidence, expectElementKind } from './test-helpers';
+import {
+  capturePixel,
+  createTestEvidence,
+  expectElementKind,
+} from './test-helpers';
 
 describe.concurrent('file transfer compact title bar', () => {
   for (const { type, tlsMode, theme, scale } of [
@@ -70,7 +74,7 @@ describe.concurrent('file transfer compact title bar', () => {
         for (const compact of [false, true]) {
           await writeFile(
             configPath,
-            `[general]\ncompact_mode=${compact}\n${settings}`
+            `[general]\ncompact_mode=${compact}\nshow_border=true\nborder_width=7\n${settings}`
           );
           const app = await launcher.launch(
             ['--test-fixture', '-c', configPath],
@@ -222,6 +226,10 @@ describe.concurrent('file transfer compact title bar', () => {
                 await app.getById('file_transfer_status_bar')
               ).info();
               expect(status.states.includes('showing')).toBe(!enabled);
+              const bottom = await (
+                await app.getById('file_transfer_frame_bottom_border')
+              ).info();
+              expect(bottom.states.includes('showing')).toBe(enabled);
             });
           }
         }
@@ -236,4 +244,359 @@ describe.concurrent('file transfer compact title bar', () => {
       }
     });
   }
+});
+
+describe('file transfer window border', () => {
+  for (const type of ['sftp', 'webdav']) {
+    it(`respects the initial border setting for ${type}`, async (context) => {
+      const directory = await mkdtemp(join(tmpdir(), 'elder-terms-border-'));
+      const configPath = join(directory, 'connection.ini');
+      const evidence = createTestEvidence(context);
+      const apps: GtkApp[] = [];
+      const launcher = createGtkAppLauncher({
+        appPath: fileURLToPath(
+          new URL(
+            '../../.build/elder-terms-terminal/elder-terms-file-transfer',
+            import.meta.url
+          )
+        ),
+        env: {
+          LANGUAGE: 'en',
+          LC_ALL: 'C.UTF-8',
+          XDG_CONFIG_HOME: join(directory, 'config'),
+          XDG_DATA_HOME: join(directory, 'data'),
+        },
+        xvfbScreen: '1600x1000x24',
+        onSystemOutput: evidence.recordSystemOutputEvent,
+      });
+      try {
+        const protocol =
+          type === 'sftp'
+            ? [
+                '[ssh]',
+                'address=fixture.example',
+                '[sftp]',
+                `local_directory=${directory}`,
+                'remote_directory=/remote',
+              ]
+            : [
+                '[webdav]',
+                'scheme=http',
+                'authentication=none',
+                'address=fixture.example',
+                'base_path=/dav/',
+                `local_directory=${directory}`,
+                'remote_directory=/',
+              ];
+        let plainX = 0;
+        for (const enabled of [false, true]) {
+          await writeFile(
+            configPath,
+            [
+              '[general]',
+              `type=${type}`,
+              `show_border=${enabled}`,
+              'border_width=7',
+              ...protocol,
+              '',
+            ].join('\n')
+          );
+          const app = await launcher.launch(
+            ['--test-fixture', '-c', configPath],
+            { onOutput: evidence.recordAppOutputEvent }
+          );
+          apps.push(app);
+          const bounds = (
+            await (await app.getById('file_transfer_root_paned')).capture()
+          ).bounds;
+          if (enabled) {
+            expect(bounds.x - plainX).toBe(7);
+          } else {
+            plainX = bounds.x;
+          }
+          await app.release();
+        }
+      } finally {
+        try {
+          await evidence.flushOutputs(apps, launcher);
+        } finally {
+          await launcher.release();
+          await evidence.release();
+          await rm(directory, { recursive: true, force: true });
+        }
+      }
+    });
+  }
+
+  it('uses the General border setting and updates its width when applied', async (context) => {
+    const directory = await mkdtemp(join(tmpdir(), 'elder-terms-border-'));
+    const configPath = join(directory, 'connection.ini');
+    const evidence = createTestEvidence(context);
+    const apps: GtkApp[] = [];
+    const launcher = createGtkAppLauncher({
+      appPath: fileURLToPath(
+        new URL(
+          '../../.build/elder-terms-terminal/elder-terms-file-transfer',
+          import.meta.url
+        )
+      ),
+      env: {
+        LANGUAGE: 'en',
+        LC_ALL: 'C.UTF-8',
+        XDG_CONFIG_HOME: join(directory, 'config'),
+        XDG_DATA_HOME: join(directory, 'data'),
+      },
+      xvfbScreen: '1600x1000x24',
+      onSystemOutput: evidence.recordSystemOutputEvent,
+    });
+    try {
+      const connection = [
+        'name=Border FTP',
+        'type=ftp',
+        '[ftp]',
+        'address=fixture.example',
+        'username=fixture-user',
+        'tls_mode=none',
+        `local_directory=${directory}`,
+        'remote_directory=/remote',
+        '',
+      ].join('\n');
+      const launchWithBorder = async (enabled: boolean) => {
+        await writeFile(
+          configPath,
+          `[general]\nshow_border=${enabled}\nborder_width=7\nexterior_background=#204060\n${connection}`
+        );
+        const app = await launcher.launch(
+          ['--test-fixture', '-c', configPath],
+          {
+            onOutput: evidence.recordAppOutputEvent,
+          }
+        );
+        apps.push(app);
+        return app;
+      };
+      const withoutBorder = await launchWithBorder(false);
+      const plainPane = await (
+        await withoutBorder.getById('file_transfer_root_paned')
+      ).capture();
+      await withoutBorder.release();
+
+      const withBorder = await launchWithBorder(true);
+      await expectElementKind(
+        await withBorder.getById('file_transfer_prompt_accept_button'),
+        'button'
+      ).click();
+      await waitForResult(async () => {
+        expect(
+          await expectElementKind(
+            await withBorder.getById('file_transfer_prompt_message_label'),
+            'label'
+          ).text()
+        ).toBe('Password:');
+      });
+      await expectElementKind(
+        await withBorder.getById('file_transfer_prompt_entry'),
+        'entry'
+      ).setText('fixture-secret');
+      await expectElementKind(
+        await withBorder.getById('file_transfer_prompt_accept_button'),
+        'button'
+      ).click();
+      await waitForResult(async () => {
+        expect(
+          await expectElementKind(
+            await withBorder.getById('file_transfer_status_label'),
+            'label'
+          ).text()
+        ).toBe('Ready');
+      });
+      const pane = await withBorder.getById('file_transfer_root_paned');
+      const borderedPane = await pane.capture();
+      expect(borderedPane.bounds.x - plainPane.bounds.x).toBe(7);
+      expect(borderedPane.bounds.width).toBe(plainPane.bounds.width - 14);
+      expect(
+        capturePixel(
+          await (
+            await withBorder.getById('file_transfer_frame_start_border')
+          ).capture(),
+          0.5,
+          0.5
+        )
+      ).toEqual([32, 64, 96]);
+
+      await expectElementKind(
+        await withBorder.getById('application_menu_button'),
+        'toggleButton'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_menu_item'),
+        'menuItem'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_general_border_width_entry'),
+        'entry'
+      ).setText('12');
+      await expectElementKind(
+        await withBorder.getById('settings_apply_button'),
+        'button'
+      ).click();
+      await waitForResult(async () => {
+        const resizedPane = await pane.capture();
+        expect(resizedPane.bounds.x - plainPane.bounds.x).toBe(12);
+        expect(resizedPane.bounds.width).toBe(plainPane.bounds.width - 24);
+      });
+      await waitForResult(async () => {
+        expect(await withBorder.getWindowCount()).toBe(1);
+      });
+
+      await expectElementKind(
+        await withBorder.getById('application_menu_button'),
+        'toggleButton'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_menu_item'),
+        'menuItem'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_general_compact_mode_combo'),
+        'comboBox'
+      ).selectChildAt(1);
+      await expectElementKind(
+        await withBorder.getById('settings_apply_button'),
+        'button'
+      ).click();
+      await waitForResult(async () => {
+        const bottom = await withBorder.getById(
+          'file_transfer_frame_bottom_border'
+        );
+        expect((await bottom.info()).states).toContain('showing');
+        expect((await bottom.capture()).bounds.height).toBe(12);
+      });
+      await waitForResult(async () => {
+        expect(await withBorder.getWindowCount()).toBe(1);
+      });
+
+      await expectElementKind(
+        await withBorder.getById('application_menu_button'),
+        'toggleButton'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_menu_item'),
+        'menuItem'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_general_show_border_combo'),
+        'comboBox'
+      ).selectChildAt(2);
+      await expectElementKind(
+        await withBorder.getById('settings_cancel_button'),
+        'button'
+      ).click();
+      await waitForResult(async () => {
+        expect(await withBorder.getWindowCount()).toBe(1);
+        expect((await pane.capture()).bounds.x - plainPane.bounds.x).toBe(12);
+      });
+
+      await expectElementKind(
+        await withBorder.getById('application_menu_button'),
+        'toggleButton'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_menu_item'),
+        'menuItem'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_general_show_border_combo'),
+        'comboBox'
+      ).selectChildAt(2);
+      await expectElementKind(
+        await withBorder.getById('settings_apply_button'),
+        'button'
+      ).click();
+      await waitForResult(async () => {
+        expect((await pane.capture()).bounds.x).toBe(plainPane.bounds.x);
+        expect(
+          (
+            await (
+              await withBorder.getById('file_transfer_frame_bottom_border')
+            ).info()
+          ).states
+        ).not.toContain('showing');
+      });
+      await waitForResult(async () => {
+        expect(await withBorder.getWindowCount()).toBe(1);
+      });
+
+      await expectElementKind(
+        await withBorder.getById('application_menu_button'),
+        'toggleButton'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_menu_item'),
+        'menuItem'
+      ).click();
+      await expectElementKind(
+        await withBorder.getById('settings_general_show_border_combo'),
+        'comboBox'
+      ).selectChildAt(1);
+      await expectElementKind(
+        await withBorder.getById('settings_general_border_width_entry'),
+        'entry'
+      ).setText('9');
+      expect(
+        await expectElementKind(
+          await withBorder.getById('settings_general_border_width_entry'),
+          'entry'
+        ).text()
+      ).toBe('9');
+      expect(
+        (await (await withBorder.getById('settings_save_button')).info()).states
+      ).toContain('sensitive');
+      await expectElementKind(
+        await withBorder.getById('settings_save_button'),
+        'button'
+      ).click();
+      await waitForResult(async () => {
+        expect(await withBorder.getWindowCount()).toBe(1);
+      });
+      const saved = await readFile(configPath, 'utf8');
+      expect(saved).toContain('show_border=true');
+      expect(saved).toContain('border_width=9');
+      await waitForResult(async () => {
+        expect(
+          (
+            await (
+              await withBorder.getById('file_transfer_frame_start_border')
+            ).capture()
+          ).bounds.width
+        ).toBe(9);
+        expect((await pane.capture()).bounds.x - plainPane.bounds.x).toBe(9);
+        expect(
+          (
+            await (
+              await withBorder.getById('file_transfer_frame_bottom_border')
+            ).capture()
+          ).bounds.height
+        ).toBe(9);
+      });
+      await withBorder.release();
+      const restored = await launcher.launch(
+        ['--test-fixture', '-c', configPath],
+        { onOutput: evidence.recordAppOutputEvent }
+      );
+      apps.push(restored);
+      expect(
+        (await (await restored.getById('file_transfer_root_paned')).capture())
+          .bounds.x - plainPane.bounds.x
+      ).toBe(9);
+    } finally {
+      try {
+        await evidence.flushOutputs(apps, launcher);
+      } finally {
+        await launcher.release();
+        await evidence.release();
+        await rm(directory, { recursive: true, force: true });
+      }
+    }
+  });
 });

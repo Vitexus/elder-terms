@@ -158,6 +158,9 @@ struct FileTransferWindow {
   GtkWidget *title_box = nullptr;
   GtkWidget *title_label = nullptr;
   GtkWidget *root_overlay = nullptr;
+  GtkWidget *frame_start_border = nullptr;
+  GtkWidget *frame_end_border = nullptr;
+  GtkWidget *frame_bottom_border = nullptr;
   GtkWidget *paned = nullptr;
   GtkWidget *dim_overlay = nullptr;
   GtkWidget *reconnect_button = nullptr;
@@ -2524,6 +2527,12 @@ static void clear_file_transfer_window_colors(FileTransferWindow *window) {
         window->header_bar, window->exterior_background_provider);
     remove_widget_tree_background_provider(
         window->status_bar, window->exterior_background_provider);
+    for (GtkWidget *border : {window->frame_start_border,
+                              window->frame_end_border,
+                              window->frame_bottom_border}) {
+      remove_widget_tree_background_provider(
+          border, window->exterior_background_provider);
+    }
     g_clear_object(&window->exterior_background_provider);
   }
   if (window->exterior_component_background_provider != nullptr) {
@@ -2617,6 +2626,22 @@ static void apply_file_transfer_compact_mode(FileTransferWindow *window,
                          compact_mode ? FALSE : TRUE);
 }
 
+static void apply_file_transfer_border(FileTransferWindow *window) {
+  const bool visible = general_show_border(window->settings);
+  const int width = general_border_width(window->settings);
+  for (GtkWidget *border : {window->frame_start_border,
+                            window->frame_end_border}) {
+    // Set the new request after showing it so GTK recalculates a smaller border.
+    gtk_widget_set_no_show_all(border, !visible);
+    gtk_widget_set_visible(border, visible);
+    gtk_widget_set_size_request(border, width, -1);
+  }
+  const bool show_bottom = visible && general_compact_mode(window->settings);
+  gtk_widget_set_no_show_all(window->frame_bottom_border, !show_bottom);
+  gtk_widget_set_visible(window->frame_bottom_border, show_bottom);
+  gtk_widget_set_size_request(window->frame_bottom_border, -1, width);
+}
+
 void set_file_transfer_window_indicator_colors(
     const std::shared_ptr<FileTransferWindow> &window,
     const std::optional<RgbColor> &color,
@@ -2673,6 +2698,7 @@ static void open_file_settings(GtkMenuItem *, gpointer data) {
     set_file_transfer_window_indicator_colors(window->self.lock(),
         general_indicator_color(settings), general_indicator_off_color(settings));
     apply_file_transfer_compact_mode(window, general_compact_mode(settings));
+    apply_file_transfer_border(window);
     action.complete(true, {});
     schedule_file_settings_close(window);
   };
@@ -2830,9 +2856,30 @@ create_file_transfer_window(FileTransferWindowOptions options) {
   state->root_overlay = gtk_overlay_new();
   gtk_container_add(GTK_CONTAINER(state->window),
                     state->root_overlay);
+  GtkWidget *root = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  gtk_container_add(GTK_CONTAINER(state->root_overlay), root);
+  state->frame_start_border = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  state->frame_end_border = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+  state->frame_bottom_border = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 0);
+  for (GtkWidget *border : {state->frame_start_border,
+                            state->frame_end_border,
+                            state->frame_bottom_border}) {
+    gtk_style_context_add_class(gtk_widget_get_style_context(border),
+                                "terminal-window-frame-border");
+  }
+  gestament_gtk_assign_accessible_id(
+      state->frame_start_border, "file_transfer_frame_start_border");
+  gestament_gtk_assign_accessible_id(
+      state->frame_end_border, "file_transfer_frame_end_border");
+  gestament_gtk_assign_accessible_id(
+      state->frame_bottom_border, "file_transfer_frame_bottom_border");
+  gtk_box_pack_start(GTK_BOX(root), state->frame_start_border,
+                     FALSE, TRUE, 0);
   GtkWidget *content =
       gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-  gtk_container_add(GTK_CONTAINER(state->root_overlay), content);
+  gtk_box_pack_start(GTK_BOX(root), content, TRUE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(root), state->frame_end_border,
+                     FALSE, TRUE, 0);
 
   state->paned = gtk_paned_new(GTK_ORIENTATION_HORIZONTAL);
   gestament_gtk_assign_accessible_id(
@@ -2868,6 +2915,8 @@ create_file_transfer_window(FileTransferWindowOptions options) {
       GTK_CONTAINER(state->status_bar), state->status_content);
   gtk_box_pack_start(
       GTK_BOX(content), state->status_bar, FALSE, TRUE, 0);
+  gtk_box_pack_start(GTK_BOX(content), state->frame_bottom_border,
+                     FALSE, TRUE, 0);
   state->status_label = gtk_label_new(_("Connecting"));
   gestament_gtk_assign_accessible_id(
       state->status_label, "file_transfer_status_label");
@@ -2918,6 +2967,7 @@ create_file_transfer_window(FileTransferWindowOptions options) {
   gtk_widget_show_all(state->header_bar);
   apply_file_transfer_compact_mode(
       state.get(), general_compact_mode(state->settings));
+  apply_file_transfer_border(state.get());
 
   state->dim_overlay = gtk_event_box_new();
   gestament_gtk_assign_accessible_id(
@@ -3191,6 +3241,12 @@ void set_file_transfer_window_colors(
         window->header_bar, window->exterior_background_provider);
     add_widget_tree_background_provider(
         window->status_bar, window->exterior_background_provider);
+    for (GtkWidget *border : {window->frame_start_border,
+                              window->frame_end_border,
+                              window->frame_bottom_border}) {
+      add_widget_tree_background_provider(
+          border, window->exterior_background_provider);
+    }
     window->exterior_component_background_provider =
         create_scoped_widget_component_background_provider(
             settings.exterior_background.value(),
