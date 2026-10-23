@@ -1,0 +1,8 @@
+libelder-terms 0 elder-terms
+libcardio 0 elder-terms
+libboxrig 0 elder-terms
+libboxrig-ui 0 elder-terms
+libboxrig-session 0 elder-terms
+libboxrig-posix 0 elder-terms
+libboxrig-gtk3 0 elder-terms
+libjemalloc 2 elder-terms

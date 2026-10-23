@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -27,16 +32,16 @@ const desktopEntries: readonly DesktopEntryExpectation[] = [
     wmClass: 'Elder-terms',
   },
   {
-    applicationId: 'net.kekyo.elder-terms-vte',
-    executable: 'elder-terms-vte',
+    applicationId: 'net.kekyo.elder-terms-terminal',
+    executable: 'elder-terms-terminal',
     hidden: true,
     path: fileURLToPath(
       new URL(
-        '../../elder-terms-vte/packaging/applications/net.kekyo.elder-terms-vte.desktop',
+        '../../elder-terms-terminal/packaging/applications/net.kekyo.elder-terms-terminal.desktop',
         import.meta.url
       )
     ),
-    wmClass: 'Elder-terms-vte',
+    wmClass: 'Elder-terms-terminal',
   },
 ];
 

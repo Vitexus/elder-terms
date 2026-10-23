@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -113,6 +118,7 @@ describe('elder-terms XDG autostart', () => {
           LANGUAGE: 'C',
           LC_ALL: 'C.UTF-8',
           XDG_CONFIG_HOME: configHome,
+          XDG_DATA_HOME: join(directory, 'data'),
         },
         xvfbPool: {
           type: 'xvfb',

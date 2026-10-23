@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
@@ -114,6 +119,7 @@ export const runSharedGtkTest = async (
     env: {
       LANGUAGE: 'C',
       LC_ALL: 'C.UTF-8',
+      XDG_DATA_HOME: join(directory, 'data'),
       ...options?.env,
     },
     xvfbTrayHost: true,

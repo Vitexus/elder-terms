@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { spawn, spawnSync } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import {
@@ -279,17 +284,17 @@ const beginDirtyConnectionEdit = async (app: GtkApp, value: number) => {
   return { list, width };
 };
 
-interface FakeVteContext {
+interface FakeTerminalContext {
   readonly executable: string;
   readonly capture: string;
   readonly release: () => Promise<void>;
 }
 
-const createFakeVte = async (
+const createFakeTerminal = async (
   hardcodedCapture = false
-): Promise<FakeVteContext> => {
-  const directory = await mkdtemp(join(tmpdir(), 'elder-terms-fake-vte-'));
-  const executable = join(directory, 'fake-vte.mjs');
+): Promise<FakeTerminalContext> => {
+  const directory = await mkdtemp(join(tmpdir(), 'elder-terms-fake-terminal-'));
+  const executable = join(directory, 'fake-terminal.mjs');
   const capture = join(directory, 'capture.json');
   const captureExpression = hardcodedCapture
     ? JSON.stringify(capture)
@@ -312,41 +317,44 @@ await writeFile(${captureExpression}, JSON.stringify({ args, startupContent }));
   };
 };
 
-interface SiblingVteLayout extends FakeVteContext {
+interface SiblingTerminalLayout extends FakeTerminalContext {
   readonly launcher: string;
 }
 
-const createSiblingVteLayout = async (): Promise<SiblingVteLayout> => {
-  const directory = await mkdtemp(join(tmpdir(), 'elder-terms-sibling-vte-'));
-  const launcherDirectory = join(directory, 'elder-terms');
-  const vteDirectory = join(directory, 'elder-terms-vte');
-  await Promise.all([
-    mkdir(launcherDirectory, { recursive: true }),
-    mkdir(vteDirectory, { recursive: true }),
-  ]);
-  await symlink(
-    fileURLToPath(
-      new URL('../../.build/elder-terms/elder-terms', import.meta.url)
-    ),
-    join(launcherDirectory, 'elder-terms')
-  );
-  const executable = join(vteDirectory, 'elder-terms-vte');
-  const capture = join(directory, 'capture.json');
-  await writeFile(
-    executable,
-    `#!/usr/bin/env node
+const createSiblingTerminalLayout =
+  async (): Promise<SiblingTerminalLayout> => {
+    const directory = await mkdtemp(
+      join(tmpdir(), 'elder-terms-sibling-terminal-')
+    );
+    const launcherDirectory = join(directory, 'elder-terms');
+    const terminalDirectory = join(directory, 'elder-terms-terminal');
+    await Promise.all([
+      mkdir(launcherDirectory, { recursive: true }),
+      mkdir(terminalDirectory, { recursive: true }),
+    ]);
+    await symlink(
+      fileURLToPath(
+        new URL('../../.build/elder-terms/elder-terms', import.meta.url)
+      ),
+      join(launcherDirectory, 'elder-terms')
+    );
+    const executable = join(terminalDirectory, 'elder-terms-terminal');
+    const capture = join(directory, 'capture.json');
+    await writeFile(
+      executable,
+      `#!/usr/bin/env node
 import { writeFile } from 'node:fs/promises';
 await writeFile(process.env.ELDER_TERMS_TEST_CAPTURE, JSON.stringify({ args: process.argv.slice(2), startupContent: null }));
 `
-  );
-  await chmod(executable, 0o755);
-  return {
-    launcher: `${launcherDirectory}/./elder-terms`,
-    executable,
-    capture,
-    release: async () => rm(directory, { recursive: true, force: true }),
+    );
+    await chmod(executable, 0o755);
+    return {
+      launcher: `${launcherDirectory}/./elder-terms`,
+      executable,
+      capture,
+      release: async () => rm(directory, { recursive: true, force: true }),
+    };
   };
-};
 
 interface LaunchCapture {
   readonly args: readonly string[];
@@ -792,7 +800,8 @@ describe('elder-terms main window', () => {
         expect(await id.text()).toBe('rule1');
         await id.setText('local-file');
         await source.selectChildAt(1);
-        await regex.setText('^file:(?<path>/[^ ]+)$');
+        const pattern = '^file\\u{3a}(?<path>/[^ ]+)$';
+        await regex.setText(pattern);
         await command.setText('xdg-open');
         await expectElementKind(
           await app.getById('settings_link_argument_add_button'),
@@ -815,6 +824,18 @@ describe('elder-terms main window', () => {
           'comboBox'
         ).selectChildAt(1);
         await expectSensitive(save);
+        const argument = expectElementKind(
+          await app.getById('settings_link_argument_0_entry'),
+          'entry'
+        );
+        await argument.setText('${missing}');
+        await expectInsensitive(save);
+        await argument.setText('${Path}');
+        await expectInsensitive(save);
+        await argument.setText('${999999999999999999999999999999999}');
+        await expectInsensitive(save);
+        await argument.setText('${path}');
+        await expectSensitive(save);
         await save.click();
 
         let configured = '';
@@ -828,10 +849,18 @@ describe('elder-terms main window', () => {
         expect(configured).toContain('command=xdg-open');
         expect(configured).toContain('path_validation=existing-local-path');
         expect(configured).toContain('path=${path}');
+        expect(configured).toContain('regex=^file\\\\u{3a}');
         expect(configured).toContain('width=88');
         const globalConfigured = await readFile(globalConfigPath, 'utf8');
         expect(globalConfigured).not.toContain('[hyperlink');
         expect(globalConfigured).toContain('width=91');
+
+        await selectConnectionRow(app, list, 1);
+        await selectConnectionRow(app, list, 0);
+        await selectSettingsTab(app, 'settings', 'Links');
+        await waitForResult(async () =>
+          expect(await regex.text()).toBe(pattern)
+        );
 
         await selectSettingsTab(app, 'settings', 'Links');
         await expectElementKind(
@@ -995,6 +1024,7 @@ describe('elder-terms main window', () => {
               'WebDAV',
               'SSH proxy',
               '端末',
+              '端末の外観',
               '転送',
               'ログ',
             ]
@@ -1150,71 +1180,80 @@ describe('elder-terms main window', () => {
   });
 
   it('starts unselected in a resizable split layout', async (context) => {
-    await runLauncherGtkTest(context, prepareProfiles, async ({ app }) => {
-      expect(await app.getWindowCount()).toBe(1);
-      const window = expectElementKind(
-        await app.getById('main_window'),
-        'window'
-      );
-      const splitPane = await app.getById('split_pane');
-      const terminalEntriesLabel = await app.getById('terminal_entries_label');
-      const left = await app.getById('connection_scroller');
-      const right = await app.getById('details_stack');
-      const list = await app.getById('connection_list');
-      const actionRow = await app.getById('action_row');
-      const apply = await app.getById('apply_button');
-      const connect = await app.getById('connect_button');
+    await runLauncherGtkTest(
+      context,
+      prepareProfiles,
+      async ({ app }) => {
+        expect(await app.getWindowCount()).toBe(1);
+        const window = expectElementKind(
+          await app.getById('main_window'),
+          'window'
+        );
+        const splitPane = await app.getById('split_pane');
+        const terminalEntriesLabel = await app.getById(
+          'terminal_entries_label'
+        );
+        const left = await app.getById('connection_scroller');
+        const right = await app.getById('details_stack');
+        const list = await app.getById('connection_list');
+        const actionRow = await app.getById('action_row');
+        const apply = await app.getById('apply_button');
+        const connect = await app.getById('connect_button');
 
-      expect(['table', 'tree']).toContain(list.kind);
-      expect((await terminalEntriesLabel.info()).name).toBe('Terminal entries');
-      expect((await apply.info()).name).toBe('Save');
-      expect((await connect.info()).name).toBe('Launch');
-      await expectInsensitive(apply);
-      await expectInsensitive(connect);
-      const terminalEntriesCapture = await terminalEntriesLabel.capture();
-      const leftCapture = await left.capture();
-      expect(terminalEntriesCapture.bounds.y).toBeLessThan(
-        leftCapture.bounds.y
-      );
-      expect(leftCapture.bounds.x).toBeLessThan(
-        (await right.capture()).bounds.x
-      );
+        expect(['table', 'tree']).toContain(list.kind);
+        expect((await terminalEntriesLabel.info()).name).toBe(
+          'Terminal entries'
+        );
+        expect((await apply.info()).name).toBe('Save');
+        expect((await connect.info()).name).toBe('Launch');
+        await expectInsensitive(apply);
+        await expectInsensitive(connect);
+        const terminalEntriesCapture = await terminalEntriesLabel.capture();
+        const leftCapture = await left.capture();
+        expect(terminalEntriesCapture.bounds.y).toBeLessThan(
+          leftCapture.bounds.y
+        );
+        expect(leftCapture.bounds.x).toBeLessThan(
+          (await right.capture()).bounds.x
+        );
 
-      const splitPaneCapture = await splitPane.capture();
-      expect(splitPaneCapture.clipped).toBe(false);
-      await expectCaptureToMatchFixture(
-        splitPaneCapture,
-        'launcher-terminal-entries',
-        terminalEntriesFixturePath
-      );
+        const splitPaneCapture = await splitPane.capture();
+        expect(splitPaneCapture.clipped).toBe(false);
+        await expectCaptureToMatchFixture(
+          splitPaneCapture,
+          'launcher-terminal-entries',
+          terminalEntriesFixturePath
+        );
 
-      const initialBounds = await window.moveTo(100, 100);
-      const actionCapture = await actionRow.capture();
-      const startX = Math.trunc(
-        actionCapture.bounds.x + actionCapture.bounds.width / 2
-      );
-      const startY = Math.trunc(
-        actionCapture.bounds.y + actionCapture.bounds.height / 2
-      );
-      await app.input.moveMouseTo(startX, startY);
-      await app.input.setMouseButton('left', true);
-      await app.input.moveMouseTo(startX + 120, startY + 80);
-      await app.input.setMouseButton('left', false);
+        const initialBounds = await window.moveTo(100, 100);
+        const actionCapture = await actionRow.capture();
+        const startX = Math.trunc(
+          actionCapture.bounds.x + actionCapture.bounds.width / 2
+        );
+        const startY = Math.trunc(
+          actionCapture.bounds.y + actionCapture.bounds.height / 2
+        );
+        await app.input.moveMouseTo(startX, startY);
+        await app.input.setMouseButton('left', true);
+        await app.input.moveMouseTo(startX + 120, startY + 80);
+        await app.input.setMouseButton('left', false);
 
-      await waitForResult(async () => {
-        const movedBounds = await window.bounds();
-        expect(movedBounds.x).toBeGreaterThanOrEqual(initialBounds.x + 80);
-        expect(movedBounds.y).toBeGreaterThanOrEqual(initialBounds.y + 30);
-        expect(movedBounds.width).toBe(initialBounds.width);
-        expect(movedBounds.height).toBe(initialBounds.height);
-      });
+        await waitForResult(async () => {
+          const movedBounds = await window.bounds();
+          expect(movedBounds.x).toBeGreaterThanOrEqual(initialBounds.x + 80);
+          expect(movedBounds.y).toBeGreaterThanOrEqual(initialBounds.y + 30);
+          expect(movedBounds.width).toBe(initialBounds.width);
+          expect(movedBounds.height).toBe(initialBounds.height);
+        });
 
-      const before = await window.bounds();
-      await window.resizeTo(before.width + 120, before.height + 80);
-      const after = await window.bounds();
-      expect(after.width).toBeGreaterThan(before.width);
-      expect(after.height).toBeGreaterThan(before.height);
-    });
+        const before = await window.bounds();
+        await window.resizeTo(before.width + 120, before.height + 80);
+        const after = await window.bounds();
+        expect(after.width).toBeGreaterThan(before.width);
+        expect(after.height).toBeGreaterThan(before.height);
+      },
+      { args: [], env: {}, xvfbScreen: '1600x1000x24' }
+    );
   });
 
   it('keeps the launcher blocked until a nested CA chooser and settings both close', async (context) => {
@@ -1472,6 +1511,7 @@ describe('elder-terms main window', () => {
               'WebDAV',
               'SSH proxy',
               'Terminal',
+              'Terminal appearance',
               'Transfer',
               'Logging',
             ]
@@ -1550,7 +1590,7 @@ describe('elder-terms main window', () => {
         await waitForWindowCount(app, 1);
       }
     );
-  });
+  }, 60_000);
 
   it('validates, normalizes, reopens, and fully clears global defaults', async (context) => {
     await runLauncherGtkTest(
@@ -1803,7 +1843,9 @@ describe('elder-terms main window', () => {
         await waitForResult(async () => {
           expect(
             await readFile(join(connections, 'New connection.ini'), 'utf8')
-          ).toBe('');
+          ).toMatch(
+            /^\[general\]\nconnection_id=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\n$/u
+          );
         });
       }
     );
@@ -2020,7 +2062,9 @@ describe('elder-terms main window', () => {
         await waitForResult(async () => {
           expect(
             await readFile(join(connections, 'New connection.ini'), 'utf8')
-          ).toBe('');
+          ).toMatch(
+            /^\[general\]\nconnection_id=[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\n$/u
+          );
         });
 
         const width = expectElementKind(
@@ -2745,6 +2789,23 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
       context,
       prepareProfiles,
       async ({ app, connections }) => {
+        const savedProfiles = await waitForResult(async () => {
+          const contents = await Promise.all(
+            ['Alpha.ini', 'Beta.ini'].map((name) =>
+              readFile(join(connections, name), 'utf8')
+            )
+          );
+          for (const content of contents)
+            expect(content).toMatch(/^connection_id=[0-9a-f-]{36}$/mu);
+          expect(
+            contents.map((content) =>
+              content
+                .replace(/^\[general\]\nconnection_id=[0-9a-f-]{36}\n$/mu, '')
+                .trim()
+            )
+          ).toEqual(['[terminal]\nwidth=88', '[terminal]\nwidth=99']);
+          return contents;
+        });
         await expectElementKind(
           await app.getById('new_button'),
           'button'
@@ -2770,10 +2831,12 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
         await waitForWindowCount(app, 1);
         expect(await connectionRowCount(list)).toBe(3);
         expect(await width.text()).toBe('91');
-        if (list.kind === 'table')
-          expect((await (await list.cellAt(2, 0))?.info())?.name).toBe(
-            'unsaved draft'
-          );
+        expect(
+          await expectElementKind(
+            await app.getById('settings_general_name_entry'),
+            'entry'
+          ).text()
+        ).toBe('unsaved draft');
         await rightClickConnectionRow(app, list, 2);
         await expectElementKind(
           await app.getById('cancel_new_connection_menu_item'),
@@ -2790,10 +2853,10 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
           ).toContain('showing');
         });
         expect(await readFile(join(connections, 'Alpha.ini'), 'utf8')).toBe(
-          '[terminal]\nwidth=88\n'
+          savedProfiles[0]
         );
         expect(await readFile(join(connections, 'Beta.ini'), 'utf8')).toBe(
-          '[terminal]\nwidth=99\n'
+          savedProfiles[1]
         );
         await expect(
           readFile(join(connections, 'unsaved draft.ini'), 'utf8')
@@ -2856,7 +2919,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
   });
 
   it('connects a saved profile by double-clicking its row', async (context) => {
-    const fakeVte = await createFakeVte();
+    const fakeTerminal = await createFakeTerminal();
     try {
       await runLauncherGtkTest(
         context,
@@ -2865,7 +2928,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
           const list = await app.getById('connection_list');
           await doubleClickConnectionRow(app, list, 0);
           await waitForResult(async () => {
-            const capture = await readLaunchCapture(fakeVte.capture);
+            const capture = await readLaunchCapture(fakeTerminal.capture);
             expect(capture.args).toEqual([
               '-c',
               join(connections, 'Alpha.ini'),
@@ -2876,19 +2939,19 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
         {
           args: [],
           env: {
-            ELDER_TERMS_TEST_CAPTURE: fakeVte.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TEST_CAPTURE: fakeTerminal.capture,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await fakeVte.release();
+      await fakeTerminal.release();
     }
   });
 
   it('routes an SFTP profile to the file transfer application', async (context) => {
-    const fakeVte = await createFakeVte();
-    const fakeFileTransfer = await createFakeVte(true);
+    const fakeTerminal = await createFakeTerminal();
+    const fakeFileTransfer = await createFakeTerminal(true);
     try {
       await runLauncherGtkTest(
         context,
@@ -2916,19 +2979,21 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             ]);
             expect(capture.startupContent).toBeNull();
           });
-          await expect(readFile(fakeVte.capture, 'utf8')).rejects.toThrow();
+          await expect(
+            readFile(fakeTerminal.capture, 'utf8')
+          ).rejects.toThrow();
         },
         {
           args: [],
           env: {
             ELDER_TERMS_FILE_TRANSFER_PATH: fakeFileTransfer.executable,
             ELDER_TERMS_TEST_CAPTURE: fakeFileTransfer.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await Promise.all([fakeFileTransfer.release(), fakeVte.release()]);
+      await Promise.all([fakeFileTransfer.release(), fakeTerminal.release()]);
     }
   });
 
@@ -2984,7 +3049,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
           server = spawn(
             fileURLToPath(
               new URL(
-                '../../.build/elder-terms-vte/ftp-test-server',
+                '../../.build/elder-terms-terminal/ftp-test-server',
                 import.meta.url
               )
             ),
@@ -3028,7 +3093,10 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             },
             async ({ app, connections }) => {
               phase = 'configure profile';
-              const list = await app.getById('connection_list');
+              const list = expectElementKind(
+                await app.getById('connection_list'),
+                'table'
+              );
               await expectElementKind(
                 await app.getById('new_button'),
                 'button'
@@ -3110,7 +3178,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
                   expect(saved).toContain(value);
               });
               phase = 'reselect saved profile';
-              await selectConnectionRow(app, list, 1);
+              await list.selectRow(1);
               await waitForResult(async () => {
                 expect(
                   await expectElementKind(
@@ -3119,7 +3187,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
                   ).text()
                 ).toBe('');
               });
-              await selectConnectionRow(app, list, 0);
+              await list.selectRow(0);
               await waitForResult(async () => {
                 expect(
                   await expectElementKind(
@@ -3340,7 +3408,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
                   process.env.ELDER_TERMS_TEST_FTP_APP ??
                   fileURLToPath(
                     new URL(
-                      '../../.build/elder-terms-vte/elder-terms-file-transfer',
+                      '../../.build/elder-terms-terminal/elder-terms-file-transfer',
                       import.meta.url
                     )
                   ),
@@ -3365,8 +3433,8 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
     }
 
   it('routes an FTP profile to the file transfer application', async (context) => {
-    const fakeVte = await createFakeVte();
-    const fakeFileTransfer = await createFakeVte(true);
+    const fakeTerminal = await createFakeTerminal();
+    const fakeFileTransfer = await createFakeTerminal(true);
     try {
       await runLauncherGtkTest(
         context,
@@ -3394,24 +3462,26 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             ]);
             expect(capture.startupContent).toBeNull();
           });
-          await expect(readFile(fakeVte.capture, 'utf8')).rejects.toThrow();
+          await expect(
+            readFile(fakeTerminal.capture, 'utf8')
+          ).rejects.toThrow();
         },
         {
           args: [],
           env: {
             ELDER_TERMS_FILE_TRANSFER_PATH: fakeFileTransfer.executable,
             ELDER_TERMS_TEST_CAPTURE: fakeFileTransfer.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await Promise.all([fakeFileTransfer.release(), fakeVte.release()]);
+      await Promise.all([fakeFileTransfer.release(), fakeTerminal.release()]);
     }
   });
 
-  it('finds the sibling VTE when launched through a dot path', async (context) => {
-    const layout = await createSiblingVteLayout();
+  it('finds the sibling terminal when launched through a dot path', async (context) => {
+    const layout = await createSiblingTerminalLayout();
     try {
       await runLauncherGtkTest(
         context,
@@ -3445,7 +3515,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
   });
 
   it('connects with dirty settings without saving the profile', async (context) => {
-    const fakeVte = await createFakeVte();
+    const fakeTerminal = await createFakeTerminal();
     try {
       await runLauncherGtkTest(
         context,
@@ -3467,7 +3537,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
           ).click();
 
           await waitForResult(async () => {
-            const capture = await readLaunchCapture(fakeVte.capture);
+            const capture = await readLaunchCapture(fakeTerminal.capture);
             expect(capture.args[0]).toBe('-c');
             expect(capture.args[1]).toBe(join(connections, 'Alpha.ini'));
             expect(capture.args[2]).toBe('-s');
@@ -3481,18 +3551,18 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
         {
           args: [],
           env: {
-            ELDER_TERMS_TEST_CAPTURE: fakeVte.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TEST_CAPTURE: fakeTerminal.capture,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await fakeVte.release();
+      await fakeTerminal.release();
     }
   });
 
   it('connects a new draft using only a temporary startup profile', async (context) => {
-    const fakeVte = await createFakeVte();
+    const fakeTerminal = await createFakeTerminal();
     try {
       await runLauncherGtkTest(
         context,
@@ -3512,7 +3582,7 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
             'button'
           ).click();
           await waitForResult(async () => {
-            const capture = await readLaunchCapture(fakeVte.capture);
+            const capture = await readLaunchCapture(fakeTerminal.capture);
             expect(capture.args[0]).toBe('-s');
             expect(capture.args).toHaveLength(2);
             expect(capture.startupContent).toContain(
@@ -3524,13 +3594,13 @@ ${mode === 'clean' ? "await writeFile(args[0], '[terminal]\\nwidth=95\\n');" : '
         {
           args: [],
           env: {
-            ELDER_TERMS_TEST_CAPTURE: fakeVte.capture,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TEST_CAPTURE: fakeTerminal.capture,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await fakeVte.release();
+      await fakeTerminal.release();
     }
   });
 });

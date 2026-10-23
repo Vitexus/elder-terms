@@ -1,44 +1,49 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <cstddef>
-#include <map>
+#include <memory>
 #include <optional>
 #include <string>
-#include <vector>
+#include <boxrig/regex.h>
 
 #include <elder-terms/export.h>
 
 namespace elder_terms {
 
 /**
- * Opaque compiled PCRE2 regular expression.
+ * Immutable boxrig program, also usable by screen recognizers and bounded matchers.
  */
-struct RegularExpressionState;
+using RegularExpressionState = boxrig_regex_program;
 
 /**
- * Project-owned result of one regular-expression match.
+ * Retained boxrig result and its absolute input offsets.
  */
 struct RegularExpressionMatch {
   /** UTF-8 byte offset at which the complete match starts. */
   std::size_t start = 0;
   /** UTF-8 byte offset immediately after the complete match. */
   std::size_t end = 0;
-  /** Captures indexed by their numeric group, including group zero. */
-  std::vector<std::string> captures;
-  /** Mapping from capture names to numeric capture groups. */
-  std::map<std::string, std::size_t> named_captures;
+  /** Immutable matched bytes and captures; reference operations are serialized by the caller. */
+  std::shared_ptr<boxrig_regex_result> result;
 };
 
 /**
- * Compiles a UTF-8 PCRE2 regular expression.
+ * Compiles a UTF-8 boxrig regular expression with finite default capacities.
  *
  * @param pattern Pattern to compile.
- * @param multiline Enables multiline handling for `^` and `$`.
- * @param reason Receives a human-readable reason when compilation fails.
+ * @param reason Receives a diagnostic and pattern byte offset, or nullptr.
  * @returns Opaque compiled expression, or nullptr when invalid.
+ * @remarks Empty matches are rejected. Matching is case-sensitive; anchors
+ * refer to the complete input, and dot includes LF. Programs are immutable,
+ * but shared use and reference operations must be externally serialized.
  */
 ELDER_TERMS_API RegularExpressionState *create_regular_expression(
-    const std::string &pattern, bool multiline, std::string *reason);
+    const std::string &pattern, std::string *reason);
 
 /**
  * Reports whether a numbered or named capture exists in an expression.
@@ -51,16 +56,19 @@ ELDER_TERMS_API bool regular_expression_capture_exists(
     const RegularExpressionState *state, const std::string &capture);
 
 /**
- * Searches a UTF-8 string for the first regular-expression match.
+ * Searches a bounded UTF-8 string for the leftmost-longest match.
  *
  * @param state Compiled expression.
  * @param subject UTF-8 subject to search.
  * @param reason Receives a human-readable reason for matching errors.
  * @returns Project-owned match data, or no value when no match is found or an
  * error occurs.
+ * @remarks This synchronous helper limits total matching work to 1,000,000
+ * operations. Interactive streams use boxrig matchers and resume them between
+ * UI dispatches instead. Input capacity is 1 MiB; NUL is accepted.
  */
 ELDER_TERMS_API std::optional<RegularExpressionMatch>
-search_regular_expression(const RegularExpressionState *state,
+search_regular_expression(RegularExpressionState *state,
                           const std::string &subject, std::string *reason);
 
 /**
@@ -73,6 +81,15 @@ search_regular_expression(const RegularExpressionState *state,
 ELDER_TERMS_API std::optional<std::string>
 regular_expression_capture(const RegularExpressionMatch &match,
                            const std::string &capture);
+
+/**
+ * Reads one capture directly from a retained boxrig result without a name table.
+ * @param result Borrowed immutable result, or nullptr.
+ * @param capture Decimal number or case-sensitive name; NUL is rejected.
+ * @returns Captured text, empty text for an absent group, or no value for an unknown reference.
+ */
+ELDER_TERMS_API std::optional<std::string> regular_expression_capture(
+    const boxrig_regex_result *result, const std::string &capture);
 
 /**
  * Releases a compiled regular expression.

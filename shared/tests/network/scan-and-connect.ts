@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import assert from 'node:assert/strict';
 import { appendFile, readFile, writeFile } from 'node:fs/promises';
 import { createGtkAppLauncher, type GtkApp } from 'gestament';
@@ -97,7 +102,7 @@ await appendFile(
     'send=CONFIRMED SCANNED NAME\\r\\n\n'
 );
 const terminalLauncher = createGtkAppLauncher({
-  appPath: '/workspace/.build/elder-terms-vte/elder-terms-vte',
+  appPath: '/workspace/.build/elder-terms-terminal/elder-terms-terminal',
   env: environment,
 });
 let terminalApp: GtkApp | undefined;
@@ -139,7 +144,7 @@ try {
 
 // Reopen the saved file with a fresh process and verify another real session.
 const restartedLauncher = createGtkAppLauncher({
-  appPath: '/workspace/.build/elder-terms-vte/elder-terms-vte',
+  appPath: '/workspace/.build/elder-terms-terminal/elder-terms-terminal',
   env: environment,
 });
 try {

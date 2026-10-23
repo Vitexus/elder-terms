@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import {
@@ -582,7 +587,7 @@ describe('elder-terms application hotkey lifecycle', () => {
   });
 
   it('launches saved terminal, SFTP, and FTP connections while resident in the tray', async (context) => {
-    const fakeVte = await createFakeChild();
+    const fakeTerminal = await createFakeChild();
     const fakeFileTransfer = await createFakeChild();
     try {
       await runLauncherGtkTest(
@@ -621,7 +626,7 @@ describe('elder-terms application hotkey lifecycle', () => {
         async ({ app, connections }) => {
           await waitForWindowCount(app, 0);
           await pressShortcut(app, ['control', 'shift'], 'y');
-          expect(await waitForChildCapture(fakeVte.capture)).toEqual({
+          expect(await waitForChildCapture(fakeTerminal.capture)).toEqual({
             activationToken: null,
             args: ['-c', join(connections, 'Alpha.ini')],
           });
@@ -642,17 +647,17 @@ describe('elder-terms application hotkey lifecycle', () => {
           args: [],
           env: {
             ELDER_TERMS_FILE_TRANSFER_PATH: fakeFileTransfer.executable,
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await Promise.all([fakeFileTransfer.release(), fakeVte.release()]);
+      await Promise.all([fakeFileTransfer.release(), fakeTerminal.release()]);
     }
   });
 
   it('warns for duplicate connection hotkeys and launches the first profile', async (context) => {
-    const fakeVte = await createFakeChild();
+    const fakeTerminal = await createFakeChild();
     try {
       await runLauncherGtkTest(
         context,
@@ -669,7 +674,7 @@ describe('elder-terms application hotkey lifecycle', () => {
             );
           });
           await pressShortcut(app, ['control', 'alt'], 't');
-          expect(await waitForChildCapture(fakeVte.capture)).toEqual({
+          expect(await waitForChildCapture(fakeTerminal.capture)).toEqual({
             activationToken: null,
             args: ['-c', join(connections, 'Alpha.ini')],
           });
@@ -678,17 +683,17 @@ describe('elder-terms application hotkey lifecycle', () => {
         {
           args: [],
           env: {
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await fakeVte.release();
+      await fakeTerminal.release();
     }
   });
 
   it('replaces connection hotkeys after external changes and saves', async (context) => {
-    const fakeVte = await createFakeChild();
+    const fakeTerminal = await createFakeChild();
     try {
       await runLauncherGtkTest(
         context,
@@ -723,12 +728,12 @@ describe('elder-terms application hotkey lifecycle', () => {
           await closeWindowWithAccelerator(app);
           await waitForWindowCount(app, 0);
           await pressShortcut(app, ['control', 'shift'], 'u');
-          expect(await waitForChildCapture(fakeVte.capture)).toEqual({
+          expect(await waitForChildCapture(fakeTerminal.capture)).toEqual({
             activationToken: null,
             args: ['-c', join(connections, 'Alpha.ini')],
           });
 
-          await rm(fakeVte.capture, { force: true });
+          await rm(fakeTerminal.capture, { force: true });
           await tray.click();
           await waitForWindowCount(app, 1);
           await selectConnection(app, 1);
@@ -761,7 +766,7 @@ describe('elder-terms application hotkey lifecycle', () => {
           await closeWindowWithAccelerator(app);
           await waitForWindowCount(app, 0);
           await pressShortcut(app, ['control', 'shift'], 'i');
-          expect(await waitForChildCapture(fakeVte.capture)).toEqual({
+          expect(await waitForChildCapture(fakeTerminal.capture)).toEqual({
             activationToken: null,
             args: ['-c', join(connections, 'Alpha.ini')],
           });
@@ -769,12 +774,12 @@ describe('elder-terms application hotkey lifecycle', () => {
         {
           args: [],
           env: {
-            ELDER_TERMS_VTE_PATH: fakeVte.executable,
+            ELDER_TERMS_TERMINAL_PATH: fakeTerminal.executable,
           },
         }
       );
     } finally {
-      await fakeVte.release();
+      await fakeTerminal.release();
     }
   });
 });

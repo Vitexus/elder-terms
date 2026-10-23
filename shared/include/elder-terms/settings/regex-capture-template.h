@@ -1,6 +1,12 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <optional>
+#include <functional>
 #include <string>
 
 #include <elder-terms/export.h>
@@ -15,6 +21,25 @@ struct RegexCaptureTemplateOptions {
   /** Allows the `uri-decode` transformation on captured values. */
   bool allow_uri_decode = false;
 };
+
+/**
+ * Reads one numbered or named capture without copying a complete capture table.
+ * @param capture Decimal group number or case-sensitive name.
+ * @return Captured text, an empty string for an absent group, or no value for an unknown reference.
+ */
+using RegexCaptureLookup = std::function<std::optional<std::string>(const std::string &capture)>;
+
+/**
+ * Expands a template from captures retained by an external matching result.
+ * @param value Template containing capture placeholders.
+ * @param capture Lookup valid for this synchronous call.
+ * @param options Allowed transformations.
+ * @param reason Receives a syntax, capture, or transformation error.
+ * @return Expanded text, or no value on error.
+ */
+ELDER_TERMS_API std::optional<std::string> expand_regex_capture_template(
+    const std::string &value, const RegexCaptureLookup &capture,
+    RegexCaptureTemplateOptions options, std::string *reason);
 
 /**
  * Validates capture placeholders in a template.

@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { execFile, spawn } from 'node:child_process';
 import {
   chmod,
@@ -5,6 +10,7 @@ import {
   mkdtemp,
   mkdir,
   readFile,
+  rename,
   rm,
   stat,
   writeFile,
@@ -62,7 +68,8 @@ it('controls the resident launcher and saved connections without D-Bus or a disp
   await chmod(child, 0o700);
   const env = {
     XDG_RUNTIME_DIR: runtime,
-    ELDER_TERMS_VTE_PATH: child,
+    XDG_DATA_HOME: join(runtime, 'data'),
+    ELDER_TERMS_TERMINAL_PATH: child,
   };
   const control = async (args: string[]) =>
     await execute(ctl, args, {
@@ -76,6 +83,7 @@ it('controls the resident launcher and saved connections without D-Bus or a disp
       },
     });
   try {
+    const connectionId = '4ced957d-f907-4e11-9dde-59333aa1d180';
     await runLauncherGtkTest(
       context,
       async (connections) => {
@@ -85,7 +93,7 @@ it('controls the resident launcher and saved connections without D-Bus or a disp
         );
         await writeFile(
           join(connections, '日本語 connection.ini'),
-          '[general]\ntype=local\n'
+          `[general]\ntype=local\nconnection_id=${connectionId}\n`
         );
       },
       async ({ app, connections }) => {
@@ -102,6 +110,7 @@ it('controls the resident launcher and saved connections without D-Bus or a disp
         for (const request of [
           'unknown\0\0',
           'open-application\0unexpected\0',
+          'open-connection-id\0invalid\0',
           'open-application\0\0' + 'x'.repeat(17000),
         ]) {
           const response = await new Promise<string>((resolve, reject) => {
@@ -142,6 +151,52 @@ it('controls the resident launcher and saved connections without D-Bus or a disp
           join(connections, '日本語 connection.ini')
         );
         expect(launched.token).toBe('test-control-token');
+        await rm(capture);
+        await control(['open-connection-id', connectionId]);
+        const launchedById = await waitForResult(
+          async () =>
+            JSON.parse(await readFile(capture, 'utf8')) as {
+              args: string[];
+            }
+        );
+        expect(launchedById.args).toContain(
+          join(connections, '日本語 connection.ini')
+        );
+        const desktop = join(
+          env.XDG_DATA_HOME,
+          'applications',
+          `net.kekyo.elder-terms.connection.${connectionId}.desktop`
+        );
+        await waitForResult(async () => {
+          expect(await readFile(desktop, 'utf8')).toContain(
+            'Name=日本語 connection'
+          );
+        });
+        const renamed = join(connections, 'Renamed %.ini');
+        await rename(join(connections, '日本語 connection.ini'), renamed);
+        await waitForResult(async () => {
+          expect(await readFile(desktop, 'utf8')).toContain('Name=Renamed %');
+        });
+        await rm(capture);
+        await execute('gio', ['launch', desktop], {
+          env: { ...process.env, ...env, DISPLAY: '', WAYLAND_DISPLAY: '' },
+        });
+        await waitForResult(async () => {
+          const reopened = JSON.parse(await readFile(capture, 'utf8')) as {
+            args: string[];
+          };
+          expect(reopened.args).toContain(renamed);
+        });
+        await rm(renamed);
+        await expect(
+          control(['open-connection-id', connectionId])
+        ).rejects.toMatchObject({ code: 1 });
+        expect(await readFile(desktop, 'utf8')).toContain(
+          `X-ElderTerms-ConnectionId=${connectionId}`
+        );
+        await expect(
+          control(['open-connection-id', 'not-a-uuid'])
+        ).rejects.toMatchObject({ code: 2 });
         expect(
           (await stat(join(runtime, 'elder-terms/control.sock'))).mode & 0o777
         ).toBe(0o600);
@@ -171,6 +226,7 @@ it('explains usage without GTK and reports a missing resident launcher', async (
   try {
     const help = await execute(ctl, ['--help'], { env });
     expect(help.stdout).toContain('open-connection');
+    expect(help.stdout).toContain('open-connection-id');
     expect(help.stdout).toContain('setup');
     expect(help.stdout).toContain('unsetup');
     await expect(
@@ -219,61 +275,85 @@ it('explains usage without GTK and reports a missing resident launcher', async (
   }
 });
 
-it('starts the launcher when setup is run in an active X11 session', async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'elder-control-setup-'));
-  const desktop = createGtkAppLauncher({
-    appPath: fileURLToPath(
+it.each(['setup', 'open-connection-id'])(
+  'starts the launcher for %s in an active X11 session',
+  async (command) => {
+    const directory = await mkdtemp(join(tmpdir(), 'elder-control-setup-'));
+    const desktop = createGtkAppLauncher({
+      appPath: fileURLToPath(
+        new URL('../../.build/elder-terms/elder-terms', import.meta.url)
+      ),
+      xvfbPool: { type: 'xvfb' },
+      xvfbTrayHost: false,
+    });
+    const bin = join(directory, 'bin');
+    const config = join(directory, 'config');
+    const runtime = join(directory, 'runtime');
+    const pidFile = join(directory, 'launcher.pid');
+    const capture = join(directory, 'connection-opened');
+    const child = join(directory, 'child');
+    const id = '3225a971-2dc1-45fb-9887-d0e533eeb0ab';
+    const launcherBinary = fileURLToPath(
       new URL('../../.build/elder-terms/elder-terms', import.meta.url)
-    ),
-    xvfbPool: { type: 'xvfb' },
-    xvfbTrayHost: false,
-  });
-  const bin = join(directory, 'bin');
-  const config = join(directory, 'config');
-  const runtime = join(directory, 'runtime');
-  const pidFile = join(directory, 'launcher.pid');
-  const launcherBinary = fileURLToPath(
-    new URL('../../.build/elder-terms/elder-terms', import.meta.url)
-  );
-  let launcherPid: number | undefined;
-  try {
-    await mkdir(bin);
-    await mkdir(runtime, { mode: 0o700 });
-    await mkdir(join(config, 'elder-terms/connections'), { recursive: true });
-    await writeFile(
-      join(config, 'elder-terms/global.ini'),
-      '[general]\nstartup_mode=background\nopen_application=Ctrl+Shift+Y\n'
     );
-    await copyFile(ctl, join(bin, 'etctl'));
-    await writeFile(
-      join(bin, 'elder-terms'),
-      `#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nexec '${launcherBinary}' "$@"\n`
-    );
-    await chmod(join(bin, 'elder-terms'), 0o700);
-    const env = {
-      ...process.env,
-      ...(await desktop.environment()),
-      XDG_CONFIG_HOME: config,
-      XDG_RUNTIME_DIR: runtime,
-      DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent/elder-terms-bus',
-    };
-    const setup = await execute(join(bin, 'etctl'), ['setup'], { env });
-    expect(setup.stdout).toContain('X11 hotkeys are registered');
-    launcherPid = Number(await readFile(pidFile, 'utf8'));
-    expect(Number.isInteger(launcherPid)).toBe(true);
-    await execute(join(bin, 'etctl'), ['open-application'], { env });
-  } finally {
-    if (launcherPid !== undefined) {
-      try {
-        process.kill(launcherPid);
-      } catch {
-        // The launcher may have exited during cleanup.
+    let launcherPid: number | undefined;
+    try {
+      await mkdir(bin);
+      await mkdir(runtime, { mode: 0o700 });
+      await mkdir(join(config, 'elder-terms/connections'), { recursive: true });
+      await writeFile(
+        join(config, 'elder-terms/connections/Cold start.ini'),
+        `[general]\ntype=local\nconnection_id=${id}\n`
+      );
+      await writeFile(child, `#!/bin/sh\nprintf '%s\\n' "$@" > '${capture}'\n`);
+      await chmod(child, 0o700);
+      await writeFile(
+        join(config, 'elder-terms/global.ini'),
+        '[general]\nstartup_mode=background\nopen_application=Ctrl+Shift+Y\n'
+      );
+      await copyFile(ctl, join(bin, 'etctl'));
+      await writeFile(
+        join(bin, 'elder-terms'),
+        `#!/bin/sh\nprintf '%s' "$$" > '${pidFile}'\nexec '${launcherBinary}' "$@"\n`
+      );
+      await chmod(join(bin, 'elder-terms'), 0o700);
+      const env = {
+        ...process.env,
+        ...(await desktop.environment()),
+        XDG_CONFIG_HOME: config,
+        XDG_RUNTIME_DIR: runtime,
+        ELDER_TERMS_TERMINAL_PATH: child,
+        DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent/elder-terms-bus',
+      };
+      const result = await execute(
+        join(bin, 'etctl'),
+        command === 'setup' ? [command] : [command, id],
+        { env }
+      );
+      if (command === 'setup')
+        expect(result.stdout).toContain('X11 hotkeys are registered');
+      else
+        await waitForResult(async () => {
+          expect(await readFile(capture, 'utf8')).toContain(
+            join(config, 'elder-terms/connections/Cold start.ini')
+          );
+        });
+      launcherPid = Number(await readFile(pidFile, 'utf8'));
+      expect(Number.isInteger(launcherPid)).toBe(true);
+      await execute(join(bin, 'etctl'), ['open-application'], { env });
+    } finally {
+      if (launcherPid !== undefined) {
+        try {
+          process.kill(launcherPid);
+        } catch {
+          // The launcher may have exited during cleanup.
+        }
       }
+      await desktop.release();
+      await rm(directory, { recursive: true, force: true });
     }
-    await desktop.release();
-    await rm(directory, { recursive: true, force: true });
   }
-});
+);
 
 it('automatically configures the detected Sway session without OS labels', async (context) => {
   const directory = await mkdtemp(join(tmpdir(), 'elder-control-sway-'));
@@ -579,7 +659,7 @@ it('accepts requests when the launcher itself cannot connect to D-Bus and recove
       XDG_RUNTIME_DIR: runtime,
       XDG_CONFIG_HOME: config,
       DBUS_SESSION_BUS_ADDRESS: 'unix:path=/nonexistent/elder-terms-bus',
-      ELDER_TERMS_VTE_PATH: childPath,
+      ELDER_TERMS_TERMINAL_PATH: childPath,
     };
     for (let attempt = 0; attempt < 2; ++attempt) {
       const launcherProcess = spawn(binary, [], { env, stdio: 'pipe' });

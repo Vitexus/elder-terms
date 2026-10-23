@@ -1,10 +1,13 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings/telnet-settings.h>
 
 #include <algorithm>
 #include <cctype>
 #include <utility>
-
-#include "terminal-type-settings.h"
 
 namespace elder_terms {
 
@@ -88,7 +91,7 @@ TelnetConnectionSettings telnet_connection_settings(const SettingsStore &store) 
       .address = std::move(address),
       .port = setting_integer_value_or_default(
           store, telnet_port_setting_key(), default_telnet_port),
-      .terminal_type = resolve_terminal_type_setting(
+      .terminal_type = setting_string_value_or_default(
           store, telnet_terminal_type_setting_key(),
           default_telnet_terminal_type),
   };

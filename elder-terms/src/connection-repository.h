@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <filesystem>
@@ -105,6 +110,18 @@ InitialConnectionProfileResult create_initial_local_terminal_profile(
  */
 std::vector<ConnectionProfile>
 list_connection_profiles(const std::filesystem::path &directory);
+
+/**
+ * Checks whether a changed INI only gained a valid connection ID.
+ * @param before Contents observed by an open editor, if readable.
+ * @param after Contents now on disk, if readable.
+ * @returns True only when all other INI data and comments are unchanged.
+ * @remarks This lets the launcher retain an unsaved editor draft while it
+ * assigns an ID to a legacy profile, including one without a general group.
+ */
+bool connection_profile_only_gained_id(
+    const std::optional<std::string> &before,
+    const std::optional<std::string> &after);
 
 /**
  * Validates a proposed connection name.

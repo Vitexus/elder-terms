@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings/regex-capture-template.h>
 
 #include <optional>
@@ -94,9 +99,9 @@ bool regex_capture_template_is_valid(
 
 static std::optional<std::string>
 fetch_capture(const CapturePlaceholder &placeholder,
-              const RegularExpressionMatch *match, std::string *reason) {
+              const RegexCaptureLookup &capture, std::string *reason) {
   const std::optional<std::string> matched =
-      regular_expression_capture(*match, placeholder.capture);
+      capture(placeholder.capture);
   if (!matched.has_value()) {
     *reason = "failed to read capture: " + placeholder.capture;
     return std::nullopt;
@@ -104,6 +109,10 @@ fetch_capture(const CapturePlaceholder &placeholder,
 
   std::string result;
   if (placeholder.uri_decode) {
+    if (matched->find('\0') != std::string::npos) {
+      *reason = "capture contains a NUL byte: " + placeholder.capture;
+      return std::nullopt;
+    }
     gchar *decoded = g_uri_unescape_string(matched->c_str(), nullptr);
     if (decoded == nullptr) {
       *reason = "capture contains invalid URI escaping: " +
@@ -126,6 +135,19 @@ expand_regex_capture_template(const std::string &value,
                               std::string *reason) {
   if (match == nullptr) {
     *reason = "regular-expression match is unavailable";
+    return std::nullopt;
+  }
+
+  return expand_regex_capture_template(value,
+      [match](const std::string &capture) { return regular_expression_capture(*match, capture); },
+      options, reason);
+}
+
+std::optional<std::string> expand_regex_capture_template(
+    const std::string &value, const RegexCaptureLookup &capture,
+    RegexCaptureTemplateOptions options, std::string *reason) {
+  if (!capture) {
+    *reason = "regular-expression captures are unavailable";
     return std::nullopt;
   }
 
@@ -158,7 +180,7 @@ expand_regex_capture_template(const std::string &value,
       return std::nullopt;
     }
     const std::optional<std::string> captured =
-        fetch_capture(*placeholder, match, reason);
+        fetch_capture(*placeholder, capture, reason);
     if (!captured.has_value()) {
       return std::nullopt;
     }

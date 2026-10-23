@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include "connection-repository.h"
 
 #include <chrono>
@@ -10,6 +15,7 @@
 #include <string>
 
 #include <elder-terms/settings.h>
+#include <elder-terms/settings/general-settings.h>
 #include <elder-terms/settings/terminal-settings.h>
 
 namespace elder_terms_connection_repository_test {
@@ -45,6 +51,27 @@ static void test_default_directory_uses_elder_terms_connections() {
               "default directory should end with connections");
   expect_true(path.parent_path().filename() == "elder-terms",
               "default directory should be scoped to elder-terms");
+}
+
+static void test_identity_only_change_preserves_unsaved_editor() {
+  const std::string id = "e81f9240-05c5-8aae-9ae1-027f42049333";
+  expect_true(elder_terms::connection_profile_only_gained_id(
+                  "[general]\nname=Legacy\n",
+                  "[general]\nname=Legacy\nconnection_id=" + id + "\n"),
+              "adding only an ID should not conflict with unsaved edits");
+  expect_true(elder_terms::connection_profile_only_gained_id(
+                  "[terminal]\nwidth=90\n",
+                  "[terminal]\nwidth=90\n[general]\nconnection_id=" + id + "\n"),
+              "an ID added to a profile without general settings should not conflict");
+  expect_true(!elder_terms::connection_profile_only_gained_id(
+                  "[terminal]\nwidth=90\n",
+                  "[terminal]\nwidth=91\n[general]\nconnection_id=" + id + "\n"),
+              "another setting change must still report an external conflict");
+  expect_true(!elder_terms::connection_profile_only_gained_id(
+                  "[terminal]\nwidth=90\n",
+                  "[terminal]\nwidth=90\n[general]\nconnection_id=" + id +
+                      "\nicon=material:action/home\n"),
+              "a new general setting must still report an external conflict");
 }
 
 static void test_creates_initial_local_terminal_only_before_directory_exists() {
@@ -142,6 +169,9 @@ static void test_saves_loads_and_renames_profiles() {
       elder_terms::load_connection_profile(created.path);
   expect_true(loaded.loaded,
               "saved connection profile should load successfully");
+  const auto original_id = elder_terms::general_connection_id(loaded.store);
+  expect_true(g_uuid_string_is_valid(original_id.c_str()),
+              "new profile should persist a valid UUID");
   expect_true(elder_terms::terminal_display_settings(loaded.store).width == 91,
               "loaded connection profile should preserve settings");
 
@@ -152,6 +182,17 @@ static void test_saves_loads_and_renames_profiles() {
   expect_true(!std::filesystem::exists(created.path) &&
                   std::filesystem::exists(renamed.path),
               "successful rename should remove the old path");
+  const auto renamed_store = elder_terms::load_connection_profile(renamed.path);
+  expect_true(elder_terms::general_connection_id(renamed_store.store) == original_id,
+              "save and rename should keep the original connection ID");
+  const auto duplicate = elder_terms::save_connection_profile(
+      directory, std::nullopt, "Duplicate", renamed_store.store);
+  expect_true(duplicate.saved, "duplicate profile should save");
+  const auto duplicated_store = elder_terms::load_connection_profile(duplicate.path);
+  const auto duplicate_id = elder_terms::general_connection_id(duplicated_store.store);
+  expect_true(g_uuid_string_is_valid(duplicate_id.c_str()) &&
+                  duplicate_id != original_id,
+              "duplicating a connection should create a distinct ID");
   std::filesystem::remove_all(directory);
 }
 
@@ -220,6 +261,8 @@ int main() {
   try {
     elder_terms_connection_repository_test::
         test_default_directory_uses_elder_terms_connections();
+    elder_terms_connection_repository_test::
+        test_identity_only_change_preserves_unsaved_editor();
     elder_terms_connection_repository_test::
         test_creates_initial_local_terminal_only_before_directory_exists();
     elder_terms_connection_repository_test::

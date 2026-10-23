@@ -1,0 +1,610 @@
+{
+  "schemaVersion": 1,
+  "application": {
+    "version": "1.8.189",
+    "sourceCommit": "e3a88ab759ae061587e1f80238c75282aa778ce8",
+    "buildCommand": "npm run build"
+  },
+  "environment": {
+    "session": "X11",
+    "display": ":1",
+    "monitor": {
+      "number": 2,
+      "connector": "DP-4",
+      "primary": true,
+      "bounds": {
+        "x": 3840,
+        "y": 1080,
+        "width": 3840,
+        "height": 1600
+      }
+    },
+    "scale": 1,
+    "gtkTheme": "Yaru-dark",
+    "uiFont": "Ubuntu Sans 11",
+    "terminalFont": "Noto Sans Mono",
+    "uiLanguage": "en",
+    "locale": "C.UTF-8"
+  },
+  "capture": {
+    "method": "FFmpeg x11grab",
+    "mousePointer": false,
+    "resized": false,
+    "composited": false,
+    "conditionsDocument": "../docs/ja/screenshot-capture.md"
+  },
+  "images": [
+    {
+      "file": "terminal.png",
+      "scope": "window",
+      "capturedAt": "2026-10-23T00:38:02.234Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1353,
+        "width": 893,
+        "height": 683
+      },
+      "description": "Local shell with directory listing, C++ source, ANSI colors and Unicode text.",
+      "sha256": "f82d1126614d3de305bc99dfdcd9c79d83db9efb23f2ba53f76ffdc21adb23d6"
+    },
+    {
+      "file": "launcher-settings.png",
+      "scope": "window",
+      "capturedAt": "2026-10-23T00:30:02.798Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1353,
+        "width": 1028,
+        "height": 658
+      },
+      "description": "Launcher with six sample connection profiles; General tab of Local terminal.",
+      "sha256": "9974274a973f8e65b98dd5c247ffc535de210f58ad91db7835c4ab61180a86e4"
+    },
+    {
+      "file": "complex-terminal.png",
+      "scope": "window",
+      "capturedAt": "2026-10-23T00:44:27.278Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1353,
+        "width": 1113,
+        "height": 743
+      },
+      "description": "btop running in the current terminal renderer",
+      "sha256": "cc897a95471f011386ae5e8bbd53c7fd2189f197927fcd116f264ddb95c736b7"
+    },
+    {
+      "file": "serial-terminal.png",
+      "scope": "window",
+      "capturedAt": "2026-10-23T00:47:40.250Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1353,
+        "width": 953,
+        "height": 611
+      },
+      "description": "Real serial backend receiving sample controller boot and status output from a local PTY, 115200 8N1",
+      "sha256": "d3515de07cc9792068dd02516271251c22230ce7ae269ce39d5ee77adb93e041"
+    },
+    {
+      "file": "colored-terminal.png",
+      "scope": "window",
+      "capturedAt": "2026-10-23T00:47:44.939Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1353,
+        "width": 1013,
+        "height": 611
+      },
+      "description": "htop with custom blue title, status bar and terminal background",
+      "sha256": "56574c736d5ce0628d1591c1c7a733cebdb54ae6e2eb1099c7ee0e271433133a"
+    },
+    {
+      "file": "sftp.png",
+      "scope": "window",
+      "capturedAt": "2026-10-23T00:53:15.002Z",
+      "bounds": {
+        "x": 5026,
+        "y": 1373,
+        "width": 1268,
+        "height": 528
+      },
+      "description": "Live SFTP browser on an isolated loopback OpenSSH server, sample local and remote files, custom brown exterior and content colors",
+      "sha256": "baa7b1870ea3d6859ee9d07bbdb608f352253c8baaefa2dbcd16c995752d8a12"
+    },
+    {
+      "file": "launcher.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:30:41.596Z",
+      "bounds": {
+        "x": 4834,
+        "y": 1408,
+        "width": 190,
+        "height": 230
+      },
+      "description": "Connection list with Local terminal selected.",
+      "sha256": "647476fc39ec8d1779521d6324b406bcee36893483d510a944b55edb0cd30eb5"
+    },
+    {
+      "file": "local-terminal.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:38:04.621Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1400,
+        "width": 600,
+        "height": 64
+      },
+      "description": "Prompt of the newly opened local shell.",
+      "sha256": "bd5848d31f7479ba5c5c98c83b0ae1afcfad922c70752328f047a21e6bfa131e"
+    },
+    {
+      "file": "settings-terminal.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:34:16.247Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1446,
+        "width": 809,
+        "height": 482
+      },
+      "description": "Terminal settings including encoding, keys, grid, history, BEL, shortcuts and accessibility.",
+      "sha256": "7d67d41754fc8156967e3b9bb3c4e87df36bd803ace8f54deb3c569700a5fc61"
+    },
+    {
+      "file": "font-size.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:50:30.840Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1353,
+        "width": 1196,
+        "height": 205
+      },
+      "description": "Two live terminals with the same text, 16 DIP on the left and enlarged with Ctrl+= three times on the right",
+      "sha256": "52cd97c9c5920a502ccb1f077b4bb3269a995e83bdd7eb34e5ce4f683b4ef677"
+    },
+    {
+      "file": "serial-indicator.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:47:41.733Z",
+      "bounds": {
+        "x": 5502,
+        "y": 1930,
+        "width": 269,
+        "height": 32
+      },
+      "description": "Serial activity and modem signal indicators; PTY has no hardware modem lines",
+      "sha256": "86b0ce5b8f1c4a0ae29ed65353186447d27ebd63bb98eddb014578af2f02ed90"
+    },
+    {
+      "file": "configuration-structure.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:30:43.101Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1778,
+        "width": 801,
+        "height": 92
+      },
+      "description": "Explicit Disabled for session auto-close, inherited built-in Disabled for compact mode.",
+      "sha256": "a37ea456ab2ffe2920be93b1b3fd691cf41291c661aaeafa2d9336be14f136fa"
+    },
+    {
+      "file": "connection-icon-picker.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:54:12.760Z",
+      "bounds": {
+        "x": 5397,
+        "y": 1539,
+        "width": 452,
+        "height": 404
+      },
+      "description": "Noto Color Emoji picker and custom image selection",
+      "sha256": "cc5db60ad4befbb994814ce3d3b0e5bb3eed9c9eb4699eb863b2f9e7073fde8d"
+    },
+    {
+      "file": "ip-scan-results.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:52:23.247Z",
+      "bounds": {
+        "x": 5038,
+        "y": 1556,
+        "width": 612,
+        "height": 49
+      },
+      "description": "Table header and localhost result of the completed live IP scan",
+      "sha256": "666d6d293f601c77e7990c91e47d8a2f128678f5a7f603d7a73a26b1cc1810db"
+    },
+    {
+      "file": "ssh-sftp-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:33:32.927Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1446,
+        "width": 809,
+        "height": 210
+      },
+      "description": "SSH connection details shared by SSH and SFTP.",
+      "sha256": "6e9d7ad28c6b8c9c2b0c4960285a2a73dc06d402c85b221836094eea8f4340aa"
+    },
+    {
+      "file": "ssh-telnet-reconnect.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:46:46.182Z",
+      "bounds": {
+        "x": 5490,
+        "y": 1410,
+        "width": 126,
+        "height": 66
+      },
+      "description": "Disconnected remote console with reconnect action",
+      "sha256": "b669c893a4acfcc9230425cebfddcc03ceebff94fb6b1a414a691d0f784481fc"
+    },
+    {
+      "file": "ftp-ftps-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:33:35.540Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1446,
+        "width": 809,
+        "height": 294
+      },
+      "description": "FTP host, user, passive data connection and explicit FTPS encryption.",
+      "sha256": "f676be47ce4605bb3792fa6ea24c05ac576a12df1a968b0249713e95b286a67b"
+    },
+    {
+      "file": "webdav-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:33:38.107Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1446,
+        "width": 809,
+        "height": 362
+      },
+      "description": "HTTPS WebDAV host, published path, authentication, directories and effective URL.",
+      "sha256": "2b870ffa0e66fc3d93757fb6c2d61d03cb9d36a34a2ff89519836fa1da21d3ef"
+    },
+    {
+      "file": "file-transfer-item-menu.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:52:04.698Z",
+      "bounds": {
+        "x": 5680,
+        "y": 1699,
+        "width": 370,
+        "height": 166
+      },
+      "description": "Selected remote file and context menu on a connected SFTP browser",
+      "sha256": "9aa0acbf87a77a84a7995f3a8f9b1f7ec046a1aff97c948089959b4b94cc91ad"
+    },
+    {
+      "file": "local-startup-process.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:30:54.689Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1442,
+        "width": 801,
+        "height": 50
+      },
+      "description": "Local startup command set to /bin/bash --login.",
+      "sha256": "185b8f0d62d92496555ea5eafc39ed127eed0682c9fd59a8318bf936d15a54a8"
+    },
+    {
+      "file": "serial-device-selector.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:33:28.161Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1446,
+        "width": 809,
+        "height": 162
+      },
+      "description": "Stable device identity, detected FTDI device, stable ID and current device node.",
+      "sha256": "83000e31b24eea5c462a8c517ab328d74365a027e5ed58d9c22d0d5a7cd104e4"
+    },
+    {
+      "file": "serial-connection-monitoring.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:46:21.456Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1776,
+        "width": 809,
+        "height": 42
+      },
+      "description": "Serial connection monitoring signal",
+      "sha256": "59a86d8100dca7112647ba2171b3e4811a5e4721dce5bb3942e7ad5dbe4e3ad4"
+    },
+    {
+      "file": "terminal-encoding-keys.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:34:17.771Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1446,
+        "width": 809,
+        "height": 162
+      },
+      "description": "UTF-8 encoding and special-key settings.",
+      "sha256": "b3e72c404ff9605c4c50fb503c93f4eb66eac525c40e29fcd16cda9e155eecf0"
+    },
+    {
+      "file": "terminal-text-selection.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:54:49.676Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1496,
+        "width": 580,
+        "height": 144
+      },
+      "description": "C++ function selected in the terminal with ordinary linear text selection",
+      "sha256": "39d38d8c1aa0f60dd7b9e225e02a06a5588e61a16254025385b79f13be083bc2"
+    },
+    {
+      "file": "terminal-send-paste.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:31:33.859Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1484,
+        "width": 801,
+        "height": 92
+      },
+      "description": "Text send rate and following the Enter/Return newline setting.",
+      "sha256": "c1ec76ca792d25e07359a159626baa2bbd458c9a6fc3777b932ef077af00d9c5"
+    },
+    {
+      "file": "terminal-break-menu.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:46:44.119Z",
+      "bounds": {
+        "x": 5050,
+        "y": 1475,
+        "width": 157,
+        "height": 101
+      },
+      "description": "Connected TELNET terminal menu with Send BREAK enabled",
+      "sha256": "27323613f9520d61149ea00f0822f71fec193f2aa1ced3188aac49461f0aa755"
+    },
+    {
+      "file": "scrollback-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:46:16.746Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1686,
+        "width": 809,
+        "height": 42
+      },
+      "description": "20,000 lines of terminal scrollback",
+      "sha256": "ab19bbfb40c5ae7bcd3b0bfab923e4711871565298851fce2592159eaa962f09"
+    },
+    {
+      "file": "bel-sound-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:46:18.512Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1726,
+        "width": 809,
+        "height": 42
+      },
+      "description": "Built-in BEL sound selector and browse button",
+      "sha256": "4594cd3d390b1b3c5609c52adb7a140e30f5745d0408f637dae5d9a6bf392416"
+    },
+    {
+      "file": "compact-mode.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:53:17.452Z",
+      "bounds": {
+        "x": 4826,
+        "y": 1353,
+        "width": 813,
+        "height": 75
+      },
+      "description": "Compact terminal title bar with inline CONN LOG SD RD indicators and shell prompt",
+      "sha256": "e0b7c8ad13abe61fbc05cbc54e230db258d9a134dbf234729cb99cc68c4b8981"
+    },
+    {
+      "file": "indicator-color-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:46:12.477Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1698,
+        "width": 809,
+        "height": 84
+      },
+      "description": "Custom blue active indicator and gray inactive indicator colors",
+      "sha256": "1d538ea41ea41bfdb5e4ac0c811ebb3bfd34c115c2527ee78aba1e362c3fed7d"
+    },
+    {
+      "file": "text-size-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:35:12.548Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1562,
+        "width": 809,
+        "height": 42
+      },
+      "description": "Terminal font size explicitly set to 14.5 DIP.",
+      "sha256": "a8e945582aaffc7543c66ecba5e75afa106489c666537dfa1aa2f11093c730c0"
+    },
+    {
+      "file": "cursor-background-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:35:45.551Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1540,
+        "width": 809,
+        "height": 416
+      },
+      "description": "Vertical cursor, transparent background at 70 percent, tint and background-image controls.",
+      "sha256": "d1d1656577b7005af8daad6c3caa1b0ac5a6cd00b15454a039707af898780f75"
+    },
+    {
+      "file": "text-contrast-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:36:40.309Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1582,
+        "width": 809,
+        "height": 366
+      },
+      "description": "Oklch visibility correction with the built-in before/after comparison on a dark background.",
+      "sha256": "d8f75c24bb753ee1a61f638edef6eed259df708e97424f95544ac4655c69c7a0"
+    },
+    {
+      "file": "reverse-polarity-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:36:42.259Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1582,
+        "width": 809,
+        "height": 366
+      },
+      "description": "Reverse text and background (C) with before/after color samples.",
+      "sha256": "81176eef834ac636cec79eaf5b09ef14e93c38a54140d9d8a379a4891898b8f8"
+    },
+    {
+      "file": "color-distinction-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:36:45.275Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1622,
+        "width": 809,
+        "height": 326
+      },
+      "description": "Deutan color discrimination at strength 60 with before/after samples.",
+      "sha256": "c2cd6bd36fbc5c0112947abdd73b34a7e15c7834e72fe1ca892307a1d63975d3"
+    },
+    {
+      "file": "font-family-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:35:41.894Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1446,
+        "width": 809,
+        "height": 156
+      },
+      "description": "Ordered font families: DejaVu Sans Mono, Noto Sans Mono CJK JP, Monospace.",
+      "sha256": "4ec6e8a796750157778efa054f8204b6e959f693e82bea646ef1ac9e05e93300"
+    },
+    {
+      "file": "hotkey-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:46:14.319Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1572,
+        "width": 809,
+        "height": 42
+      },
+      "description": "Per-connection Ctrl+Alt+L shortcut",
+      "sha256": "63e4677ee23e7700f35f2450488432a14a59ca31e229c36867d9b5a9eb2689b1"
+    },
+    {
+      "file": "system-tray.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:51:29.966Z",
+      "bounds": {
+        "x": 7289,
+        "y": 1113,
+        "width": 232,
+        "height": 205
+      },
+      "description": "Latest launcher tray menu rendered by the current GNOME session on display 2",
+      "sha256": "07cc23a3240439f581038df7969ccee125df44bd2047e889631346300307662d"
+    },
+    {
+      "file": "terminal-type-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:31:38.713Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1610,
+        "width": 809,
+        "height": 50
+      },
+      "description": "SSH terminal type xterm-256color.",
+      "sha256": "4e89fa0565c5787fa0409d7b29abfff1ced494c082f7976ef21f6a042a2873b4"
+    },
+    {
+      "file": "language-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:46:49.252Z",
+      "bounds": {
+        "x": 5053,
+        "y": 1603,
+        "width": 582,
+        "height": 45
+      },
+      "description": "Application UI language selection",
+      "sha256": "41a7357fc2451a32613f918ce6e7ce1df1b9d6dd29a4e81ae0971f4ad7c02776"
+    },
+    {
+      "file": "about-dialog.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:48:07.077Z",
+      "bounds": {
+        "x": 5060,
+        "y": 1655,
+        "width": 568,
+        "height": 117
+      },
+      "description": "About page: application version 1.8.189 and hotkey backend status",
+      "sha256": "a9f01e794e20dad6b45b0795e4c4bcda9b834ec006541c0e0f353ec359a8a6bb"
+    },
+    {
+      "file": "logging-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:36:49.469Z",
+      "bounds": {
+        "x": 5044,
+        "y": 1446,
+        "width": 809,
+        "height": 168
+      },
+      "description": "Enabled log recording with per-connection date/time file names and UTF-8 text.",
+      "sha256": "111cefec12c7534a907aa87860b8557384d8d4eb03b9877fa0de01d039c85cb4"
+    },
+    {
+      "file": "macro-settings.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:53:19.655Z",
+      "bounds": {
+        "x": 5048,
+        "y": 1450,
+        "width": 540,
+        "height": 195
+      },
+      "description": "Selected macro matches READY and sends START followed by CR LF",
+      "sha256": "5fe5e2e5ecd4a8364e9b49f66e2efaf2836b1a45aeee383090f7592266a15047"
+    },
+    {
+      "file": "terminal-link-actions.png",
+      "scope": "detail",
+      "capturedAt": "2026-10-23T00:44:51.495Z",
+      "bounds": {
+        "x": 5036,
+        "y": 1438,
+        "width": 825,
+        "height": 518
+      },
+      "description": "Terminal-text link rule opening existing source paths in the editor at a named line",
+      "sha256": "7d8a49ea7466734caf9464b91cb15234a93a81672c89fb7dafd6bf4b6a22071c"
+    }
+  ]
+}

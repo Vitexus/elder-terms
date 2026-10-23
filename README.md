@@ -17,14 +17,13 @@ A Terminal emulator for local shell, serial, TELNET, FTP, FTPS, SSH, and SFTP co
 
 ## What Is This?
 
-elder-terms is a GTK terminal for local shell, serial, TELNET, FTP, SSH and SFTP connections, inspired by personal computing in the 1990s.
+A terminal application, inspired by personal computing in the 1990s.
 
 ![Terminal](./images/terminal.png)
 
 ### Features
 
-- Provides a simple, no-frills terminal with everything you need, using Linux
-  GTK/`libvte`.
+- Uses Linux GTK3 and [boxrig](https://github.com/kekyo/boxrig), preferring OpenGL rendering and using Cairo when OpenGL is unavailable.
 - Supports local terminals, SSH, SFTP, and FTP as well as serial and TELNET
   connections, bringing that familiar terminal experience into the present.
 - Lets you manage multiple connections and launch terminals from the launcher.
@@ -100,6 +99,8 @@ Then start elder-terms:
 elder-terms
 ```
 
+Use `elder-terms-terminal` to start a terminal directly, or `elder-terms-terminal -c connection.ini` to select a connection settings file.
+
 ---
 
 ## Basic Usage
@@ -121,6 +122,14 @@ its settings. Clicking "Apply" applies the changes only to the currently
 running terminal. Clicking "Save" remembers the settings and uses them the next
 time the terminal starts.
 
+Terminal settings are split into two tabs. "Terminal" contains encoding, special
+keys, rows and columns, scrollback, BEL, shortcuts, and screen-reader access.
+"Terminal appearance" contains fonts, text size, the cursor, background,
+and color correction. The same layout is used for individual connections and
+"Connection defaults". Neither tab is shown for file transfers.
+Border visibility and width are configured on the "General" tab for both
+terminal and file transfer windows.
+
 ![Settings (Terminal)](./images/settings-terminal.png)
 
 Try changing different settings with the "Apply" button. If something goes
@@ -129,14 +138,20 @@ wrong, simply close the terminal window to discard the changes.
 Most settings are self-explanatory once you try them, but a few need more
 detail. Those settings are described in the following sections.
 
+To read terminal text with a screen reader, enable "Screen reader access" in the
+"Terminal" settings tab. It is disabled by default and can be changed while the
+terminal is running. Enabling it exposes the currently visible terminal text.
+In an INI file, set `accessibility_enabled=true` in `[terminal]`.
+This setting does not affect screen-reader access to menus or settings dialogs.
+
 To edit a saved connection's INI file directly, right-click its entry in the
 launcher and select "Edit in text editor". This uses your desktop's default
 application for plain text files.
 Changes saved in an external editor are reloaded automatically, including
 editors that replace the file when saving.
 
-To choose the connection opened by "New Window" on a terminal window's desktop
-icon, open "Application settings" in the launcher and select its name from
+To choose the connection opened by "New Window" on the desktop icon of a terminal
+started without a connection, open "Application settings" in the launcher and select its name from
 "Use for \"New Window\"". Select "None" to use the default terminal settings.
 The list includes saved local shell, TELNET, SSH, and serial connections.
 The desktop action is named "New Window" in every system language.
@@ -183,6 +198,8 @@ Well then, enjoy elder-terms!
 
 ## Configuration Structure
 
+![Inherited configuration values](./images/configuration-structure.png)
+
 elder-terms has the following three kinds of configuration values. Items later
 in the list take precedence.
 
@@ -214,7 +231,73 @@ Clearing a text field or selecting the default item in a selection field
 removes the explicit value, causing the setting to inherit the global or
 built-in default again.
 
+## Configuring Connection Icons
+
+![Connection icon picker](./images/connection-icon-picker.png)
+
+Open "Choose icon…" on a connection's "General" tab to display a popup grid.
+Switch between Noto Color Emoji and Material Icons, scroll through the images,
+and click one to select it. "Choose image file…" also accepts PNG and JPEG files.
+"Default icon" restores the elder-terms image. Presets are bundled and do not
+require a download when selected.
+
+For Material Icons, choose Black or White under "Glyph color". The background is
+transparent, with an outline in the opposite color. Changing the color updates
+the grid previews; clicking an image selects both its glyph and color.
+
+Apply updates the current window; Save records the selection for the next launch.
+Cancel discards edits made since the last apply. The image appears at the left
+edge of terminal and file-transfer title bars. The launcher's connection list
+and tray connection menu show saved icons. Icons are specific to each connection
+and do not inherit from "Connection defaults".
+
+Selected files are read from their original paths. Keep the file somewhere it
+will remain available on subsequent launches. Both the file and decoded RGBA
+image are limited to 64 MiB, with each dimension limited to 16384 pixels.
+Images retain their aspect ratio within a square, with transparent padding.
+An unspecified or unreadable image uses the default icon. The settings page
+shows loading errors without preventing the connection from opening.
+Missing files and unknown preset IDs do not automatically clear the saved selection.
+
+Saved connections also use individual dock icons. Windows for the same connection
+are grouped together, separately from other connections. Renaming a connection
+preserves its identity; duplicating it creates a separate identity. A window
+started from unsaved edits forms a separate temporary group. Pinning that group
+and relaunching it opens the launcher. The launcher's own window, dock, and tray
+icons remain unchanged.
+
+Window icon support is detected from the running display environment and GTK
+capabilities. On X11, elder-terms supplies multiple image sizes to GTK. On Wayland,
+it sends icons when the public API and `xdg-toplevel-icon-v1` are available.
+The title-bar and connection-list icons remain available in unsupported environments.
+Dock presentation also depends on the desktop environment; see the
+[GTK icon documentation](https://docs.gtk.org/gtk3/method.Window.set_icon_list.html).
+Testing on Ubuntu GNOME 46 confirmed that the dock updates on the first launch
+after an icon change without reopening the connection. The previous image may
+remain for a few seconds while [GNOME refreshes its cache](https://github.com/GNOME/gnome-shell/blob/46.0/src/shell-app-cache.c).
+If GNOME still holds an image reference from before this fix, reopen the connection
+window once after upgrading. Subsequent icon changes do not require reopening it.
+
+Dock integration generates files in `$XDG_DATA_HOME/applications/` and
+`$XDG_DATA_HOME/icons/hicolor/256x256/apps/`, normally under `~/.local/share/`
+when `XDG_DATA_HOME` is unset. Generated images and desktop files are retained,
+including after deleting a connection, to preserve running windows and pinned entries.
+Launching a pinned entry for a deleted connection reports an error; it cannot
+open a different connection created with the same name.
+
+In an INI file, `[general] icon` accepts these forms:
+
+| Value | Image |
+| --- | --- |
+| `default` or omitted | elder-terms default |
+| `noto:emoji_u1f44d` | Example Noto Color Emoji preset |
+| `material:action/home` | Black Material Icons glyph with a white outline |
+| `material:white:action/home` | White Material Icons glyph with a black outline |
+| `file:/home/user/Pictures/server.png` | PNG or JPEG at an absolute path |
+
 ## Finding a Host with IP Scan
+
+![IP scan results](./images/ip-scan-results.png)
 
 The TELNET, SSH/SFTP, and FTP settings place an "IP scan" button beside the
 address field.
@@ -255,6 +338,8 @@ See the [systemd resolver API documentation](https://github.com/systemd/systemd/
 
 ## Using SSH and SFTP
 
+![SSH and SFTP connection settings](./images/ssh-sftp-settings.png)
+
 SSH, SFTP, TELNET, WebDAV and passive FTP/FTPS can use an SSH gateway.
 Configure it in the separate "SSH proxy" tab, keeping the final destination in
 its protocol tab. See [Using SSH proxy](./docs/en/ssh-proxy.md) for inheritance,
@@ -281,6 +366,8 @@ and therefore does not ask for them again.
 
 ## Reconnecting SSH and TELNET
 
+![Reconnect button after disconnection](./images/ssh-telnet-reconnect.png)
+
 To keep a disconnected terminal open,
 turn off "Close window when session ends" in its General settings (`[general] auto_close=false`).
 The disconnected overlay then offers a "Reconnect" button for SSH and TELNET.
@@ -289,6 +376,8 @@ It becomes clickable after the previous connection's pending work has stopped.
 This button is not available with automatic closing enabled or for local and serial terminals.
 
 ## Using FTP/FTPS
+
+![FTP and FTPS connection settings](./images/ftp-ftps-settings.png)
 
 Create a connection in the launcher and select `FTP` as its connection type.
 The FTP tab contains the server address, control port, user name, data
@@ -325,6 +414,8 @@ For more information about FTPS and FTP details, see [the document](./docs/ja/ft
 
 ## Using WebDAV
 
+![WebDAV connection settings](./images/webdav-settings.png)
+
 Select `WebDAV` as the connection type, then set the address, published path,
 and authentication on the WebDAV tab. For `https://files.example.com/dav/team/`,
 use `files.example.com` as the address and `/dav/team/` as the published path.
@@ -344,6 +435,8 @@ according to the connection settings.
 See [Using WebDAV](./docs/en/webdav.md) for settings and supported operations.
 
 ## Managing Items in SFTP/FTP/FTPS and WebDAV
+
+![File transfer item menu](./images/file-transfer-item-menu.png)
 
 SFTP/FTP/FTPS and WebDAV use the same two-pane file browser.
 Select an item in either the local or remote pane and right-click it to open the item menu.
@@ -382,7 +475,9 @@ The browser is temporarily covered by a progress overlay and is refreshed when t
 
 ## Local Startup Process
 
-For a Local connection, "Startup command" on the Local tab selects the process that `elder-terms-vte` starts in the terminal.
+![Local startup command](./images/local-startup-process.png)
+
+For a Local connection, "Startup command" on the Local tab selects the process that `elder-terms-terminal` starts in the terminal.
 The setting takes effect the next time the connection is opened and is read-only in a running terminal.
 
 When this field is empty, it inherits the global or built-in default.
@@ -403,6 +498,8 @@ The same `[local]` setting can be saved as a global default or overridden for an
 Clearing "Startup command" restores inheritance.
 
 ## Selecting a Serial Device
+
+![Serial device selector](./images/serial-device-selector.png)
 
 For a serial connection, "Device identification" lets you choose one of three
 ways to identify the device:
@@ -447,6 +544,8 @@ choose the identification method above that suits your use case.
 
 ## Monitoring Serial Connections
 
+![Serial connection monitoring settings](./images/serial-connection-monitoring.png)
+
 "Connection monitoring signal" detects a session disconnection when DCD, CTS, or DSR changes from high to low.
 Select "Ignore (do not monitor)" if your USB serial adapter has no usable modem-line signal, 
 or if its driver does not support polling modem lines and reports "Invalid argument".
@@ -466,25 +565,28 @@ carrier_detect=ignore
 
 ## Character Encoding and Special Key Settings
 
+![Character encoding and special key settings](./images/terminal-encoding-keys.png)
+
 "Character encoding" converts bytes received from the remote host to UTF-8 for
 display, and converts entered text to the remote host's character encoding.
 The default for every connection is `UTF-8`.
 
 "Backspace code" selects the control code sent when you press Backspace.
-"Auto" leaves the choice to `libvte`, "BS" sends ASCII BS (`0x08`), and "DEL" sends ASCII DEL (`0x7f`).
+"Auto" uses the terminal's standard behavior, normally sending DEL. "BS" sends ASCII BS (`0x08`), and "DEL" sends ASCII DEL (`0x7f`).
 Change this setting if pressing Backspace on the remote host does not delete a character or displays something such as `^H`.
-The Delete key uses `libvte`'s automatic binding regardless of this setting.
+The Delete key is independent of this setting and normally sends `ESC [ 3 ~`.
 
-"Normal" under "Cursor key mode" sends the normal escape sequences generated by `libvte` unchanged.
+"Normal" under "Cursor key mode" sends escape sequences according to the terminal mode selected by the remote application.
 "TRS80" converts them to the one-byte control codes used by the TRS-80 Model 100/200,
 IBM PC GW-BASIC/Quick BASIC, NEC PC-9800 series, and MSX: up is `0x1e`, down is `0x1f`, right is `0x1c`, and left is `0x1d`.
 Use this mode when the remote host expects TRS-80-style cursor keys.
 
 "Enter/Return code" selects the code sent when an unmodified Return key or numpad Enter confirms a normal newline.
 "CR" sends `0x0d`, "LF" sends `0x0a`, and "CRLF" sends `0x0d 0x0a`.
-For keyboard input, "Auto" uses `libvte`'s choice unchanged.
+"Auto" follows the terminal's newline mode and normally sends CR.
 It does not replace Return/Enter modified by `Shift`, `Ctrl`, `Alt`, `Super`,
 or similar keys, nor dedicated sequences generated in application keypad mode.
+Key reports also follow the Kitty keyboard protocol when the remote application enables it.
 
 The built-in defaults for each connection type are as follows:
 
@@ -502,7 +604,45 @@ When editing the INI file directly, set `return_code` to one of `auto`, `cr`, `l
 return_code=crlf
 ```
 
+## Selecting and Copying Terminal Text
+
+![Selecting and copying terminal text](./images/terminal-text-selection.png)
+
+Drag with the left mouse button to select text. The selection uses a gray fill, with your configured color correction applied.
+A normal selection follows text order; a block selection is a rectangle aligned to display columns.
+
+| Action | Behavior |
+| --- | --- |
+| Left click | Clears the selection. A click alone does not copy a character |
+| Left drag | Makes a normal selection |
+| Double / triple click | Selects a word / line |
+| Ctrl + left drag | Makes a block selection. Releasing Ctrl during the drag keeps its rectangular shape |
+| Ctrl + click on a link | Opens the link when you release over the same link. Dragging instead makes a block selection |
+| Escape | Cancels the selection and any active drag |
+| Mouse wheel during a drag | Extends the selection through history while retaining its anchor. Ctrl does not zoom during this operation |
+| Drag beyond the top or bottom edge | Scrolls through history automatically until you release the button |
+| Ctrl + Shift + C, or “Copy” in the context menu | Copies the selected text to the clipboard |
+
+When a terminal application uses mouse input, Shift + drag overrides it for normal selection, and Ctrl + drag for block selection.
+Ctrl + Shift + drag also makes a block selection. Ctrl + wheel changes the text size as usual when no selection gesture is active.
+
+Completing a selection also stores its text in the primary selection (PRIMARY), which you can paste with the middle mouse button.
+This is separate from the regular clipboard (CLIPBOARD). Escape and left click clear the selection without erasing previously copied text.
+During IME composition, Escape cancels composition first; the next Escape clears the selection.
+If an IME consumes Escape before the widget receives it, the IME takes priority. [IBus key snooping](https://github.com/ibus/ibus/blob/1.5.29/client/gtk2/ibusimcontext.c#L643-L752)
+
+Block selections can span more history than fits on screen. Copying preserves whole wide characters, combining sequences, and emoji,
+including blank cells and trailing spaces within the rectangle. Each display row, including a soft-wrapped row, is separated by a newline,
+without an extra final newline. Bidirectional text is copied in logical order within each row.
+Reducing the width to zero retains the anchor, so you can expand the rectangle again while holding the button.
+
+“Copy” is disabled for an empty rectangle or a selection invalidated by text changes, and existing clipboard contents are preserved.
+Exceeding a selection or copy limit also preserves the previous result instead of publishing partial text; select a smaller range and try again.
+Focus changes, menus, and disconnection end an active drag. Changing focus alone does not clear a completed selection.
+
 ## Newlines When Sending and Pasting Text
+
+![Text sending and pasting settings](./images/terminal-send-paste.png)
 
 "Follow Enter/Return code for text send" applies to sending text files,
 macro output, and all text pasted from the clipboard or primary selection through a keyboard shortcut or the context menu.
@@ -516,7 +656,7 @@ this processing also treats a CRLF split across a chunk boundary as one newline.
 When disabled, the original sequence of CR, LF, and CRLF in the input is not changed.
 For a TELNET connection, the CR framing and IAC escaping required by TELNET NVT are still applied afterward.
 
-Pasting does not fall back to `libvte` paste handling or Bracketed Paste.
+Pasting does not add Bracketed Paste control sequences.
 It uses the same send-rate control, character encoding conversion, and newline processing as sending a text file.
 Specify this setting in the INI file as follows:
 
@@ -526,6 +666,8 @@ text_send_follow_return_code=true
 ```
 
 ## Sending BREAK
+
+![Send BREAK menu item](./images/terminal-break-menu.png)
 
 When a key combination is assigned to "Send BREAK shortcut", one BREAK is sent for each physical key press.
 Automatic repeats caused by holding the key are suppressed.
@@ -565,7 +707,9 @@ If you use a different encoding, receiving extended or altered characters can pr
 
 ## Configuring the Scrollback Buffer
 
-"Scrollback lines" on the "Terminal" tab sets the normal-screen history kept by VTE, from 1,000 to 100,000 lines.
+![Scrollback buffer settings](./images/scrollback-settings.png)
+
+"Scrollback lines" on the "Terminal" tab sets the normal-screen history, from 1,000 to 100,000 lines.
 The built-in default is 10,000 lines.
 
 When editing the INI file directly, specify the value as follows:
@@ -577,8 +721,10 @@ scrollback_lines=20000
 
 ## Configuring the BEL Sound
 
+![BEL sound settings](./images/bel-sound-settings.png)
+
 "BEL sound" on the "Terminal" tab selects the sound played when the terminal receives BEL.
-The built-in `default` value keeps VTE's existing simple beep.
+The built-in `default` value uses the desktop environment's beep.
 
 For a custom sound, enter the absolute path of an existing file or use the "Select file" button to choose it.
 Supported formats are Ogg Vorbis (`.oga`, with the legacy `.ogg` extension also accepted) and WAV (PCM).
@@ -590,13 +736,18 @@ bell_sound=/home/user/.local/share/sounds/terminal-bell.oga
 
 ## Compact Mode
 
+![Compact mode](./images/compact-mode.png)
+
 Choosing "Enabled" for "Compact mode" on a connection's General tab hides the
 bottom status bar and puts the activity indicators beside the title. The
 dropdown can also use the global default or explicitly disable compact mode.
 It works for terminal and FTP, FTPS, SFTP, and WebDAV file browser windows. The
 built-in default is off.
-When window side borders are enabled, a compact terminal also shows a bottom
-border of the same width.
+Enable window side borders on the "General" tab to show borders of the chosen
+width on both sides of the window. Compact mode also shows a bottom border
+of the same width. In INI files, use `show_border` and `border_width` in
+`[general]` to set visibility and width in pixels. Widths from 1 to 1000px are
+accepted, with a default of 4px. Borders are disabled by default.
 
 ```ini
 [general]
@@ -604,6 +755,8 @@ compact_mode=true
 ```
 
 ## Configuring Indicator Color
+
+![Indicator color settings](./images/indicator-color-settings.png)
 
 On the "General" tab, set "Active indicator color" and "Inactive indicator color" independently.
 Each applies to CONN, LOG, SD, RD, and all serial line indicators.
@@ -625,9 +778,158 @@ indicator_off_color=#808080
 The value must be `default` or an RGB color in `#RRGGBB` form.
 Invalid values produce a warning and use the next valid inherited or built-in value.
 
+## Configuring Text Size
+
+![Text size settings](./images/text-size-settings.png)
+
+"Text size (DIP)" on the "Terminal appearance" tab sets the text size. A DIP is based on 1/96 inch; the default is 12 DIP.
+You can also use `Ctrl`+`=`, `Ctrl`+`-`, or the mouse wheel while holding `Ctrl`. The committed size is saved in the connection settings.
+Zooming preserves the row and column counts reported to the connection. Resizing the window manually reports the new counts.
+
+```ini
+[terminal]
+font_size_dip=14.5
+```
+
+## Configuring the Cursor and Background
+
+![Cursor and background settings](./images/cursor-background-settings.png)
+
+Cursor, background, and color correction options are on the "Terminal appearance" tab.
+They can inherit connection defaults or be overridden for each connection.
+"Apply" changes the current terminal; "Save" also keeps the settings for its next start.
+"Cancel" discards edits made since the last Apply. Previously applied changes remain active.
+If image loading or saving fails, the error is shown and the previously applied appearance is retained.
+
+The left side of the settings footer shows the active renderer and display connection, such as
+`OpenGL / X11` or `Cairo / Wayland`. It also reflects a fallback from OpenGL to Cairo.
+Action buttons remain on the right.
+Scrollbars use colors that remain distinguishable from their background.
+
+Choose "Full box", "Vertical box", or "Underline box" for the cursor.
+The cursor is filled while the terminal has input focus and outlined in the same shape when focus leaves.
+The vertical width and underline height are based on 4 DIP, with a 1 DIP outline, scaled with the display.
+Blinking is a separate option. An unfocused outline stays steady.
+Remote cursor hiding and composition handling remain effective.
+
+Background modes are "Opaque", "Transparent", and "Frosted glass".
+Lower "Background opacity (%)" to reveal more of the background image or desktop.
+"Background tint" and "Tint opacity (%)" add a color over the image and desktop.
+Opacity ranges from 0 to 100%; a 0% tint adds no visible color. Text itself stays opaque.
+
+Choose a local PNG or JPEG file, or enter its absolute path.
+Image placement can preserve the aspect ratio while covering the viewport, contain the whole image, or stretch both axes.
+The image stays fixed within the terminal viewport while text scrolls.
+Image opacity and transparent PNG pixels let the image combine with desktop transparency.
+Images also work in opaque mode; lower the background opacity if the image is difficult to see.
+"Clear image" explicitly selects no image for this connection. "Inherit" follows connection defaults.
+The file is neither moved nor embedded, so keep it available at the same path for future starts.
+Both the file and decoded RGBA pixels are limited to 64 MiB, with a maximum of 16384 pixels per edge.
+
+Desktop transparency requires a compositor that combines the windows on your desktop.
+Frosted glass requests a compositor effect that blurs the desktop behind the terminal; text and background images remain sharp.
+The settings panel reports the actual state. Unavailable blur falls back to transparency, and unavailable transparency falls back to an opaque background.
+"Frosted glass requested" means the request was accepted; compositor effect settings still determine whether the blur appears.
+See [boxrig's background effects](https://github.com/kekyo/boxrig/blob/0.6.0/docs/en/background.md) for platform requirements.
+
+## Improving Text Color Visibility
+
+![Text contrast correction](./images/text-contrast-settings.png)
+
+Select "Improve visibility (Oklch)" under "Color filter" on the "Terminal appearance" tab to improve contrast for text and markers that are difficult to distinguish from their background. All hues, including red, green, and blue, and neutral gray, black, and white are included.
+Oklch represents color using separate lightness, chroma, and hue components. This correction preserves hue and primarily adjusts lightness.
+Colors with a contrast ratio of at least 4.5:1 against the background are retained; only colors below that threshold are adjusted. Chroma is reduced when necessary to fit the displayable color range, and neutral colors remain neutral. The default is "No correction".
+Oklch alone leaves background colors unchanged. Background images, communication, copied text, and logs are also unchanged.
+Correction uses the cell's background color as its reference; it does not adapt to individual pixels in a background image or transparent desktop.
+
+```ini
+[terminal]
+cursor_shape=bar
+cursor_blink=false
+background_mode=blur
+background_opacity=40
+background_tint_color=#203040
+background_tint_opacity=20
+background_image=/home/user/Pictures/terminal.png
+background_image_opacity=70
+background_image_fit=cover
+color_filter=oklch
+```
+
+## Reversing Background and Text Polarity
+
+![Reversing background and text polarity](./images/reverse-polarity-settings.png)
+
+Choose one of five modes under "Color filter" on the "Terminal appearance" tab. They turn white text on black into black text on white and continuously transform nearby colors as well. Use "Compare colors" to choose a mode that suits your usual palette.
+
+A palette maps color numbers to RGB values. CAM16, used in D, is a model of color appearance under different viewing conditions.
+
+| Choice | Configuration value | Behavior |
+|---|---|---|
+| Reverse lightness (A) | `reverse-lightness` | Reflects perceptual lightness while preserving hue. Bright yellow and green become nearly black |
+| Reverse contrast (B) | `reverse-contrast` | Approximately preserves the original contrast ratios, including poorly readable combinations |
+| Reverse text and background (C) | `reverse-roles` | Reverses backgrounds and adjusts chromatic text for readability while retaining hue and tone differences |
+| Reverse appearance (D, CAM16) | `reverse-cam16` | Compensates for changes in color appearance under assumed dark-to-light viewing conditions |
+| Reverse optimized palette (E) | `reverse-palette` | Adjusts color separation across the terminal palette and smoothly extends the result to directly specified RGB colors |
+
+C, D, and E adjust text, underlines, and markers to at least 4.5:1 contrast against the transformed solid background. D uses fixed viewing assumptions; it does not measure room lighting. E follows terminal palette changes and does not change colors merely because you scroll. Unused palette entries can also influence E's adjustments.
+
+E's preview uses the standard palette. The actual display can differ when the connected application changes that palette.
+
+Only one color filter can be selected, so reversal and the existing Oklch filter are mutually exclusive. Color discrimination assistance can be combined with every mode and is applied before reversal. Logical terminal colors, text, communication, copied text, and logs remain unchanged.
+
+Background images, the desktop behind transparent windows, Kitty images, and intrinsic color-emoji pixels are not reversed. Check the actual display when combining reversal with transparency or images. See [boxrig's supported filtering scope](https://github.com/kekyo/boxrig/blob/0.6.0/docs/en/color-filters.md).
+
+```ini
+[terminal]
+color_filter=reverse-roles
+```
+
+Use `none` to disable the filter or `oklch` for the existing visibility correction. Global and per-connection settings, inheritance, Apply, Save, and Cancel work as with other display preferences.
+
+## Helping Distinguish Colors
+
+![Color distinction settings](./images/color-distinction-settings.png)
+
+Select Protan (P), Deutan (D), or Tritan (T) under "Color discrimination" on the "Terminal appearance" tab.
+Recoloring represents information from difficult-to-distinguish colors using differences in other colors.
+The protan and deutan profiles primarily target red-green distinctions; the tritan profile primarily targets blue-yellow distinctions. The default is "No correction".
+
+Open "Compare colors" and compare the `- removed` and `+ added` diff samples, logs, and text on colored backgrounds.
+ANSI 16 colors are the terminal's basic palette, 256 colors are an extended indexed palette, and TrueColor specifies RGB values directly.
+The preview includes all three, with dark, light, and connection backgrounds.
+Choose the setting that makes your usual content easier to distinguish, using the samples as well as the profile names.
+
+"Correction strength" ranges from 0 to 100; 0 disables recoloring. The default strength when a profile is selected is 100.
+This value does not measure the severity of a color-vision difference.
+Some other colors can become more similar after correction. Reduce the strength or try another profile if this happens.
+Numerical tests and visual checks have been completed; reading evaluations with people who have color-vision differences have not yet been conducted.
+
+Recoloring applies to text, application-specified cell backgrounds, underlines, the cursor, and markers such as search and selection outlines.
+It preserves the connection's default background.
+Combine it with "Improve visibility (Oklch)" to adjust text and marker contrast against the recolored background.
+Oklch remains independent when recoloring strength is zero.
+Save preferences globally or per connection; clear an entry or select inheritance to restore the parent setting.
+Use Apply or Save to apply previewed changes to the terminal. Cancel discards the current edits.
+
+Correction affects display only. Communication, logical terminal colors, copied text, and logs remain unchanged.
+Background images, the desktop behind transparent windows, Kitty images, and intrinsic color-emoji pixels are excluded.
+See [boxrig's display color filters](https://github.com/kekyo/boxrig/blob/0.6.0/docs/en/color-filters.md) for the supported scope.
+
+```ini
+[terminal]
+color_vision=deutan
+color_vision_strength=60
+color_filter=oklch
+```
+
+Accepted `color_vision` values are `none`, `protan`, `deutan`, and `tritan`.
+
 ## Configuring Font Families
 
-Scroll down on the "Terminal" tab to edit an ordered list of font families.
+![Font family settings](./images/font-family-settings.png)
+
+Use the "Terminal appearance" tab to edit an ordered list of font families.
 Add or remove rows, and use the up/down buttons to change their priority.
 Each row accepts a family name or opens a font chooser.
 
@@ -646,7 +948,7 @@ Connection overrides replace the global list rather than extending it.
 Apply changes the current settings, Save persists them, and Cancel discards changes made since the last apply.
 
 These settings save only the font families; they do not include font size, weight, or style.
-Font size continues to follow "Zoom factor", `Ctrl`+`=`, `Ctrl`+`-`, or the mouse wheel while holding `Ctrl`.
+Font size follows "Text size (DIP)", `Ctrl`+`=`, `Ctrl`+`-`, or the mouse wheel while holding `Ctrl`.
 
 When editing the INI file directly, specify the values as follows:
 
@@ -662,11 +964,21 @@ Semicolons and backslashes inside a name use the [GLib KeyFile escaping rules](h
 
 ## Configuring Hotkeys
 
+![Hotkey settings](./images/hotkey-settings.png)
+
 Hotkeys work only while the elder-terms launcher is running.
 In environments with a system tray, you can keep the launcher in the tray by opening the launcher's application menu,
 selecting "Application settings", and setting "Startup mode" to "System tray only" or "System tray and main window".
 
 ![System tray](./images/system-tray.png)
+
+The tray's "Connections" submenu lists every saved connection with its icon and
+name. Connections with a hotkey also show a combination such as `Ctrl+Alt+X`.
+Select an entry to open it, regardless of whether it has a hotkey or registration
+succeeded. This also works while the launcher is hidden. Menu actions use saved
+settings; unsaved edits in the launcher are not passed to the new connection.
+Adding or deleting connections and saving changes to names, icons, or hotkeys
+updates the menu.
 
 The deb package and Meson installation install an XDG autostart entry that starts elder-terms when you log in to the desktop.
 Whether autostart shows the launcher and keeps it in the system tray follows "Startup mode" under "Application settings",
@@ -807,6 +1119,8 @@ the command forwards it for window activation; focus remains subject to your com
 
 ## Configuring the Terminal Type
 
+![Terminal type settings](./images/terminal-type-settings.png)
+
 The terminal type is a name that tells the remote host which kind of terminal
 elder-terms emulates. This value is automatically reported during terminal-type
 negotiation for TELNET and when allocating a pseudo-terminal for SSH.
@@ -817,14 +1131,11 @@ movement, function keys, and other features. You can normally leave the
 default unchanged. If the remote host does not support that terminal type,
 specify a value installed on the host, such as `xterm`.
 
-The normal default for TELNET and SSH is `xterm-256color`. However, if you set a
-"Content background" color without explicitly setting the terminal type, the
-default automatically changes to `xterm`. This is because the background color
-may not render correctly with `xterm-256color`. If you explicitly set the
-terminal type, that value takes precedence even when the background color is
-changed.
+The default for TELNET and SSH is `xterm-256color`. Use global or connection settings to select a terminal type supported by the remote host.
 
 ## Configuring the Display Language
+
+![Display language settings](./images/language-settings.png)
 
 "Display language" under the launcher's "Application settings" lets you select
 the system default, English, Arabic, Spanish, French, Hindi, Japanese, Korean,
@@ -836,6 +1147,8 @@ when you save, or restart it manually later. Terminal, SFTP, and FTP windows
 that are already open do not change language immediately either.
 
 ## Checking the Running Version
+
+![Version in the About dialog](./images/about-dialog.png)
 
 Open the application menu in either the launcher or a terminal window and
 select "About elder-terms". Both entries open the same launcher-owned dialog,
@@ -849,6 +1162,8 @@ package.
 > a pull request.
 
 ## Configuring Logging
+
+![Logging settings](./images/logging-settings.png)
 
 Enabling "Enable logging" records content received from the remote host in a
 file. "Log directory" is the base destination directory and defaults to
@@ -880,6 +1195,8 @@ without conversion, preserving the encoding configured for the connection.
 character encoding has been converted for display.
 
 ## Configuring Macros
+
+![Macro settings](./images/macro-settings.png)
 
 Macros (automatic macros) monitor text received from the remote host with
 regular expressions. When a match is found, they either send text to the host
@@ -937,6 +1254,8 @@ item in `arguments`.
 
 ## Configuring Terminal Link Actions
 
+![Terminal link action settings](./images/terminal-link-actions.png)
+
 Hold `Ctrl` and left-click a recognized link to run its configured external
 command. A rule can inspect either the target of an OSC 8 escape sequence or a
 matching substring in visible terminal text. Rules are evaluated in their
@@ -966,9 +1285,13 @@ Each rule selects one recognition source:
 - "Visible terminal text" finds a matching substring under the pointer. The
   expression must not match an empty string.
 
-Regular expressions use [PCRE2 pattern
-syntax](https://www.pcre.org/current/doc/html/pcre2pattern.html). The command
-is a fixed executable name or path. It is launched directly without a shell,
+Link rules and received-text macros use [boxrig pattern syntax](https://github.com/kekyo/boxrig/blob/0.6.0/docs/en/regex.md).
+Character classes, groups, alternatives, repetition, and numbered or named captures are supported. Backreferences, lookahead, lookbehind, and expressions matching an empty string are not supported.
+`\d`, `\s`, and `\w` cover ASCII. Use Unicode general categories such as `\p{L}` for letters and `\p{Nd}` for decimal digits.
+`.` also matches newlines, and `^` and `$` anchor the complete input. Matching is case-sensitive and chooses the longest match at the same starting position.
+A complete match cannot split a visible character composed of multiple Unicode characters. Use an expression such as `[\p{L}\p{M}]+` to include combining marks.
+
+The command is a fixed executable name or path. It is launched directly without a shell,
 so pipes, redirections, and other shell syntax are not interpreted. Capture
 templates are expanded only in arguments and in the optional validation path.
 
@@ -1047,16 +1370,26 @@ version as libcurl; the application checks this before connecting.
 To build on Ubuntu or Debian, install a C++20-capable compiler, Meson, Ninja,
 gettext, and the development packages for the libraries used by elder-terms:
 
+Rendering requires GTK3 3.24 or later, Pango 1.50 or later, Cairo 1.18 or later, IBus 1.5.29 or later, and Wayland client 1.22 or later. See the [boxrig build requirements](https://github.com/kekyo/boxrig/blob/0.6.0/docs/en/building.md).
+
 ```bash
 sudo apt update
-sudo apt install build-essential git meson ninja-build pkg-config gettext \
-  libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev \
-  libxkbcommon-dev liburing-dev libudev-dev libpcre2-dev libssh-dev libcurl4-openssl-dev \
-  libvte-2.91-dev libssl-dev libxml2-dev ca-certificates xdg-utils
+sudo apt install build-essential git meson ninja-build pkg-config gettext imagemagick libgdk-pixbuf2.0-bin librsvg2-common \
+  libglib2.0-dev libgtk-3-dev libgdk-pixbuf-2.0-dev libcanberra-dev libx11-dev libxfixes-dev \
+  libxkbcommon-dev liburing-dev libudev-dev libsystemd-dev libssh-dev libcurl4-openssl-dev \
+  libcairo2-dev libpango1.0-dev libfontconfig1-dev libepoxy-dev libibus-1.0-dev \
+  libwayland-dev libgl-dev libegl-dev libssl-dev libxml2-dev ca-certificates xdg-utils
 ```
 
-Node.js 20 or later is also required. The Node.js package provided by your
-distribution may be suitable:
+Node.js 22.18 or later is also required for
+[direct TypeScript execution](https://nodejs.org/docs/latest-v22.x/api/typescript.html).
+
+Material Icons are rendered to PNG using `gdk-pixbuf-thumbnailer` with SVG support
+and ImageMagick's `convert` during the build.
+The generated images are included in the distribution; these generation tools
+are not needed at runtime.
+
+Check the installed Node.js version when using your distribution's package:
 
 ```bash
 sudo apt install nodejs
@@ -1072,8 +1405,8 @@ manager of your choice, such as [nvm](https://github.com/nvm-sh/nvm).
 > [gestament](https://github.com/kekyo/gestament/).
 
 When cloning the source for the first time, include the submodules to obtain
-the [cardio](https://github.com/kekyo/cardio/) and
-[libxyzm](https://github.com/kekyo/libxyzm/) dependencies:
+the [cardio](https://github.com/kekyo/cardio/),
+[libxyzm](https://github.com/kekyo/libxyzm/), and [boxrig](https://github.com/kekyo/boxrig/) dependencies:
 
 ```bash
 git clone --recurse-submodules https://github.com/kekyo/elder-terms.git
@@ -1124,13 +1457,17 @@ The following package combinations are supported:
 
 | Distribution | Release | Architectures |
 | :--- | :--- | :--- |
-| Debian | bookworm | amd64, i386, arm64, armhf |
 | Debian | trixie | amd64, i386, arm64, armhf, riscv64 |
 | Ubuntu | 24.04 | amd64, arm64 |
 | Ubuntu | 26.04 | amd64, arm64 |
 
+Debian bookworm is excluded because its standard [Cairo 1.16](https://packages.debian.org/bookworm/libcairo2-dev) and [IBus 1.5.27](https://packages.debian.org/bookworm/libibus-1.0-dev) are below the rendering library's required versions.
+
 The host requires Podman, binfmt/QEMU for non-native targets, `dpkg-deb`,
-`readelf`, Node.js, and `npx`. From the repository root, first generate the
+`readelf`, GNU Make, Node.js 22.18 or later, npm, and `npx`.
+Preparing preset images also requires `gdk-pixbuf-thumbnailer` with SVG support,
+ImageMagick's `convert`, and GLib's `glib-compile-resources`. Run `npm ci` first.
+From the repository root, generate the
 reusable prerequisite images once, then build packages for every combination:
 
 ```sh
@@ -1170,3 +1507,8 @@ dynamic-library resolution.
 ## License
 
 Under MIT.
+
+Bundled connection artwork and emoji names are covered by their respective
+licenses. See [artwork sources and licenses](./data/connection-icons/SOURCES.md).
+Distribution packages include the licenses and notices under
+`/usr/share/doc/elder-terms/licenses/connection-icons/`.

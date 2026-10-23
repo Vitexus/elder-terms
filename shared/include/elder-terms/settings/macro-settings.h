@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <string>
@@ -41,7 +46,7 @@ using MacroAction = std::variant<MacroSendAction, MacroCommandAction>;
 struct MacroRule {
   /** Identifier used by the macro.<id> INI section. */
   std::string id;
-  /** GLib regular expression matched against one received line. */
+  /** Bounded boxrig regular expression matched against one received line. */
   std::string pattern;
   /** Action performed after a successful match. */
   MacroAction action = MacroSendAction{};

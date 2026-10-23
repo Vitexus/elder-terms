@@ -1,10 +1,13 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings/ssh-settings.h>
 
 #include <algorithm>
 #include <cctype>
 #include <utility>
-
-#include "terminal-type-settings.h"
 
 namespace elder_terms {
 
@@ -126,7 +129,7 @@ SshEndpointSettings ssh_endpoint_settings(const SettingsStore &store) {
 SshConnectionSettings ssh_connection_settings(const SettingsStore &store) {
   return {
       .endpoint = ssh_endpoint_settings(store),
-      .terminal_type = resolve_terminal_type_setting(
+      .terminal_type = setting_string_value_or_default(
           store, ssh_terminal_type_setting_key(),
           default_ssh_terminal_type),
   };

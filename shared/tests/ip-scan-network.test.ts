@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -91,6 +96,9 @@ describe('IP scan on an isolated multicast network', () => {
             // https://github.com/NVIDIA/libglvnd/blob/master/src/EGL/icd_enumeration.md
             '--env',
             '__EGL_VENDOR_LIBRARY_FILENAMES=/usr/share/glvnd/egl_vendor.d/50_mesa.json',
+            // The development tree is mounted at a different absolute path.
+            '--env',
+            'LD_LIBRARY_PATH=/workspace/.build/boxrig/sdk/lib',
             '--name',
             name,
             '--hostname',

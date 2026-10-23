@@ -1,17 +1,27 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include "tray-backend.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <memory>
+#include <string_view>
 #include <utility>
 
 #include <gdk/gdkx.h>
 #include <gdk-pixbuf/gdk-pixbuf.h>
 
 #include "build-config.h"
+#include <elder-terms/connection-icon.h>
+#include <elder-terms/connection-icon-image.h>
 
 #define GETTEXT_PACKAGE "elder-terms"
 #include <glib/gi18n-lib.h>
@@ -30,11 +40,13 @@ static constexpr char status_notifier_menu_path[] = "/StatusNotifierMenu";
 static constexpr char status_notifier_item_interface[] =
     "org.kde.StatusNotifierItem";
 static constexpr char dbus_menu_interface[] = "com.canonical.dbusmenu";
-static constexpr int dbus_menu_revision = 1;
 static constexpr int open_menu_item_id = 1;
 static constexpr int quit_menu_item_id = 2;
 static constexpr int application_settings_menu_item_id = 3;
 static constexpr int about_menu_item_id = 4;
+static constexpr int connections_menu_item_id = 5;
+static constexpr int empty_connections_menu_item_id = 6;
+static constexpr int first_connection_menu_item_id = 100;
 static constexpr std::array<int, 8> tray_icon_sizes = {
     16, 22, 24, 32, 48, 64, 128, 256,
 };
@@ -100,6 +112,11 @@ static constexpr char dbus_menu_xml[] = R"XML(
       <arg type="as" name="propertyNames" direction="in"/>
       <arg type="a(ia{sv})" name="properties" direction="out"/>
     </method>
+    <method name="GetProperty">
+      <arg type="i" name="id" direction="in"/>
+      <arg type="s" name="name" direction="in"/>
+      <arg type="v" name="value" direction="out"/>
+    </method>
     <method name="Event">
       <arg type="i" name="id" direction="in"/>
       <arg type="s" name="eventId" direction="in"/>
@@ -135,6 +152,15 @@ static constexpr char dbus_menu_xml[] = R"XML(
 </node>
 )XML";
 
+struct TrayConnectionEntry {
+  int id;
+  TrayConnectionItem item;
+  std::shared_ptr<GdkPixbuf> pixels;
+  std::vector<std::uint8_t> png;
+  cardio::cancellation_source cancellation;
+  GtkWidget *xembed_image = nullptr;
+};
+
 struct TrayBackendImplementation {
   TrayBackendOptions options;
   TrayBackendKind kind = TrayBackendKind::none;
@@ -153,6 +179,10 @@ struct TrayBackendImplementation {
   std::optional<cardio::promise_source<void>> watcher_changed;
   GtkStatusIcon *status_icon = nullptr;
   GtkWidget *status_menu = nullptr;
+  GtkWidget *connections_submenu = nullptr;
+  std::vector<std::shared_ptr<TrayConnectionEntry>> connections;
+  std::int64_t next_connection_id = first_connection_menu_item_id;
+  guint menu_revision = 1;
   gulong embedded_signal_id = 0;
   std::optional<cardio::cancellation_source> cancellation_source;
 };
@@ -350,76 +380,148 @@ static std::string resolve_tray_icon_theme_path(
   return {};
 }
 
-static GVariant *build_menu_item_properties(const char *label) {
+static std::shared_ptr<TrayConnectionEntry> connection_for_id(
+    const TrayBackendImplementation *implementation, int id) {
+  for (const auto &entry : implementation->connections) {
+    if (entry->id == id) return entry;
+  }
+  return {};
+}
+
+static bool valid_menu_id(const TrayBackendImplementation *implementation,
+                          int id) {
+  return id == 0 || id == open_menu_item_id || id == quit_menu_item_id ||
+         id == application_settings_menu_item_id ||
+         id == about_menu_item_id || id == connections_menu_item_id ||
+         (id == empty_connections_menu_item_id &&
+          implementation->connections.empty()) ||
+         connection_for_id(implementation, id) != nullptr;
+}
+
+static std::string menu_item_label(
+    const TrayBackendImplementation *implementation, int id) {
+  if (id == open_menu_item_id) return _("Open elder-terms");
+  if (id == quit_menu_item_id) return _("Quit");
+  if (id == application_settings_menu_item_id)
+    return _("Application settings");
+  if (id == about_menu_item_id) return _("About elder-terms");
+  if (id == connections_menu_item_id) return _("Connections");
+  if (id == empty_connections_menu_item_id)
+    return _("No saved connections");
+  const auto entry = connection_for_id(implementation, id);
+  if (!entry) return {};
+  std::string label;
+  for (const char character : entry->item.name) {
+    label.push_back(character);
+    if (character == '_') label.push_back('_');
+  }
+  if (!entry->item.shortcut.empty()) {
+    label += " (" + entry->item.shortcut + ")";
+  }
+  return label;
+}
+
+static std::vector<int> menu_children(
+    const TrayBackendImplementation *implementation, int id) {
+  if (id == 0) {
+    return {open_menu_item_id, connections_menu_item_id,
+            application_settings_menu_item_id, about_menu_item_id,
+            quit_menu_item_id};
+  }
+  if (id != connections_menu_item_id) return {};
+  if (implementation->connections.empty())
+    return {empty_connections_menu_item_id};
+  std::vector<int> children;
+  children.reserve(implementation->connections.size());
+  for (const auto &entry : implementation->connections)
+    children.push_back(entry->id);
+  return children;
+}
+
+static bool wants_property(const std::vector<std::string> &names,
+                           std::string_view name) {
+  return names.empty() || std::find(names.begin(), names.end(), name) !=
+                              names.end();
+}
+
+static GVariant *build_menu_item_properties(
+    const TrayBackendImplementation *implementation, int id,
+    const std::vector<std::string> &names) {
   GVariantBuilder properties;
   g_variant_builder_init(&properties, G_VARIANT_TYPE("a{sv}"));
-  g_variant_builder_add(&properties, "{sv}", "label",
-                        g_variant_new_string(label));
-  g_variant_builder_add(&properties, "{sv}", "enabled",
-                        g_variant_new_boolean(TRUE));
-  g_variant_builder_add(&properties, "{sv}", "visible",
-                        g_variant_new_boolean(TRUE));
+  if (id == 0) return g_variant_builder_end(&properties);
+  const std::string label = menu_item_label(implementation, id);
+  if (wants_property(names, "label"))
+    g_variant_builder_add(&properties, "{sv}", "label",
+                          g_variant_new_string(label.c_str()));
+  if (wants_property(names, "enabled"))
+    g_variant_builder_add(
+        &properties, "{sv}", "enabled",
+        g_variant_new_boolean(id != empty_connections_menu_item_id));
+  if (wants_property(names, "visible"))
+    g_variant_builder_add(&properties, "{sv}", "visible",
+                          g_variant_new_boolean(TRUE));
+  if (id == connections_menu_item_id &&
+      wants_property(names, "children-display"))
+    g_variant_builder_add(&properties, "{sv}", "children-display",
+                          g_variant_new_string("submenu"));
+  const auto entry = connection_for_id(implementation, id);
+  if (entry && !entry->png.empty() && wants_property(names, "icon-data")) {
+    g_variant_builder_add(
+        &properties, "{sv}", "icon-data",
+        g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, entry->png.data(),
+                                  entry->png.size(), 1));
+  }
   return g_variant_builder_end(&properties);
 }
 
-static GVariant *build_menu_item(int id, const char *label) {
+static GVariant *build_menu_node(
+    const TrayBackendImplementation *implementation, int id, int depth,
+    const std::vector<std::string> &names) {
   GVariantBuilder children;
   g_variant_builder_init(&children, G_VARIANT_TYPE("av"));
+  if (depth != 0) {
+    for (const int child : menu_children(implementation, id)) {
+      g_variant_builder_add_value(
+          &children,
+          g_variant_new_variant(build_menu_node(
+              implementation, child, depth < 0 ? depth : depth - 1,
+              names)));
+    }
+  }
   return g_variant_new("(i@a{sv}@av)", id,
-                       build_menu_item_properties(label),
+                       build_menu_item_properties(implementation, id, names),
                        g_variant_builder_end(&children));
 }
 
-static GVariant *build_menu_layout() {
-  GVariantBuilder root_properties;
-  g_variant_builder_init(&root_properties, G_VARIANT_TYPE("a{sv}"));
-  GVariantBuilder children;
-  g_variant_builder_init(&children, G_VARIANT_TYPE("av"));
-  g_variant_builder_add_value(
-      &children,
-      g_variant_new_variant(
-          build_menu_item(open_menu_item_id, _("Open elder-terms"))));
-  g_variant_builder_add_value(
-      &children,
-      g_variant_new_variant(build_menu_item(
-          application_settings_menu_item_id, _("Application settings"))));
-  g_variant_builder_add_value(
-      &children,
-      g_variant_new_variant(build_menu_item(
-          about_menu_item_id, _("About elder-terms"))));
-  g_variant_builder_add_value(
-      &children,
-      g_variant_new_variant(build_menu_item(quit_menu_item_id, _("Quit"))));
-  GVariant *root =
-      g_variant_new("(i@a{sv}@av)", 0,
-                    g_variant_builder_end(&root_properties),
-                    g_variant_builder_end(&children));
-  return g_variant_new("(u@(ia{sv}av))", dbus_menu_revision, root);
-}
-
-static GVariant *
-build_menu_group_properties(const std::vector<int> &ids) {
+static GVariant *build_menu_group_properties(
+    const TrayBackendImplementation *implementation,
+    std::vector<int> ids, const std::vector<std::string> &names) {
+  if (ids.empty()) {
+    ids = menu_children(implementation, 0);
+    for (const int child : menu_children(implementation,
+                                         connections_menu_item_id))
+      ids.push_back(child);
+  }
   GVariantBuilder builder;
   g_variant_builder_init(&builder, G_VARIANT_TYPE("a(ia{sv})"));
   for (const int id : ids) {
-    if (id == open_menu_item_id) {
-      g_variant_builder_add(
-          &builder, "(i@a{sv})", id,
-          build_menu_item_properties(_("Open elder-terms")));
-    } else if (id == application_settings_menu_item_id) {
-      g_variant_builder_add(
-          &builder, "(i@a{sv})", id,
-          build_menu_item_properties(_("Application settings")));
-    } else if (id == about_menu_item_id) {
-      g_variant_builder_add(
-          &builder, "(i@a{sv})", id,
-          build_menu_item_properties(_("About elder-terms")));
-    } else if (id == quit_menu_item_id) {
-      g_variant_builder_add(&builder, "(i@a{sv})", id,
-                            build_menu_item_properties(_("Quit")));
-    }
+    if (!valid_menu_id(implementation, id)) continue;
+    g_variant_builder_add(
+        &builder, "(i@a{sv})", id,
+        build_menu_item_properties(implementation, id, names));
   }
   return g_variant_builder_end(&builder);
+}
+
+static std::vector<std::string> string_array(GVariant *value) {
+  std::vector<std::string> strings;
+  GVariantIter iterator;
+  g_variant_iter_init(&iterator, value);
+  const char *item = nullptr;
+  while (g_variant_iter_next(&iterator, "&s", &item))
+    strings.emplace_back(item);
+  return strings;
 }
 
 static void set_backend_availability(
@@ -481,6 +583,11 @@ static void handle_menu_event(TrayBackendImplementation *implementation,
     open_about_backend(implementation);
   } else if (item_id == quit_menu_item_id) {
     quit_backend(implementation);
+  } else {
+    const auto entry = connection_for_id(implementation, item_id);
+    if (entry && implementation->options.callbacks.open_connection)
+      implementation->options.callbacks.open_connection(
+          entry->item.key, build_tray_activation_context(timestamp));
   }
 }
 
@@ -507,8 +614,23 @@ static void handle_dbus_menu_method(
     TrayBackendImplementation *implementation, const gchar *method_name,
     GVariant *parameters, GDBusMethodInvocation *invocation) {
   if (std::strcmp(method_name, "GetLayout") == 0) {
-    g_dbus_method_invocation_return_value(invocation,
-                                          build_menu_layout());
+    gint parent_id = 0;
+    gint depth = 0;
+    GVariant *names_value = nullptr;
+    g_variant_get(parameters, "(ii@as)", &parent_id, &depth, &names_value);
+    const auto names = string_array(names_value);
+    g_variant_unref(names_value);
+    if (!valid_menu_id(implementation, parent_id)) {
+      g_dbus_method_invocation_return_error_literal(
+          invocation, G_DBUS_ERROR, G_DBUS_ERROR_INVALID_ARGS,
+          "Unknown menu item");
+      return;
+    }
+    g_dbus_method_invocation_return_value(
+        invocation,
+        g_variant_new("(u@(ia{sv}av))", implementation->menu_revision,
+                      build_menu_node(implementation, parent_id, depth,
+                                      names)));
     return;
   }
   if (std::strcmp(method_name, "GetGroupProperties") == 0) {
@@ -523,12 +645,40 @@ static void handle_dbus_menu_method(
     while (g_variant_iter_next(&iterator, "i", &id)) {
       ids.push_back(id);
     }
+    const auto names = string_array(properties_value);
     g_variant_unref(properties_value);
     g_variant_unref(ids_value);
     g_dbus_method_invocation_return_value(
         invocation,
         g_variant_new("(@a(ia{sv}))",
-                      build_menu_group_properties(ids)));
+                      build_menu_group_properties(implementation, ids,
+                                                  names)));
+    return;
+  }
+  if (std::strcmp(method_name, "GetProperty") == 0) {
+    gint item_id = 0;
+    const gchar *property_name = nullptr;
+    g_variant_get(parameters, "(i&s)", &item_id, &property_name);
+    if (!valid_menu_id(implementation, item_id)) {
+      g_dbus_method_invocation_return_error_literal(
+          invocation, G_DBUS_ERROR, G_DBUS_ERROR_INVALID_ARGS,
+          "Unknown menu item");
+      return;
+    }
+    GVariant *properties = build_menu_item_properties(
+        implementation, item_id, {property_name});
+    GVariant *property = g_variant_lookup_value(properties, property_name,
+                                                 nullptr);
+    g_variant_unref(properties);
+    if (property == nullptr) {
+      g_dbus_method_invocation_return_error_literal(
+          invocation, G_DBUS_ERROR, G_DBUS_ERROR_INVALID_ARGS,
+          "Unknown menu property");
+      return;
+    }
+    g_dbus_method_invocation_return_value(
+        invocation, g_variant_new("(@v)", g_variant_new_variant(property)));
+    g_variant_unref(property);
     return;
   }
   if (std::strcmp(method_name, "Event") == 0) {
@@ -878,6 +1028,86 @@ static void on_status_icon_quit(GtkMenuItem *, gpointer user_data) {
   quit_backend(static_cast<TrayBackendImplementation *>(user_data));
 }
 
+static void on_status_icon_connection(GtkMenuItem *menu_item,
+                                      gpointer user_data) {
+  auto *implementation =
+      static_cast<TrayBackendImplementation *>(user_data);
+  const int id = GPOINTER_TO_INT(g_object_get_data(
+      G_OBJECT(menu_item), "elder-terms-connection-menu-id"));
+  const auto entry = connection_for_id(implementation, id);
+  if (entry && implementation->options.callbacks.open_connection)
+    implementation->options.callbacks.open_connection(
+        entry->item.key,
+        build_tray_activation_context(gtk_get_current_event_time()));
+}
+
+static void render_xembed_connection_icon(TrayConnectionEntry *entry) {
+  if (entry->xembed_image == nullptr || entry->pixels == nullptr) return;
+  cairo_surface_t *surface = connection_icon_surface(
+      entry->pixels.get(), 20,
+      gtk_widget_get_scale_factor(entry->xembed_image));
+  if (surface == nullptr) return;
+  gtk_image_set_from_surface(GTK_IMAGE(entry->xembed_image), surface);
+  cairo_surface_destroy(surface);
+}
+
+static void on_xembed_connection_scale_changed(GObject *, GParamSpec *,
+                                                gpointer user_data) {
+  auto *holder =
+      static_cast<std::shared_ptr<TrayConnectionEntry> *>(user_data);
+  render_xembed_connection_icon(holder->get());
+}
+
+static void refresh_xembed_connections(
+    TrayBackendImplementation *implementation) {
+  if (implementation->connections_submenu == nullptr) return;
+  for (const auto &entry : implementation->connections)
+    entry->xembed_image = nullptr;
+  GList *children = gtk_container_get_children(
+      GTK_CONTAINER(implementation->connections_submenu));
+  for (GList *child = children; child != nullptr; child = child->next)
+    gtk_widget_destroy(GTK_WIDGET(child->data));
+  g_list_free(children);
+
+  if (implementation->connections.empty()) {
+    GtkWidget *empty = gtk_menu_item_new_with_label(
+        _("No saved connections"));
+    gtk_widget_set_sensitive(empty, FALSE);
+    gtk_menu_shell_append(
+        GTK_MENU_SHELL(implementation->connections_submenu), empty);
+  }
+  for (const auto &entry : implementation->connections) {
+    GtkWidget *item = gtk_menu_item_new();
+    GtkWidget *row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+    GtkWidget *image = gtk_image_new();
+    std::string label = entry->item.name;
+    if (!entry->item.shortcut.empty())
+      label += " (" + entry->item.shortcut + ")";
+    GtkWidget *text = gtk_label_new(label.c_str());
+    gtk_label_set_xalign(GTK_LABEL(text), 0.0F);
+    gtk_box_pack_start(GTK_BOX(row), image, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(row), text, TRUE, TRUE, 0);
+    gtk_container_add(GTK_CONTAINER(item), row);
+    gtk_menu_shell_append(
+        GTK_MENU_SHELL(implementation->connections_submenu), item);
+    entry->xembed_image = image;
+    auto *holder = new std::shared_ptr<TrayConnectionEntry>(entry);
+    g_object_set_data_full(
+        G_OBJECT(image), "elder-terms-tray-connection-entry", holder,
+        +[](gpointer data) {
+          delete static_cast<std::shared_ptr<TrayConnectionEntry> *>(data);
+        });
+    g_signal_connect(image, "notify::scale-factor",
+                     G_CALLBACK(on_xembed_connection_scale_changed), holder);
+    render_xembed_connection_icon(entry.get());
+    g_object_set_data(G_OBJECT(item), "elder-terms-connection-menu-id",
+                      GINT_TO_POINTER(entry->id));
+    g_signal_connect(item, "activate",
+                     G_CALLBACK(on_status_icon_connection), implementation);
+  }
+  gtk_widget_show_all(implementation->connections_submenu);
+}
+
 static void on_status_icon_embedded_changed(GObject *object, GParamSpec *,
                                             gpointer user_data) {
   set_backend_availability(
@@ -906,6 +1136,11 @@ static void create_xembed_backend(
 
   GtkWidget *open_item =
       gtk_menu_item_new_with_label(_("Open elder-terms"));
+  GtkWidget *connections_item =
+      gtk_menu_item_new_with_label(_("Connections"));
+  implementation->connections_submenu = gtk_menu_new();
+  gtk_menu_item_set_submenu(GTK_MENU_ITEM(connections_item),
+                            implementation->connections_submenu);
   GtkWidget *application_settings_item =
       gtk_menu_item_new_with_label(_("Application settings"));
   GtkWidget *about_item =
@@ -914,12 +1149,15 @@ static void create_xembed_backend(
   gtk_menu_shell_append(GTK_MENU_SHELL(implementation->status_menu),
                         open_item);
   gtk_menu_shell_append(GTK_MENU_SHELL(implementation->status_menu),
+                        connections_item);
+  gtk_menu_shell_append(GTK_MENU_SHELL(implementation->status_menu),
                         application_settings_item);
   gtk_menu_shell_append(GTK_MENU_SHELL(implementation->status_menu),
                         about_item);
   gtk_menu_shell_append(GTK_MENU_SHELL(implementation->status_menu),
                         quit_item);
   gtk_widget_show_all(implementation->status_menu);
+  refresh_xembed_connections(implementation);
 
   g_signal_connect(implementation->status_icon, "activate",
                    G_CALLBACK(on_status_icon_activate), implementation);
@@ -948,8 +1186,11 @@ static void create_xembed_backend(
 static void destroy_xembed_backend(
     TrayBackendImplementation *implementation) {
   if (implementation->status_menu != nullptr) {
+    for (const auto &entry : implementation->connections)
+      entry->xembed_image = nullptr;
     gtk_widget_destroy(implementation->status_menu);
     implementation->status_menu = nullptr;
+    implementation->connections_submenu = nullptr;
   }
   if (implementation->status_icon != nullptr) {
     if (implementation->embedded_signal_id != 0) {
@@ -964,6 +1205,61 @@ static void destroy_xembed_backend(
   }
 }
 G_GNUC_END_IGNORE_DEPRECATIONS
+
+static void emit_menu_layout_updated(
+    TrayBackendImplementation *implementation, int parent) {
+  ++implementation->menu_revision;
+  if (implementation->connection == nullptr ||
+      implementation->menu_registration_id == 0) return;
+  g_dbus_connection_emit_signal(
+      implementation->connection, nullptr, status_notifier_menu_path,
+      dbus_menu_interface, "LayoutUpdated",
+      g_variant_new("(ui)", implementation->menu_revision, parent),
+      nullptr);
+}
+
+static void set_connection_entry_pixels(
+    TrayConnectionEntry *entry, std::shared_ptr<GdkPixbuf> pixels) {
+  entry->pixels = std::move(pixels);
+  entry->png.clear();
+  if (entry->pixels == nullptr) return;
+  GdkPixbuf *scaled = gdk_pixbuf_scale_simple(
+      entry->pixels.get(), 64, 64, GDK_INTERP_BILINEAR);
+  if (scaled == nullptr) return;
+  gchar *buffer = nullptr;
+  gsize length = 0;
+  GError *error = nullptr;
+  if (gdk_pixbuf_save_to_buffer(scaled, &buffer, &length, "png", &error,
+                                nullptr)) {
+    entry->png.assign(reinterpret_cast<const std::uint8_t *>(buffer),
+                      reinterpret_cast<const std::uint8_t *>(buffer) + length);
+  }
+  g_clear_error(&error);
+  g_free(buffer);
+  g_object_unref(scaled);
+  render_xembed_connection_icon(entry);
+}
+
+static cardio::promise<void> load_tray_connection_icon_async(
+    std::weak_ptr<TrayBackendImplementation> weak_implementation,
+    std::shared_ptr<TrayConnectionEntry> entry,
+    cardio::cancellation cancellation) {
+  try {
+    auto result = co_await load_connection_icon_async(
+        entry->item.icon, cancellation);
+    const auto implementation = weak_implementation.lock();
+    if (implementation == nullptr || implementation->destroyed ||
+        connection_for_id(implementation.get(), entry->id) != entry)
+      co_return;
+    set_connection_entry_pixels(entry.get(), std::move(result.image));
+    emit_menu_layout_updated(implementation.get(), connections_menu_item_id);
+  } catch (const cardio::canceled_exception &) {
+    // A newer menu owns the visible entry.
+  } catch (const std::exception &error) {
+    std::cerr << "Failed to load tray connection icon: " << error.what()
+              << '\n';
+  }
+}
 
 static void create_fallback_backend(
     TrayBackendImplementation *implementation) {
@@ -1176,6 +1472,8 @@ void destroy_tray_backend(TrayBackendState *state) {
   const std::shared_ptr<TrayBackendImplementation> implementation =
       state->implementation;
   implementation->destroyed = true;
+  for (const auto &entry : implementation->connections)
+    (void)entry->cancellation.cancel();
   implementation->availability =
       TrayBackendAvailabilityState::unavailable;
   if (implementation->cancellation_source.has_value()) {
@@ -1197,6 +1495,33 @@ void destroy_tray_backend(TrayBackendState *state) {
   destroy_xembed_backend(implementation.get());
   g_clear_object(&implementation->connection);
   delete state;
+}
+
+void update_tray_connections(TrayBackendState *state,
+                             std::vector<TrayConnectionItem> connections) {
+  if (state == nullptr || state->implementation->destroyed) return;
+  const auto implementation = state->implementation;
+  for (const auto &entry : implementation->connections)
+    (void)entry->cancellation.cancel();
+  implementation->connections.clear();
+  implementation->connections.reserve(connections.size());
+  for (auto &item : connections) {
+    if (implementation->next_connection_id >
+        std::numeric_limits<int>::max()) break;
+    auto entry = std::make_shared<TrayConnectionEntry>();
+    entry->id = static_cast<int>(implementation->next_connection_id++);
+    entry->item = std::move(item);
+    set_connection_entry_pixels(entry.get(), default_connection_icon());
+    implementation->connections.push_back(std::move(entry));
+  }
+  refresh_xembed_connections(implementation.get());
+  emit_menu_layout_updated(implementation.get(), connections_menu_item_id);
+  if (implementation->options.dispatcher == nullptr) return;
+  for (const auto &entry : implementation->connections) {
+    if (entry->item.icon.empty() || entry->item.icon == "default") continue;
+    cardio::fire_and_forget(load_tray_connection_icon_async(
+        implementation, entry, entry->cancellation.get_cancellation()));
+  }
 }
 
 TrayBackendKind tray_backend_kind(const TrayBackendState *state) {

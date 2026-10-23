@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include "settings-presentation.h"
 
 #include <array>
@@ -48,6 +53,7 @@ static constexpr std::array setting_labels{
     SettingLabelEntry{"ftp", "tls_cipher_list", N_("TLS 1.2 and earlier ciphers")},
     SettingLabelEntry{"ftp", "tls13_cipher_list", N_("TLS 1.3 ciphers")},
     SettingLabelEntry{"general", "name", N_("Connection name")},
+    SettingLabelEntry{"general", "icon", N_("Connection icon")},
     SettingLabelEntry{"general", "type", N_("Connection type")},
     SettingLabelEntry{"general", "open_connection",
                       N_("Open connection shortcut")},
@@ -66,18 +72,32 @@ static constexpr std::array setting_labels{
     SettingLabelEntry{"terminal", "encoding", N_("Character encoding")},
     SettingLabelEntry{"terminal", "backspace_code", N_("Backspace code")},
     SettingLabelEntry{"terminal", "cursor_key_mode", N_("Cursor key mode")},
+    SettingLabelEntry{"terminal", "cursor_shape", N_("Cursor shape")},
+    SettingLabelEntry{"terminal", "color_filter", N_("Color filter")},
+    SettingLabelEntry{"terminal", "color_vision", N_("Color discrimination")},
+    SettingLabelEntry{"terminal", "color_vision_strength", N_("Correction strength (0–100)")},
+    SettingLabelEntry{"terminal", "background_mode", N_("Background mode")},
+    SettingLabelEntry{"terminal", "background_opacity", N_("Background opacity (%)")},
+    SettingLabelEntry{"terminal", "background_tint_color", N_("Background tint")},
+    SettingLabelEntry{"terminal", "background_tint_opacity", N_("Tint opacity (%)")},
+    SettingLabelEntry{"terminal", "background_image", N_("Background image")},
+    SettingLabelEntry{"terminal", "background_image_opacity", N_("Image opacity (%)")},
+    SettingLabelEntry{"terminal", "background_image_fit", N_("Image placement")},
+    SettingLabelEntry{"terminal", "cursor_blink", N_("Cursor blinking")},
     SettingLabelEntry{"terminal", "return_code", N_("Enter/Return code")},
     SettingLabelEntry{"terminal", "width", N_("Columns")},
     SettingLabelEntry{"terminal", "height", N_("Rows")},
     SettingLabelEntry{"terminal", "scrollback_lines",
                       N_("Scrollback lines")},
-    SettingLabelEntry{"terminal", "zoom", N_("Zoom factor")},
+    SettingLabelEntry{"terminal", "font_size_dip", N_("Font size (DIP)")},
     SettingLabelEntry{"general", "indicator_color", N_("Active indicator color")},
     SettingLabelEntry{"general", "indicator_off_color", N_("Inactive indicator color")},
     SettingLabelEntry{"terminal", "font_families", N_("Font families")},
-    SettingLabelEntry{"terminal", "show_border",
+    SettingLabelEntry{"general", "show_border",
                       N_("Show window side borders")},
-    SettingLabelEntry{"terminal", "border_width",
+    SettingLabelEntry{"terminal", "accessibility_enabled",
+                      N_("Screen reader access")},
+    SettingLabelEntry{"general", "border_width",
                       N_("Window side border width (px)")},
     SettingLabelEntry{"terminal", "bell_sound", N_("BEL sound")},
     SettingLabelEntry{"terminal", "zoom_in_key", N_("Zoom in shortcut")},
@@ -180,6 +200,26 @@ static constexpr std::array setting_choices{
     SettingChoiceEntry{"terminal", "backspace_code", "bs", N_("BS")},
     SettingChoiceEntry{"terminal", "backspace_code", "del", N_("DEL")},
     SettingChoiceEntry{"terminal", "cursor_key_mode", "normal", N_("Normal")},
+    SettingChoiceEntry{"terminal", "cursor_shape", "block", N_("Full box")},
+    SettingChoiceEntry{"terminal", "color_filter", "none", N_("No correction")},
+    SettingChoiceEntry{"terminal", "color_filter", "oklch", N_("Improve visibility (Oklch)")},
+    SettingChoiceEntry{"terminal", "color_filter", "reverse-palette", N_("Reverse optimized palette (E)")},
+    SettingChoiceEntry{"terminal", "color_filter", "reverse-cam16", N_("Reverse appearance (D, CAM16)")},
+    SettingChoiceEntry{"terminal", "color_filter", "reverse-roles", N_("Reverse text and background (C)")},
+    SettingChoiceEntry{"terminal", "color_filter", "reverse-contrast", N_("Reverse contrast (B)")},
+    SettingChoiceEntry{"terminal", "color_filter", "reverse-lightness", N_("Reverse lightness (A)")},
+    SettingChoiceEntry{"terminal", "color_vision", "none", N_("No correction")},
+    SettingChoiceEntry{"terminal", "color_vision", "protan", N_("Protan (P)")},
+    SettingChoiceEntry{"terminal", "color_vision", "deutan", N_("Deutan (D)")},
+    SettingChoiceEntry{"terminal", "color_vision", "tritan", N_("Tritan (T)")},
+    SettingChoiceEntry{"terminal", "background_mode", "opaque", N_("Opaque")},
+    SettingChoiceEntry{"terminal", "background_mode", "transparent", N_("Transparent")},
+    SettingChoiceEntry{"terminal", "background_mode", "blur", N_("Frosted glass")},
+    SettingChoiceEntry{"terminal", "background_image_fit", "cover", N_("Cover")},
+    SettingChoiceEntry{"terminal", "background_image_fit", "contain", N_("Contain")},
+    SettingChoiceEntry{"terminal", "background_image_fit", "stretch", N_("Stretch")},
+    SettingChoiceEntry{"terminal", "cursor_shape", "bar", N_("Vertical box")},
+    SettingChoiceEntry{"terminal", "cursor_shape", "underline", N_("Underline box")},
     SettingChoiceEntry{"terminal", "cursor_key_mode", "trs80", N_("TRS80")},
     SettingChoiceEntry{"terminal", "return_code", "auto", N_("Auto")},
     SettingChoiceEntry{"terminal", "return_code", "cr", N_("CR")},
@@ -240,6 +280,8 @@ const char *settings_ui_text(SettingsUiText text) {
     return _("FTP");
   case SettingsUiText::terminal_tab:
     return _("Terminal");
+  case SettingsUiText::terminal_appearance_tab:
+    return _("Terminal appearance");
   case SettingsUiText::macro_tab:
     return _("Macro");
   case SettingsUiText::links_tab:

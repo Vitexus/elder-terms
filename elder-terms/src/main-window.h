@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <optional>
@@ -5,6 +10,9 @@
 #include <gtk/gtk.h>
 
 namespace elder_terms {
+
+/** Image column in the launcher's connection list model. */
+inline constexpr int launcher_connection_icon_column = 3;
 
 /**
  * Widgets loaded from the launcher UI definition.

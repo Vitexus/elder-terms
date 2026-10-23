@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -126,6 +131,8 @@ export interface LauncherGtkTestOptions {
   readonly args: readonly string[];
   /** Additional environment variables. */
   readonly env: Readonly<Record<string, string>>;
+  /** Xvfb screen geometry for a test that needs more display space. */
+  readonly xvfbScreen?: string;
   /** Whether the isolated Xvfb session provides a StatusNotifier tray host. */
   readonly xvfbTrayHost?: boolean;
   /** Whether to record top-level X11 window maps from before launch. */
@@ -423,6 +430,7 @@ export const runLauncherGtkTest = async (
       LANGUAGE: 'C',
       LC_ALL: 'C.UTF-8',
       XDG_CONFIG_HOME: configHome,
+      XDG_DATA_HOME: join(directory, 'data'),
       XDG_RUNTIME_DIR: runtimeDirectory,
       XDG_ACTIVATION_TOKEN: undefined,
       ...options?.env,
@@ -430,6 +438,7 @@ export const runLauncherGtkTest = async (
     xvfbPool: {
       type: 'xvfb',
     },
+    xvfbScreen: options?.xvfbScreen,
     xvfbTrayHost: options?.xvfbTrayHost ?? true,
     onSystemOutput: (event) => {
       systemOutput.push(event);

@@ -11,11 +11,7 @@ PACKAGE_DESCRIPTION="GTK terminal for serial, TELNET, local shell, SSH, SFTP, an
 DEFAULT_MAINTAINER="elder-terms packager <packager@localhost>"
 DEFAULT_PARALLEL_JOB_CAP=14
 
-LINUX_MATRIX='debian bookworm x86_64 linux/amd64
-debian bookworm i686 linux/386
-debian bookworm arm64 linux/arm64
-debian bookworm armv7l linux/arm/v7
-debian trixie x86_64 linux/amd64
+LINUX_MATRIX='debian trixie x86_64 linux/amd64
 debian trixie i686 linux/386
 debian trixie arm64 linux/arm64
 debian trixie armv7l linux/arm/v7
@@ -150,7 +146,7 @@ canonical_release() {
 	value=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')
 
 	case $value in
-	bookworm | trixie | 24.04 | 26.04) printf '%s\n' "$value" ;;
+	trixie | 24.04 | 26.04) printf '%s\n' "$value" ;;
 	noble) printf '%s\n' '24.04' ;;
 	resolute) printf '%s\n' '26.04' ;;
 	*) fail "Unsupported release filter: $1" ;;
@@ -339,6 +335,7 @@ build_deb_package() {
 		-e ELDER_TERMS_PACKAGE_MAINTAINER="${DEB_MAINTAINER:-$DEFAULT_MAINTAINER}" \
 		-e ELDER_TERMS_BUILD_TYPE="$BUILD_TYPE" \
 		-e ELDER_TERMS_MAKE_JOBS="$MAKE_JOBS" \
+		-e ELDER_TERMS_PACKAGE_TOOLS="/workspace/artifacts/.tmp/$RUN_ID/tools" \
 		"$image" \
 		./scripts/build_linux_dist_container.sh
 
@@ -390,6 +387,9 @@ validate_deb_package() {
 		fail "Unexpected Version field in $package_path"
 	depends_value=$(dpkg-deb -f "$package_path" Depends)
 	[ -n "$depends_value" ] || fail "Missing Depends field in $package_path"
+	case $depends_value in
+	*libjemalloc*) fail "Bundled jemalloc must not depend on a system package: $depends_value" ;;
+	esac
 	for required_dependency in ca-certificates dbus-user-session hicolor-icon-theme openssh-client xdg-utils; do
 		assert_deb_dependency "$depends_value" "$required_dependency"
 	done
@@ -397,16 +397,23 @@ validate_deb_package() {
 	dpkg-deb -x "$package_path" "$tmp_dir"
 	for required_file in \
 		usr/bin/etctl \
-		usr/lib/elder-terms/libelder-terms.so \
+		usr/lib/elder-terms/libelder-terms.so.0 \
+		usr/lib/elder-terms/libcardio.so.0 \
+		usr/lib/elder-terms/libboxrig.so.0 \
+		usr/lib/elder-terms/libboxrig-ui.so.0 \
+		usr/lib/elder-terms/libboxrig-session.so.0 \
+		usr/lib/elder-terms/libboxrig-posix.so.0 \
+		usr/lib/elder-terms/libboxrig-gtk3.so.0 \
+		usr/lib/elder-terms/libjemalloc.so.2 \
 		usr/lib/elder-terms/launcher/elder-terms \
 		usr/lib/elder-terms/launcher/main-window.ui \
-		usr/lib/elder-terms/elder-terms-vte/elder-terms-vte \
-		usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer \
-		usr/lib/elder-terms/elder-terms-vte/main-window.ui \
-		usr/lib/elder-terms/elder-terms-vte/green-on.png \
-		usr/lib/elder-terms/elder-terms-vte/green-off.png \
+		usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
+		usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer \
+		usr/lib/elder-terms/elder-terms-terminal/main-window.ui \
+		usr/lib/elder-terms/elder-terms-terminal/green-on.png \
+		usr/lib/elder-terms/elder-terms-terminal/green-off.png \
 		usr/share/applications/net.kekyo.elder-terms.desktop \
-		usr/share/applications/net.kekyo.elder-terms-vte.desktop \
+		usr/share/applications/net.kekyo.elder-terms-terminal.desktop \
 		etc/xdg/autostart/net.kekyo.elder-terms.desktop \
 		usr/share/icons/hicolor/256x256/apps/elder-terms.png \
 		usr/share/locale/ja/LC_MESSAGES/elder-terms.mo \
@@ -415,22 +422,44 @@ validate_deb_package() {
 		usr/share/doc/elder-terms/docs/ja/webdav.md \
 		usr/share/doc/elder-terms/docs/en/webdav.md \
 		usr/share/doc/elder-terms/docs/en/webdav-validation.md \
+		usr/share/doc/elder-terms/licenses/boxrig/LICENSE \
+		usr/share/doc/elder-terms/licenses/boxrig/README.md \
+		usr/share/doc/elder-terms/licenses/boxrig/README_ja.md \
+		usr/share/doc/elder-terms/licenses/boxrig/sources.json \
+		usr/share/doc/elder-terms/licenses/boxrig/utf8proc-LICENSE.md \
+		usr/share/doc/elder-terms/licenses/boxrig/libpng-LICENSE \
+		usr/share/doc/elder-terms/licenses/boxrig/zlib-LICENSE \
+		usr/share/doc/elder-terms/licenses/boxrig/Unicode-LICENSE.txt \
+		usr/share/doc/elder-terms/licenses/boxrig/WHATWG-Encoding-LICENSE \
+		usr/share/doc/elder-terms/licenses/boxrig/Wayland-protocols-NOTICES.md \
+		usr/share/doc/elder-terms/licenses/jemalloc/COPYING \
+		usr/share/doc/elder-terms/licenses/connection-icons/NOTO-LICENSE \
+		usr/share/doc/elder-terms/licenses/connection-icons/NOTO-FLAGS-NOTICE \
+		usr/share/doc/elder-terms/licenses/connection-icons/MATERIAL-LICENSE \
+		usr/share/doc/elder-terms/licenses/connection-icons/UNICODE-LICENSE \
 		usr/share/doc/elder-terms/copyright; do
 		assert_file "$tmp_dir/$required_file"
 	done
 	assert_symlink "$tmp_dir/usr/bin/elder-terms" \
 		'../lib/elder-terms/launcher/elder-terms'
-	assert_symlink "$tmp_dir/usr/bin/elder-terms-vte" \
-		'../lib/elder-terms/elder-terms-vte/elder-terms-vte'
+	assert_symlink "$tmp_dir/usr/bin/elder-terms-terminal" \
+		'../lib/elder-terms/elder-terms-terminal/elder-terms-terminal'
 	assert_symlink "$tmp_dir/usr/bin/elder-terms-file-transfer" \
-		'../lib/elder-terms/elder-terms-vte/elder-terms-file-transfer'
+		'../lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer'
 
 	for elf_path in \
 		usr/bin/etctl \
-		usr/lib/elder-terms/libelder-terms.so \
+		usr/lib/elder-terms/libelder-terms.so.0 \
+		usr/lib/elder-terms/libcardio.so.0 \
+		usr/lib/elder-terms/libboxrig.so.0 \
+		usr/lib/elder-terms/libboxrig-ui.so.0 \
+		usr/lib/elder-terms/libboxrig-session.so.0 \
+		usr/lib/elder-terms/libboxrig-posix.so.0 \
+		usr/lib/elder-terms/libboxrig-gtk3.so.0 \
+		usr/lib/elder-terms/libjemalloc.so.2 \
 		usr/lib/elder-terms/launcher/elder-terms \
-		usr/lib/elder-terms/elder-terms-vte/elder-terms-vte \
-		usr/lib/elder-terms/elder-terms-vte/elder-terms-file-transfer; do
+		usr/lib/elder-terms/elder-terms-terminal/elder-terms-terminal \
+		usr/lib/elder-terms/elder-terms-terminal/elder-terms-file-transfer; do
 		elf_name=$(printf '%s' "$elf_path" | tr '/' '-')
 		assert_elf_architecture \
 			"$tmp_dir/$elf_path" "$expected_arch" "$tmp_dir/readelf-$elf_name.txt"
@@ -586,7 +615,9 @@ main() {
 	printf '%s\n' "Using up to $PARALLEL_JOBS package jobs with meson compile -j $MAKE_JOBS"
 	require_command dpkg-deb
 	require_command readelf
+	require_command node
 	CONTAINER_ENGINE_BIN=$(choose_container_engine)
+	node "$PROJECT_ROOT/scripts/prepare-package-tools.mts" "$TMP_ROOT/tools"
 	schedule_deb_builds
 	wait_for_all_jobs
 	validate_deb_artifacts

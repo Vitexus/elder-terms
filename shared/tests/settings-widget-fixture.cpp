@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings-widget.h>
 
 #include <clocale>
@@ -135,20 +140,20 @@ static FixtureOptions parse_options(int argc, char **argv) {
       append_connection_assignment(
           &options, "terminal", "scrollback_lines",
           option_value(argument, "--scrollback-lines="));
-    } else if (starts_with(argument, "--zoom=")) {
+    } else if (starts_with(argument, "--font-size-dip=")) {
       append_connection_assignment(
-          &options, "terminal", "zoom", option_value(argument, "--zoom="));
+          &options, "terminal", "font_size_dip", option_value(argument, "--font-size-dip="));
     } else if (starts_with(argument, "--auto-close=")) {
       append_connection_assignment(
           &options, "general", "auto_close",
           option_value(argument, "--auto-close="));
     } else if (starts_with(argument, "--show-border=")) {
       append_connection_assignment(
-          &options, "terminal", "show_border",
+          &options, "general", "show_border",
           option_value(argument, "--show-border="));
     } else if (starts_with(argument, "--border-width=")) {
       append_connection_assignment(
-          &options, "terminal", "border_width",
+          &options, "general", "border_width",
           option_value(argument, "--border-width="));
     } else if (starts_with(argument, "--exterior-background=")) {
       append_connection_assignment(
@@ -386,7 +391,7 @@ static elder_terms::SettingsStore create_default_store() {
               .width = 80,
               .height = 24,
               .scrollback_lines = 10000,
-              .zoom = 1.0,
+              .font_size_dip = 12.0,
           },
           "fixture");
   return store;
@@ -398,7 +403,7 @@ create_global_store(const std::vector<ConfigAssignment> &assignments) {
       std::filesystem::temp_directory_path() /
       "elder-terms-settings-widget-fixture-missing-global.ini";
   elder_terms::SettingsStore store =
-      elder_terms::load_global_settings(missing_path, 1.0).store;
+      elder_terms::load_global_settings(missing_path, 12.0).store;
   load_assignments(&store, assignments, false);
   return store;
 }
@@ -805,7 +810,7 @@ static void print_store(const char *prefix,
             << " webdav_certificate_action=" << (elder_terms::webdav_connection_settings(store).prompt_certificate ? "prompt" : "reject")
             << " width=" << display.width << " height=" << display.height
             << " scrollback_lines=" << display.scrollback_lines
-            << " zoom=" << display.zoom
+            << " font_size_dip=" << display.font_size_dip
             << " encoding=" << text_settings.encoding
             << " backspace_code="
             << elder_terms::terminal_backspace_code_to_string(
@@ -824,9 +829,9 @@ static void print_store(const char *prefix,
             << (bell.sound_file.has_value() ? bell.sound_file->string()
                                             : "default")
             << " show_border="
-            << (elder_terms::terminal_show_border(store) ? "true" : "false")
+            << (elder_terms::general_show_border(store) ? "true" : "false")
             << " border_width="
-            << elder_terms::terminal_border_width(store)
+            << elder_terms::general_border_width(store)
             << " exterior_background=" << exterior_background
             << " background=" << background
             << " indicator_color="
@@ -920,8 +925,8 @@ static void print_store(const char *prefix,
   print_setting_metadata(
       store, "scrollback_lines",
       elder_terms::terminal_scrollback_lines_setting_key());
-  print_setting_metadata(store, "zoom",
-                         elder_terms::terminal_zoom_setting_key());
+  print_setting_metadata(store, "font_size_dip",
+                         elder_terms::terminal_font_size_dip_setting_key());
   print_setting_metadata(
       store, "font_families",
       elder_terms::terminal_font_families_setting_key());
@@ -932,9 +937,9 @@ static void print_store(const char *prefix,
   print_setting_metadata(store, "bell_sound",
                          elder_terms::terminal_bell_sound_setting_key());
   print_setting_metadata(store, "show_border",
-                         elder_terms::terminal_show_border_setting_key());
+                         elder_terms::general_show_border_setting_key());
   print_setting_metadata(store, "border_width",
-                         elder_terms::terminal_border_width_setting_key());
+                         elder_terms::general_border_width_setting_key());
   print_setting_metadata(
       store, "exterior_background",
       elder_terms::general_exterior_background_setting_key());
@@ -1113,15 +1118,17 @@ int main(int argc, char **argv) {
 
     elder_terms::SettingsWidgetCallbacks callbacks;
     callbacks.apply =
-        [](const elder_terms::SettingsStore &store) {
+        [](const elder_terms::SettingsStore &store, elder_terms::SettingsWidgetAction action) {
           elder_terms_settings_widget_fixture::print_store("APPLIED", store);
+          action.complete(true, {});
         };
     if (options.has_save) {
       callbacks.save =
-          [path = options.save_file](const elder_terms::SettingsStore &store) {
+          [path = options.save_file](const elder_terms::SettingsStore &store, elder_terms::SettingsWidgetAction action) {
             if (!path.empty()) {
               if (!elder_terms::save_settings(store, path).saved) {
-                return false;
+                action.complete(false, "Save failed");
+                return;
               }
               const auto reloaded = elder_terms::load_settings(
                   {.config_path = path,
@@ -1129,16 +1136,18 @@ int main(int argc, char **argv) {
                    .global_config_path =
                        std::filesystem::path(path).parent_path() /
                        "unused-global.ini"},
-                  1.0);
+                  12.0);
               if (!reloaded.loaded) {
-                return false;
+                action.complete(false, "Reload failed");
+                return;
               }
               elder_terms_settings_widget_fixture::print_store(
                   "SAVED", reloaded.store);
-              return true;
+              action.complete(true, {});
+              return;
             }
             elder_terms_settings_widget_fixture::print_store("SAVED", store);
-            return true;
+            action.complete(true, {});
           };
     }
     callbacks.cancel =

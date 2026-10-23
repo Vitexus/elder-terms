@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings/macro-settings.h>
 
 #include <algorithm>
@@ -60,7 +65,7 @@ bool macro_rule_is_valid(const MacroRule &rule, std::string *reason) {
   }
 
   RegularExpressionState *regex =
-      create_regular_expression(rule.pattern, false, reason);
+      create_regular_expression(rule.pattern, reason);
   if (regex == nullptr) {
     return false;
   }

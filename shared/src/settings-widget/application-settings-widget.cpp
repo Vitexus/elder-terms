@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/application-settings-widget.h>
 
 #include <algorithm>
@@ -362,7 +367,9 @@ create_application_settings_widget(ApplicationSettingsWidgetOptions options) {
 
 SettingsStore application_settings_widget_draft_store(
     const ApplicationSettingsWidgetState *state) {
-  return state == nullptr ? SettingsStore{} : state->draft_store;
+  SettingsStore result;
+  if (state != nullptr) result = state->draft_store;
+  return result;
 }
 
 bool application_settings_widget_is_dirty(

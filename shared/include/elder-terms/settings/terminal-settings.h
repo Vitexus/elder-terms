@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <filesystem>
@@ -8,11 +13,110 @@
 #include <elder-terms/export.h>
 #include <elder-terms/key-binding.h>
 #include <elder-terms/settings/settings-store.h>
+#include <elder-terms/settings/general-settings.h>
 
 namespace elder_terms {
 
+/** Display-only correction; terminal bytes and logical colors are preserved. */
+enum class TerminalColorFilter {
+  none,  /**< Preserve the terminal colors after connection defaults. */
+  reverse_lightness, /**< Reflect Oklab lightness while preserving hue (A). */
+  reverse_contrast, /**< Reverse relative luminance while preserving contrast ratios (B). */
+  reverse_roles, /**< Reverse neutrals and adapt chromatic text to its displayed background (C). */
+  reverse_cam16, /**< Add CAM16 appearance compensation between fixed viewing conditions (D). */
+  reverse_palette, /**< Optimize the palette jointly and interpolate true colors continuously (E). */
+  oklch, /**< Improve low-contrast text and markers of any hue, including neutrals, in Oklch. */
+};
+/** Color-vision profile used for display recoloring, not a diagnosis. */
+enum class TerminalColorVision {
+  none,   /**< Disable color-vision recoloring. */
+  protan, /**< Assist red-green discrimination using the protan profile. */
+  deutan, /**< Assist red-green discrimination using the deutan profile. */
+  tritan, /**< Assist blue-yellow discrimination using the tritan profile. */
+};
+/** @returns Key for the selected display-color correction. */
+ELDER_TERMS_API SettingKey terminal_color_filter_setting_key();
+/** @param store Layered settings. @returns Selected display correction. */
+ELDER_TERMS_API TerminalColorFilter terminal_color_filter(const SettingsStore &store);
+/** Independent preferences for color discrimination assistance. */
+struct TerminalColorVisionSettings {
+  TerminalColorVision profile; /**< Recoloring profile; none disables assistance. */
+  int strength; /**< Adjustment from zero through one hundred, not clinical severity. */
+};
+/** @returns Key for the color-vision profile. */
+ELDER_TERMS_API SettingKey terminal_color_vision_setting_key();
+/** @returns Key for the independent recoloring strength. */
+ELDER_TERMS_API SettingKey terminal_color_vision_strength_setting_key();
+/** @param store Layered settings. @returns Effective recoloring preferences. */
+ELDER_TERMS_API TerminalColorVisionSettings terminal_color_vision_settings(const SettingsStore &store);
+
+/** Desired desktop background mode; actual support is determined by the window owner. */
+enum class TerminalBackgroundMode {
+  opaque,      /**< Opaque application backing. */
+  transparent, /**< Prefer desktop alpha composition when supported. */
+  blur,        /**< Prefer compositor blur behind the transparent terminal region. */
+};
+/** Independent cell-background and tint-layer preferences. */
+struct TerminalBackgroundSettings {
+  TerminalBackgroundMode mode; /**< Requested desktop transparency. */
+  int opacity;                /**< Cell background opacity, zero through one hundred. */
+  RgbColor tint;              /**< Unassociated sRGB tint color. */
+  int tint_opacity;           /**< Tint-layer opacity, zero through one hundred. */
+};
+/** @returns Key for the requested background mode. */
+ELDER_TERMS_API SettingKey terminal_background_mode_setting_key();
+/** @returns Key for terminal cell background opacity. */
+ELDER_TERMS_API SettingKey terminal_background_opacity_setting_key();
+/** @returns Key for the independent RGB tint. */
+ELDER_TERMS_API SettingKey terminal_background_tint_color_setting_key();
+/** @returns Key for tint-layer opacity. */
+ELDER_TERMS_API SettingKey terminal_background_tint_opacity_setting_key();
+/** @param store Layered settings. @returns Requested background preferences. */
+ELDER_TERMS_API TerminalBackgroundSettings terminal_background_settings(const SettingsStore &store);
+
+/** Centered background-image placement. */
+enum class TerminalBackgroundImageFit {
+  cover,   /**< Fill the viewport, cropping while preserving aspect ratio. */
+  contain, /**< Fit the whole image, preserving aspect ratio and leaving margins. */
+  stretch, /**< Scale both axes independently to fill the viewport. */
+};
+/** Background image preferences, independent of desktop transparency. */
+struct TerminalBackgroundImageSettings {
+  std::string path;                 /**< Absolute UTF-8 filename; empty explicitly disables the image. */
+  int opacity;                      /**< Image opacity from zero through one hundred. */
+  TerminalBackgroundImageFit fit;   /**< Centered placement in the terminal viewport. */
+};
+/** @returns Key for the absolute image path or explicit empty override. */
+ELDER_TERMS_API SettingKey terminal_background_image_setting_key();
+/** @returns Key for image opacity. */
+ELDER_TERMS_API SettingKey terminal_background_image_opacity_setting_key();
+/** @returns Key for image placement. */
+ELDER_TERMS_API SettingKey terminal_background_image_fit_setting_key();
+/** @param store Layered settings. @returns Effective image preferences. */
+ELDER_TERMS_API TerminalBackgroundImageSettings terminal_background_image_settings(const SettingsStore &store);
+
+/** User-selected cursor geometry, independent of the terminal's DECSCUSR state. */
+enum class TerminalCursorShape {
+  block,     /**< Full-cell box. */
+  bar,       /**< Vertical insertion box. */
+  underline, /**< Horizontal box along the cell's lower edge. */
+};
+
+/** Cursor presentation preferences; focused cursors are filled, unfocused ones outlined. */
+struct TerminalCursorSettings {
+  TerminalCursorShape shape; /**< Geometry used for both focus states. */
+  bool blink;                /**< Blink while focused; unfocused outlines remain visible. */
+};
+
+/** @returns Key for the terminal cursor geometry (block, bar or underline). */
+ELDER_TERMS_API SettingKey terminal_cursor_shape_setting_key();
+/** @returns Key for the independent cursor blink preference. */
+ELDER_TERMS_API SettingKey terminal_cursor_blink_setting_key();
+/** @param store Layered settings. @returns Effective cursor preferences. */
+ELDER_TERMS_API TerminalCursorSettings terminal_cursor_settings(const SettingsStore &store);
+
 /**
- * Terminal display settings used to initialize VTE.
+ * Terminal grid, history and character size preferences.
  */
 struct TerminalDisplaySettings {
   /** Initial terminal columns. */
@@ -21,8 +125,8 @@ struct TerminalDisplaySettings {
   glong height;
   /** Maximum normal-screen scrollback history in lines. */
   glong scrollback_lines;
-  /** Initial VTE font scale. */
-  gdouble zoom;
+  /** Initial character size in 1/96-inch device-independent pixels. */
+  gdouble font_size_dip;
 };
 
 /**
@@ -32,8 +136,8 @@ struct TerminalDisplaySettings {
  * no size or style information.
  */
 struct TerminalFontFamilies {
-  /** Font family names in descending priority; an empty vector retains VTE's
-   * runtime family when used directly by the renderer. */
+  /** Font family names in descending priority; an empty vector selects the renderer
+   * default monospace family. */
   std::vector<std::string> families;
 };
 
@@ -41,7 +145,7 @@ struct TerminalFontFamilies {
  * Terminal BEL playback settings.
  */
 struct TerminalBellSettings {
-  /** Custom sound file, or no value to retain VTE's built-in audible bell. */
+  /** Custom sound file, or no value to retain terminal's built-in audible bell. */
   std::optional<std::filesystem::path> sound_file;
 };
 
@@ -60,11 +164,11 @@ struct TerminalKeyBindings {
 /**
  * Builds the default terminal display settings.
  *
- * @param default_zoom VTE's runtime default font scale.
+ * @param default_font_size_dip Default character size in device-independent pixels.
  * @returns Terminal display settings matching the current built-in behavior.
  */
 ELDER_TERMS_API TerminalDisplaySettings
-default_terminal_display_settings(gdouble default_zoom);
+default_terminal_display_settings(gdouble default_font_size_dip);
 
 /**
  * Returns the setting key for [terminal] width.
@@ -83,16 +187,16 @@ ELDER_TERMS_API SettingKey terminal_height_setting_key();
 /**
  * Returns the setting key for [terminal] scrollback_lines.
  *
- * @returns Setting key for the VTE scrollback buffer size.
+ * @returns Setting key for the terminal scrollback buffer size.
  */
 ELDER_TERMS_API SettingKey terminal_scrollback_lines_setting_key();
 
 /**
- * Returns the setting key for [terminal] zoom.
+ * Returns the setting key for [terminal] font_size_dip.
  *
- * @returns Setting key for terminal font scale.
+ * @returns Setting key for terminal character size in DIP.
  */
-ELDER_TERMS_API SettingKey terminal_zoom_setting_key();
+ELDER_TERMS_API SettingKey terminal_font_size_dip_setting_key();
 
 /**
  * Returns the setting key for [terminal] font_families.
@@ -113,18 +217,10 @@ ELDER_TERMS_API bool terminal_font_families_are_valid(
     const std::vector<std::string> &families, std::string *reason);
 
 /**
- * Returns the setting key for [terminal] show_border.
- *
- * @returns Setting key for terminal window side-border visibility.
+ * Returns the setting key for [terminal] accessibility_enabled.
+ * @returns Setting key controlling screen-reader access to terminal text.
  */
-ELDER_TERMS_API SettingKey terminal_show_border_setting_key();
-
-/**
- * Returns the setting key for [terminal] border_width.
- *
- * @returns Setting key for terminal window side-border width in pixels.
- */
-ELDER_TERMS_API SettingKey terminal_border_width_setting_key();
+ELDER_TERMS_API SettingKey terminal_accessibility_enabled_setting_key();
 
 /**
  * Returns the setting key for [terminal] bell_sound.
@@ -241,20 +337,12 @@ ELDER_TERMS_API TerminalFontFamilies
 terminal_font_families(const SettingsStore &store);
 
 /**
- * Extracts terminal window side-border visibility from a store.
- *
+ * Extracts the terminal text accessibility preference.
  * @param store Source settings store.
- * @returns True when the terminal window should show left and right borders.
+ * @returns True when terminal text should be exposed to assistive technology;
+ * false by default. Standard GTK controls are unaffected.
  */
-ELDER_TERMS_API bool terminal_show_border(const SettingsStore &store);
-
-/**
- * Extracts terminal window side-border width from a store.
- *
- * @param store Source settings store.
- * @returns Width of each terminal window side border in pixels.
- */
-ELDER_TERMS_API gint terminal_border_width(const SettingsStore &store);
+ELDER_TERMS_API bool terminal_accessibility_enabled(const SettingsStore &store);
 
 /**
  * Extracts terminal BEL playback settings from a store.

@@ -1,15 +1,30 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings/general-settings.h>
 
 #include <algorithm>
 #include <charconv>
 #include <utility>
 
+#include <glib.h>
+
 namespace elder_terms {
 
+static constexpr bool default_general_show_border = false;
+static constexpr gint64 default_general_border_width = 4;
+static constexpr gint64 minimum_general_border_width = 1;
+static constexpr gint64 maximum_general_border_width = 1000;
+static constexpr char general_show_border_key[] = "show_border";
+static constexpr char general_border_width_key[] = "border_width";
 static constexpr char general_section[] = "general";
 static constexpr char general_auto_close_key[] = "auto_close";
 static constexpr bool default_general_auto_close = true;
 static constexpr char general_name_key[] = "name";
+static constexpr char general_icon_key[] = "icon";
+static constexpr char general_connection_id_key[] = "connection_id";
 static constexpr char general_type_key[] = "type";
 static constexpr char general_open_connection_key[] = "open_connection";
 static constexpr char general_exterior_background_key[] =
@@ -27,6 +42,36 @@ static constexpr char serial_connection_type[] = "serial";
 static constexpr char sftp_connection_type[] = "sftp";
 static constexpr char ftp_connection_type[] = "ftp";
 static constexpr char webdav_connection_type[] = "webdav";
+
+static bool validate_border_width(const SettingValue &value,
+                                  std::string *reason) {
+  const auto *integer = std::get_if<gint64>(&value);
+  if (integer == nullptr || *integer < minimum_general_border_width ||
+      *integer > maximum_general_border_width) {
+    *reason = "must be an integer between 1 and 1000";
+    return false;
+  }
+  return true;
+}
+
+SettingKey general_show_border_setting_key() {
+  return make_setting_key(general_section, general_show_border_key);
+}
+
+SettingKey general_border_width_setting_key() {
+  return make_setting_key(general_section, general_border_width_key);
+}
+
+bool general_show_border(const SettingsStore &store) {
+  return setting_boolean_value_or_default(
+      store, general_show_border_setting_key(), default_general_show_border);
+}
+
+gint general_border_width(const SettingsStore &store) {
+  return static_cast<gint>(setting_integer_value_or_default(
+      store, general_border_width_setting_key(),
+      default_general_border_width));
+}
 
 static bool validate_connection_type(const SettingValue &value,
                                      std::string *reason) {
@@ -52,7 +97,7 @@ static bool validate_connection_hotkey(const SettingValue &value,
   return global_hotkey_text_is_valid(*text, reason);
 }
 
-static std::optional<RgbColor> parse_indicator_color(const std::string &text) {
+std::optional<RgbColor> parse_rgb_color(const std::string &text) {
   if (text.size() != 7 || text.front() != '#') {
     return std::nullopt;
   }
@@ -73,7 +118,7 @@ static bool validate_indicator_color(const SettingValue &value,
                                       std::string *reason) {
   const auto *text = std::get_if<std::string>(&value);
   if (text != nullptr && (*text == "default" ||
-                          parse_indicator_color(*text).has_value())) {
+                          parse_rgb_color(*text).has_value())) {
     return true;
   }
   *reason = "must be default or #RRGGBB";
@@ -159,6 +204,34 @@ SettingKey general_name_setting_key() {
   return make_setting_key(general_section, general_name_key);
 }
 
+SettingKey general_icon_setting_key() {
+  return make_setting_key(general_section, general_icon_key);
+}
+
+SettingKey general_connection_id_setting_key() {
+  return make_setting_key(general_section, general_connection_id_key);
+}
+
+std::string general_connection_id(const SettingsStore &store) {
+  const auto id = setting_string_value_or_default(
+      store, general_connection_id_setting_key(), "");
+  return g_uuid_string_is_valid(id.c_str()) ? id : std::string();
+}
+
+static bool validate_connection_id(const SettingValue &value,
+                                   std::string *reason) {
+  const auto *id = std::get_if<std::string>(&value);
+  if (id != nullptr && (id->empty() || g_uuid_string_is_valid(id->c_str())))
+    return true;
+  *reason = "must be a UUID";
+  return false;
+}
+
+std::string general_connection_icon(const SettingsStore &store) {
+  return setting_string_value_or_default(store, general_icon_setting_key(),
+                                         "default");
+}
+
 SettingKey general_type_setting_key() {
   return make_setting_key(general_section, general_type_key);
 }
@@ -181,7 +254,7 @@ SettingKey general_indicator_color_setting_key() {
 }
 
 std::optional<RgbColor> general_indicator_color(const SettingsStore &store) {
-  return parse_indicator_color(setting_string_value_or_default(
+  return parse_rgb_color(setting_string_value_or_default(
       store, general_indicator_color_setting_key(), "default"));
 }
 
@@ -190,7 +263,7 @@ SettingKey general_indicator_off_color_setting_key() {
 }
 
 std::optional<RgbColor> general_indicator_off_color(const SettingsStore &store) {
-  return parse_indicator_color(setting_string_value_or_default(
+  return parse_rgb_color(setting_string_value_or_default(
       store, general_indicator_off_color_setting_key(), "default"));
 }
 
@@ -216,6 +289,16 @@ general_setting_definitions(std::string default_connection_name) {
           .default_value =
               SettingValue{std::move(default_connection_name)},
           .validate = nullptr,
+      },
+      {
+          .key = general_icon_setting_key(),
+          .default_value = SettingValue{std::string("default")},
+          .validate = nullptr,
+      },
+      {
+          .key = general_connection_id_setting_key(),
+          .default_value = SettingValue{std::string()},
+          .validate = validate_connection_id,
       },
       {
           .key = general_type_setting_key(),
@@ -248,6 +331,16 @@ general_setting_definitions(std::string default_connection_name) {
           .key = general_indicator_off_color_setting_key(),
           .default_value = SettingValue{std::string("default")},
           .validate = validate_indicator_color,
+      },
+      {
+          .key = general_show_border_setting_key(),
+          .default_value = SettingValue{default_general_show_border},
+          .validate = nullptr,
+      },
+      {
+          .key = general_border_width_setting_key(),
+          .default_value = SettingValue{default_general_border_width},
+          .validate = validate_border_width,
       },
       {
           .key = general_compact_mode_setting_key(),

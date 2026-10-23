@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings/hyperlink-settings.h>
 
 #include <algorithm>
@@ -30,7 +35,7 @@ std::vector<HyperlinkActionRule> default_hyperlink_action_rules() {
       {
           .id = "http-url-osc8",
           .recognition_source = HyperlinkRecognitionSource::osc8,
-          .pattern = R"(^https?://[^\s<>"']+$)",
+          .pattern = R"(^https?://[^\s\p{Z})" "\u0085\u180e" R"(<>"']+$)",
           .command = "xdg-open",
           .arguments = {"${0}"},
           .path_validation = HyperlinkPathValidation::none,
@@ -39,7 +44,7 @@ std::vector<HyperlinkActionRule> default_hyperlink_action_rules() {
       {
           .id = "http-url-text",
           .recognition_source = HyperlinkRecognitionSource::terminal_text,
-          .pattern = R"(https?://[^\s<>"']+)",
+          .pattern = R"(https?://[^\s\p{Z})" "\u0085\u180e" R"(<>"']+)",
           .command = "xdg-open",
           .arguments = {"${0}"},
           .path_validation = HyperlinkPathValidation::none,
@@ -141,23 +146,9 @@ bool hyperlink_action_rule_is_valid(const HyperlinkActionRule &rule,
   }
 
   RegularExpressionState *regex =
-      create_regular_expression(
-          rule.pattern,
-          rule.recognition_source ==
-              HyperlinkRecognitionSource::terminal_text,
-          reason);
+      create_regular_expression(rule.pattern, reason);
   if (regex == nullptr) {
     return false;
-  }
-
-  if (rule.recognition_source ==
-      HyperlinkRecognitionSource::terminal_text) {
-    std::string match_reason;
-    if (search_regular_expression(regex, {}, &match_reason).has_value()) {
-      *reason = "terminal text expression must not match empty text";
-      destroy_regular_expression(regex);
-      return false;
-    }
   }
 
   bool valid = std::all_of(

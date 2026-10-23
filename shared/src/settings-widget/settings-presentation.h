@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <string>
@@ -15,6 +20,7 @@ enum class SettingsUiText {
   sftp_tab,
   ftp_tab,
   terminal_tab,
+  terminal_appearance_tab,
   macro_tab,
   links_tab,
   transfer_tab,

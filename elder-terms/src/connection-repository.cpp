@@ -1,21 +1,72 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include "connection-repository.h"
 
 #include <algorithm>
 #include <cerrno>
 #include <cstring>
+#include <memory>
 #include <system_error>
 #include <utility>
 
 #include <glib.h>
 #include <unistd.h>
 
+#include <elder-terms/connection-identity.h>
+#include <elder-terms/settings/general-settings.h>
+
 #define GETTEXT_PACKAGE "elder-terms"
 #include <glib/gi18n-lib.h>
 
 namespace elder_terms {
 
-static constexpr gdouble default_terminal_zoom = 1.0;
+static constexpr gdouble default_terminal_font_size_dip = 12.0;
 static constexpr char initial_local_terminal_name[] = "Local terminal";
+
+bool connection_profile_only_gained_id(
+    const std::optional<std::string> &before,
+    const std::optional<std::string> &after) {
+  if (!before || !after) return false;
+  auto previous = std::shared_ptr<GKeyFile>(g_key_file_new(), g_key_file_unref);
+  auto current = std::shared_ptr<GKeyFile>(g_key_file_new(), g_key_file_unref);
+  const auto flags = static_cast<GKeyFileFlags>(
+      G_KEY_FILE_KEEP_COMMENTS | G_KEY_FILE_KEEP_TRANSLATIONS);
+  if (!g_key_file_load_from_data(previous.get(), before->data(), before->size(),
+                                 flags, nullptr) ||
+      !g_key_file_load_from_data(current.get(), after->data(), after->size(),
+                                 flags, nullptr))
+    return false;
+  auto old_id = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_key_file_get_string(previous.get(), "general", "connection_id", nullptr),
+      g_free);
+  auto new_id = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_key_file_get_string(current.get(), "general", "connection_id", nullptr),
+      g_free);
+  if (old_id && g_uuid_string_is_valid(old_id.get())) return false;
+  if (!new_id || !g_uuid_string_is_valid(new_id.get())) return false;
+  const bool had_general = g_key_file_has_group(previous.get(), "general");
+  (void)g_key_file_remove_key(previous.get(), "general", "connection_id", nullptr);
+  (void)g_key_file_remove_key(current.get(), "general", "connection_id", nullptr);
+  if (!had_general) {
+    gsize remaining_keys = 0;
+    auto keys = std::unique_ptr<gchar *, decltype(&g_strfreev)>(
+        g_key_file_get_keys(current.get(), "general", &remaining_keys, nullptr),
+        g_strfreev);
+    if (remaining_keys == 0)
+      (void)g_key_file_remove_group(current.get(), "general", nullptr);
+  }
+  gsize previous_size = 0;
+  gsize current_size = 0;
+  auto previous_text = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_key_file_to_data(previous.get(), &previous_size, nullptr), g_free);
+  auto current_text = std::unique_ptr<gchar, decltype(&g_free)>(
+      g_key_file_to_data(current.get(), &current_size, nullptr), g_free);
+  return previous_text && current_text && previous_size == current_size &&
+         std::memcmp(previous_text.get(), current_text.get(), previous_size) == 0;
+}
 
 static std::string trim_ascii_whitespace(const std::string &value) {
   const auto first = std::find_if_not(
@@ -99,7 +150,7 @@ InitialConnectionProfileResult create_initial_local_terminal_profile(
   }
 
   const SettingsStore store = create_default_settings(
-      default_terminal_display_settings(default_terminal_zoom),
+      default_terminal_display_settings(default_terminal_font_size_dip),
       initial_local_terminal_name);
   ConnectionSaveResult saved = save_connection_profile(
       directory, std::nullopt, initial_local_terminal_name, store);
@@ -182,7 +233,7 @@ SettingsLoadResult load_connection_profile(const std::filesystem::path &path) {
           .startup_config_path = std::nullopt,
           .global_config_path = default_global_config_path(),
       },
-      default_terminal_zoom);
+      default_terminal_font_size_dip);
 }
 
 ConnectionSaveResult save_connection_profile(
@@ -217,7 +268,20 @@ ConnectionSaveResult save_connection_profile(
   if (!temporary.has_value()) {
     return result;
   }
-  const SettingsSaveResult save_result = save_settings(store, *temporary);
+  SettingsStore saved_store = store;
+  std::string id;
+  if (original_path.has_value()) {
+    const auto existing = load_connection_profile(*original_path);
+    if (existing.loaded) id = general_connection_id(existing.store);
+  }
+  if (id.empty()) id = generate_connection_id();
+  if (!set_explicit_setting_value(&saved_store,
+                                  general_connection_id_setting_key(), id)) {
+    result.warnings.push_back("Warning: failed to set connection ID");
+    remove_temporary_file(*temporary);
+    return result;
+  }
+  const SettingsSaveResult save_result = save_settings(saved_store, *temporary);
   result.warnings.insert(result.warnings.end(), save_result.warnings.begin(),
                          save_result.warnings.end());
   if (!save_result.saved) {

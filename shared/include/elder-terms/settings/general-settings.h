@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <optional>
@@ -42,6 +47,9 @@ struct RgbColor {
   guint8 blue;
 };
 
+/** @param text Six-digit #RRGGBB color. @returns Parsed opaque color, or no value for invalid input. */
+ELDER_TERMS_API std::optional<RgbColor> parse_rgb_color(const std::string &text);
+
 /**
  * Optional colors applied to a connection window.
  */
@@ -68,6 +76,32 @@ general_setting_definitions(std::string default_connection_name);
  * @returns Setting key for the configured connection name.
  */
 ELDER_TERMS_API SettingKey general_name_setting_key();
+
+/**
+ * Returns the setting key for [general] icon.
+ *
+ * @returns Setting key for the connection icon specification.
+ */
+ELDER_TERMS_API SettingKey general_icon_setting_key();
+
+/** @returns The connection-only key for a stable UUID in [general]. */
+ELDER_TERMS_API SettingKey general_connection_id_setting_key();
+
+/**
+ * Gets the stable identity of a saved connection.
+ * @param store Connection settings.
+ * @returns A valid UUID, or an empty string when absent or invalid.
+ */
+ELDER_TERMS_API std::string general_connection_id(const SettingsStore &store);
+
+/**
+ * Gets the saved connection icon specification.
+ *
+ * @param store Source connection settings store.
+ * @returns `default`, a file reference, or a preset reference. Unknown
+ * references are preserved for fallback handling by the icon loader.
+ */
+ELDER_TERMS_API std::string general_connection_icon(const SettingsStore &store);
 
 /**
  * Returns the setting key for [general] type.
@@ -187,6 +221,36 @@ general_open_connection_hotkey(const SettingsStore &store);
  */
 ELDER_TERMS_API GeneralColorSettings
 general_color_settings(const SettingsStore &store);
+
+/**
+ * Returns the setting key for [general] show_border.
+ *
+ * @returns Setting key for connection window side-border visibility.
+ */
+ELDER_TERMS_API SettingKey general_show_border_setting_key();
+
+/**
+ * Returns the setting key for [general] border_width.
+ *
+ * @returns Setting key for connection window side-border width in pixels.
+ */
+ELDER_TERMS_API SettingKey general_border_width_setting_key();
+
+/**
+ * Extracts connection window side-border visibility from a store.
+ *
+ * @param store Source settings store.
+ * @returns True when the connection window should show left and right borders.
+ */
+ELDER_TERMS_API bool general_show_border(const SettingsStore &store);
+
+/**
+ * Extracts connection window side-border width from a store.
+ *
+ * @param store Source settings store.
+ * @returns Width of each connection window side border in pixels.
+ */
+ELDER_TERMS_API gint general_border_width(const SettingsStore &store);
 
 /**
  * Checks whether the loaded general settings select the TELNET backend.

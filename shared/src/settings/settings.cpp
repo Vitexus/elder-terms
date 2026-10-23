@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings.h>
 
 #include <algorithm>
@@ -476,6 +481,8 @@ static bool load_settings_file(SettingsStore *store,
 
   if (exclude_connection_settings) {
     g_key_file_remove_key(key_file, "general", "name", nullptr);
+    g_key_file_remove_key(key_file, "general", "icon", nullptr);
+    g_key_file_remove_key(key_file, "general", "connection_id", nullptr);
     g_key_file_remove_key(key_file, "general", "open_connection",
                           nullptr);
   }
@@ -541,9 +548,13 @@ static void resolve_terminal_key_binding_conflict(
 
 static bool is_connection_only_key(const SettingKey &key) {
   const SettingKey name = general_name_setting_key();
+  const SettingKey icon = general_icon_setting_key();
+  const SettingKey id = general_connection_id_setting_key();
   const SettingKey hotkey =
       general_open_connection_hotkey_setting_key();
   return (key.section == name.section && key.name == name.name) ||
+         (key.section == icon.section && key.name == icon.name) ||
+         (key.section == id.section && key.name == id.name) ||
          (key.section == hotkey.section && key.name == hotkey.name);
 }
 
@@ -723,10 +734,10 @@ std::filesystem::path default_global_config_path() {
 
 SettingsLoadResult
 load_global_settings(const std::filesystem::path &global_config_path,
-                     gdouble default_terminal_zoom) {
+                     gdouble default_terminal_font_size_dip) {
   SettingsLoadResult result{
       .store = create_global_default_settings(
-          default_terminal_display_settings(default_terminal_zoom)),
+          default_terminal_display_settings(default_terminal_font_size_dip)),
       .loaded = true,
       .warnings = {},
   };
@@ -747,10 +758,10 @@ load_global_settings(const std::filesystem::path &global_config_path,
 }
 
 SettingsLoadResult
-load_settings(const SettingsLoadOptions &options, gdouble default_terminal_zoom) {
+load_settings(const SettingsLoadOptions &options, gdouble default_terminal_font_size_dip) {
   SettingsLoadResult result{
       .store = create_default_settings(
-          default_terminal_display_settings(default_terminal_zoom),
+          default_terminal_display_settings(default_terminal_font_size_dip),
           default_connection_name(options)),
       .loaded = true,
       .warnings = {},
@@ -759,7 +770,7 @@ load_settings(const SettingsLoadOptions &options, gdouble default_terminal_zoom)
   if (options.global_config_path.has_value()) {
     SettingsLoadResult global =
         load_global_settings(options.global_config_path.value(),
-                             default_terminal_zoom);
+                             default_terminal_font_size_dip);
     rebase_settings_store_fallbacks(&result.store, global.store);
     result.warnings.insert(result.warnings.end(), global.warnings.begin(),
                            global.warnings.end());
@@ -885,7 +896,7 @@ SettingsSaveResult save_new_window_connection(
     const std::string &connection,
     const std::filesystem::path &global_config_path) {
   auto store = create_global_default_settings(
-      default_terminal_display_settings(1.0));
+      default_terminal_display_settings(12.0));
   const auto key = application_new_window_setting_key();
   if (!connection.empty()) {
     set_explicit_setting_value(&store, key, SettingValue{connection});

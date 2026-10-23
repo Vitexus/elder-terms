@@ -4,12 +4,6 @@ elder_terms_launcher_gio_dep = dependency('gio-2.0')
 elder_terms_launcher_gdk_pixbuf_dep = dependency('gdk-pixbuf-2.0')
 elder_terms_launcher_x11_dep = dependency('x11')
 elder_terms_launcher_xml_dep = dependency('libxml-2.0')
-elder_terms_launcher_gestament_config = find_program('gestament-config')
-elder_terms_launcher_gestament_include_dir = run_command(
-  elder_terms_launcher_gestament_config,
-  ['--includedir'],
-  check: true,
-).stdout().strip()
 
 elder_terms_launcher_configuration = configuration_data()
 elder_terms_launcher_configuration.set_quoted(
@@ -39,10 +33,11 @@ elder_terms_launcher = executable(
     'src/tray-backend.cpp',
   ],
   cpp_args: [
-    '-I' + elder_terms_launcher_gestament_include_dir,
+    '-I' + gestament_include_dir,
   ],
   include_directories: elder_terms_launcher_include_dir,
   dependencies: [
+    jemalloc_dep,
     cardio_dep,
     elder_terms_dep,
     elder_terms_launcher_gdk_pixbuf_dep,
@@ -91,6 +86,7 @@ elder_terms_tray_backend_test = executable(
   include_directories: elder_terms_launcher_include_dir,
   dependencies: [
     cardio_dep,
+    elder_terms_dep,
     elder_terms_launcher_gdk_pixbuf_dep,
     elder_terms_launcher_gio_dep,
     elder_terms_launcher_gtk_dep,
@@ -102,12 +98,32 @@ test(
   elder_terms_tray_backend_test,
 )
 
+elder_terms_tray_xembed_connections_test = executable(
+  'tray-xembed-connections-test',
+  ['src/tray-backend.cpp', 'tests/tray-xembed-connections-test.cpp'],
+  include_directories: elder_terms_launcher_include_dir,
+  dependencies: [
+    cardio_dep,
+    elder_terms_dep,
+    elder_terms_launcher_gdk_pixbuf_dep,
+    elder_terms_launcher_gio_dep,
+    elder_terms_launcher_gtk_dep,
+  ],
+)
+
+test('tray-xembed-connections-test', find_program('xvfb-run'),
+  args: ['-a', elder_terms_tray_xembed_connections_test], timeout: 120)
+test('tray-xembed-connections-hidpi', find_program('xvfb-run'),
+  args: ['-a', elder_terms_tray_xembed_connections_test],
+  env: ['GDK_SCALE=2', 'NO_AT_BRIDGE=1'], timeout: 120)
+
 elder_terms_tray_watcher_lifecycle_test = executable(
   'tray-watcher-lifecycle-test',
   ['src/tray-backend.cpp', 'tests/tray-watcher-lifecycle-test.cpp'],
   include_directories: elder_terms_launcher_include_dir,
   dependencies: [
     cardio_dep,
+    elder_terms_dep,
     elder_terms_launcher_gdk_pixbuf_dep,
     elder_terms_launcher_gio_dep,
     elder_terms_launcher_gtk_dep,
@@ -117,6 +133,7 @@ elder_terms_tray_watcher_lifecycle_test = executable(
 foreach scenario : [
   'late-watcher', 'late-host', 'restart', 'host-signals', 'host-properties',
   'replace-registering', 'destroy-registering', 'destroy-waiting',
+  'connections',
 ]
   test('tray-watcher-' + scenario, elder_terms_tray_watcher_lifecycle_test,
     args: [scenario], timeout: 120)

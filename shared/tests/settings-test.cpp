@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include <elder-terms/settings.h>
 #include <elder-terms/settings/regular-expression.h>
 
@@ -98,8 +103,8 @@ using elder_terms::TerminalReturnCode;
 using elder_terms::TerminalTextSettings;
 using elder_terms::general_auto_close;
 using elder_terms::terminal_backspace_code_setting_key;
-using elder_terms::terminal_border_width;
-using elder_terms::terminal_border_width_setting_key;
+using elder_terms::general_border_width;
+using elder_terms::general_border_width_setting_key;
 using elder_terms::TerminalBellSettings;
 using elder_terms::terminal_bell_settings;
 using elder_terms::terminal_bell_sound_is_valid;
@@ -115,12 +120,12 @@ using elder_terms::terminal_font_families;
 using elder_terms::terminal_font_families_setting_key;
 using elder_terms::terminal_height_setting_key;
 using elder_terms::terminal_scrollback_lines_setting_key;
-using elder_terms::terminal_show_border;
-using elder_terms::terminal_show_border_setting_key;
+using elder_terms::general_show_border;
+using elder_terms::general_show_border_setting_key;
 using elder_terms::terminal_return_code_setting_key;
 using elder_terms::terminal_return_code_to_string;
 using elder_terms::terminal_width_setting_key;
-using elder_terms::terminal_zoom_setting_key;
+using elder_terms::terminal_font_size_dip_setting_key;
 using elder_terms::terminal_key_bindings;
 using elder_terms::terminal_send_break_key;
 using elder_terms::terminal_send_break_key_setting_key;
@@ -262,17 +267,17 @@ static void test_ssh_proxy_settings_round_trip_and_inheritance() {
 }
 
 static void test_default_settings() {
-  const gdouble default_zoom = 1.2;
+  const gdouble default_font_size_dip = 1.2;
   const SettingsStore store =
-      create_default_settings(default_terminal_display_settings(default_zoom),
+      create_default_settings(default_terminal_display_settings(default_font_size_dip),
                               "elder-terms");
   const TerminalDisplaySettings display = terminal_display_settings(store);
   expect_true(display.width == 80, "default terminal width should be 80");
   expect_true(display.height == 24, "default terminal height should be 24");
   expect_true(display.scrollback_lines == 10000,
               "default terminal scrollback should retain 10000 lines");
-  expect_true(display.zoom == default_zoom,
-              "default terminal zoom should be retained");
+  expect_true(display.font_size_dip == default_font_size_dip,
+              "default terminal font_size_dip should be retained");
   const TerminalFontFamilies fonts = terminal_font_families(store);
   expect_true(fonts.families == std::vector<std::string>{"Noto Sans Mono", "Monospace"},
               "the default font list should preserve the built-in order");
@@ -280,12 +285,25 @@ static void test_default_settings() {
               "auto-close must belong to general settings");
   expect_true(general_auto_close(store),
               "default terminal auto-close should be enabled");
-  expect_true(!terminal_show_border(store),
-              "terminal window side borders should be disabled by default");
-  expect_true(terminal_border_width(store) == 4,
-              "default terminal window side-border width should be 4 pixels");
+  expect_true(!general_show_border(store),
+              "connection window side borders should be disabled by default");
+  expect_true(!elder_terms::setting_boolean_value_or_default(
+                  store, {"terminal", "accessibility_enabled"}, true),
+              "terminal text accessibility should be registered and disabled by default");
+  SettingsStore accessibility = store;
+  const auto accessibility_key = elder_terms::terminal_accessibility_enabled_setting_key();
+  expect_true(accessibility_key.section == "terminal" && accessibility_key.name == "accessibility_enabled",
+              "screen-reader access should use [terminal] accessibility_enabled");
+  set_explicit_setting_value(&accessibility, accessibility_key, elder_terms::SettingValue{true});
+  expect_true(elder_terms::terminal_accessibility_enabled(accessibility),
+              "terminal text accessibility can be enabled explicitly");
+  clear_explicit_setting_value(&accessibility, accessibility_key);
+  expect_true(!elder_terms::terminal_accessibility_enabled(accessibility),
+              "clearing the override should restore disabled terminal text accessibility");
+  expect_true(general_border_width(store) == 4,
+              "default connection window side-border width should be 4 pixels");
   expect_true(!terminal_bell_settings(store).sound_file.has_value(),
-              "the default terminal bell should retain VTE's built-in beep");
+              "the default terminal bell should retain terminal's built-in beep");
   const GeneralColorSettings colors = general_color_settings(store);
   expect_true(!colors.exterior_background.has_value(),
               "default exterior background should remain theme-controlled");
@@ -578,10 +596,44 @@ static void test_terminal_scrollback_lines_range_and_round_trip() {
               "terminal scrollback should survive saving and reloading");
 }
 
-static SettingsLoadResult load_terminal_border_width(const std::string &name,
+static void test_general_borders_round_trip_and_layering() {
+  const auto path = temporary_config_path("general-borders");
+  const auto global = temporary_config_path("global-borders");
+  const auto visible = elder_terms::make_setting_key("general", "show_border");
+  const auto width = elder_terms::make_setting_key("general", "border_width");
+  const SettingsLoadOptions options{.config_path = path,
+      .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, "[general]\nshow_border=true\nborder_width=7\n");
+  for (const char *type : {"local", "telnet", "ssh", "serial", "sftp", "ftp", "webdav"}) {
+    write_config(path, std::string("[general]\ntype=") + type + "\n");
+    auto loaded = load_settings(options, 1.0);
+    expect_true(elder_terms::setting_boolean_value_or_default(loaded.store, visible, false),
+                "all connection types should inherit General border visibility");
+    expect_true(elder_terms::setting_integer_value_or_default(loaded.store, width, -1) == 7,
+                "all connection types should inherit General border width");
+    expect_true(set_explicit_setting_value(&loaded.store, visible, false) &&
+                    set_explicit_setting_value(&loaded.store, width, gint64{12}),
+                "General borders should accept per-connection overrides");
+    expect_true(save_settings(loaded.store, path).saved,
+                "General border settings should save");
+    const auto reloaded = load_settings(options, 1.0);
+    expect_true(!elder_terms::setting_boolean_value_or_default(reloaded.store, visible, true) &&
+                    elder_terms::setting_integer_value_or_default(reloaded.store, width, -1) == 12,
+                "General border settings should survive saving and reloading");
+    clear_explicit_setting_value(&loaded.store, visible);
+    clear_explicit_setting_value(&loaded.store, width);
+    expect_true(elder_terms::setting_boolean_value_or_default(loaded.store, visible, false) &&
+                    elder_terms::setting_integer_value_or_default(loaded.store, width, -1) == 7,
+                "clearing overrides should restore inherited General borders");
+  }
+  remove_config(path);
+  remove_config(global);
+}
+
+static SettingsLoadResult load_general_border_width(const std::string &name,
                                                       const std::string &value) {
   const std::filesystem::path path = temporary_config_path(name);
-  write_config(path, "[terminal]\nborder_width=" + value + "\n");
+  write_config(path, "[general]\nborder_width=" + value + "\n");
   const SettingsLoadResult result = load_settings(
       SettingsLoadOptions{
           .config_path = path,
@@ -592,51 +644,51 @@ static SettingsLoadResult load_terminal_border_width(const std::string &name,
   return result;
 }
 
-static void test_terminal_border_width_range_and_round_trip() {
+static void test_general_border_width_range_and_round_trip() {
   const SettingsLoadResult minimum =
-      load_terminal_border_width("border-width-minimum", "1");
-  expect_true(terminal_border_width(minimum.store) == 1,
-              "minimum terminal border width should be accepted");
+      load_general_border_width("border-width-minimum", "1");
+  expect_true(general_border_width(minimum.store) == 1,
+              "minimum window border width should be accepted");
   expect_true(minimum.warnings.empty(),
-              "minimum terminal border width should not emit warnings");
+              "minimum window border width should not emit warnings");
 
   const SettingsLoadResult maximum =
-      load_terminal_border_width("border-width-maximum", "1000");
-  expect_true(terminal_border_width(maximum.store) == 1000,
-              "maximum terminal border width should be accepted");
+      load_general_border_width("border-width-maximum", "1000");
+  expect_true(general_border_width(maximum.store) == 1000,
+              "maximum window border width should be accepted");
   expect_true(maximum.warnings.empty(),
-              "maximum terminal border width should not emit warnings");
+              "maximum window border width should not emit warnings");
 
   const SettingsLoadResult below_minimum =
-      load_terminal_border_width("border-width-below-minimum", "0");
-  expect_true(terminal_border_width(below_minimum.store) == 4,
-              "terminal border width below the minimum should use the default");
+      load_general_border_width("border-width-below-minimum", "0");
+  expect_true(general_border_width(below_minimum.store) == 4,
+              "window border width below the minimum should use the default");
   expect_true(warnings_contain(
                   below_minimum.warnings,
-                  "invalid configuration value [terminal] border_width"),
-              "terminal border width below the minimum should emit a warning");
+                  "invalid configuration value [general] border_width"),
+              "window border width below the minimum should emit a warning");
 
   const SettingsLoadResult above_maximum =
-      load_terminal_border_width("border-width-above-maximum", "1001");
-  expect_true(terminal_border_width(above_maximum.store) == 4,
-              "terminal border width above the maximum should use the default");
+      load_general_border_width("border-width-above-maximum", "1001");
+  expect_true(general_border_width(above_maximum.store) == 4,
+              "window border width above the maximum should use the default");
   expect_true(warnings_contain(
                   above_maximum.warnings,
-                  "invalid configuration value [terminal] border_width"),
-              "terminal border width above the maximum should emit a warning");
+                  "invalid configuration value [general] border_width"),
+              "window border width above the maximum should emit a warning");
 
   const std::filesystem::path saved_path =
       temporary_config_path("border-width-round-trip");
   SettingsStore configured = minimum.store;
   expect_true(set_explicit_setting_value(
-                  &configured, terminal_border_width_setting_key(),
+                  &configured, general_border_width_setting_key(),
                   elder_terms::SettingValue{gint64{12}}),
-              "valid terminal border width should be accepted in memory");
+              "valid window border width should be accepted in memory");
   const SettingsSaveResult saved = save_settings(configured, saved_path);
-  expect_true(saved.saved, "terminal border width settings should save");
+  expect_true(saved.saved, "window border width settings should save");
   expect_true(read_config(saved_path).find("border_width=12") !=
                   std::string::npos,
-              "saved settings should include terminal border width");
+              "saved settings should include window border width");
   const SettingsLoadResult reloaded = load_settings(
       SettingsLoadOptions{
           .config_path = saved_path,
@@ -644,8 +696,8 @@ static void test_terminal_border_width_range_and_round_trip() {
       },
       1.0);
   remove_config(saved_path);
-  expect_true(terminal_border_width(reloaded.store) == 12,
-              "terminal border width should survive saving and reloading");
+  expect_true(general_border_width(reloaded.store) == 12,
+              "window border width should survive saving and reloading");
 }
 
 static void test_independent_inactive_indicator_color() {
@@ -755,6 +807,205 @@ static void test_general_indicator_color_round_trip_and_layering() {
               "the indicator color should reject a non-string setting value");
   remove_config(path);
   remove_config(global_path);
+}
+
+static void test_terminal_background_image_settings() {
+  using namespace elder_terms;
+  auto store = create_default_settings(default_terminal_display_settings(12), "Image");
+  const auto path_key = make_setting_key("terminal", "background_image");
+  const auto fit_key = make_setting_key("terminal", "background_image_fit");
+  const auto opacity_key = make_setting_key("terminal", "background_image_opacity");
+  expect_true(set_explicit_setting_value(&store, path_key, std::string("/tmp/background.png")), "accept local absolute image path");
+  for (const auto *fit : {"cover", "contain", "stretch"})
+    expect_true(set_explicit_setting_value(&store, fit_key, std::string(fit)), "accept image placement");
+  for (const auto opacity : {0, 50, 100})
+    expect_true(set_explicit_setting_value(&store, opacity_key, gint64{opacity}), "accept image opacity");
+  for (const auto *invalid : {"relative.png", "https://example.com/image.png", "/tmp/image\n.png"})
+    expect_true(!set_explicit_setting_value(&store, path_key, std::string(invalid)), "reject invalid image paths");
+  expect_true(!set_explicit_setting_value(&store, fit_key, std::string("tile")), "reject unsupported image placement");
+  expect_true(!set_explicit_setting_value(&store, opacity_key, gint64{101}), "reject excessive image opacity");
+  const auto global_path = temporary_config_path("image-global");
+  const auto connection_path = temporary_config_path("image-connection");
+  write_config(global_path, "[terminal]\nbackground_image=/tmp/global.png\nbackground_image_fit=contain\n");
+  write_config(connection_path, "[terminal]\nbackground_image=\n");
+  auto layered = load_settings(SettingsLoadOptions{.config_path = connection_path, .startup_config_path = std::nullopt,
+      .global_config_path = global_path}, 12).store;
+  expect_true(setting_string_value_or_default(layered, path_key, "missing").empty(), "explicit clear overrides inherited image");
+  expect_true(save_settings(layered, connection_path).saved, "save explicit image clear");
+  expect_true(read_config(connection_path).find("background_image=\n") != std::string::npos, "preserve explicit clear in file");
+  clear_explicit_setting_value(&layered, path_key);
+  expect_true(setting_string_value_or_default(layered, path_key, "") == "/tmp/global.png", "restore inherited image");
+  std::filesystem::remove(global_path);
+  std::filesystem::remove(connection_path);
+}
+
+static void test_terminal_background_settings() {
+  const auto global = temporary_config_path("background-global");
+  const auto path = temporary_config_path("background-connection");
+  const auto mode = elder_terms::make_setting_key("terminal", "background_mode");
+  const auto opacity = elder_terms::make_setting_key("terminal", "background_opacity");
+  const auto tint = elder_terms::make_setting_key("terminal", "background_tint_color");
+  const auto tint_opacity = elder_terms::make_setting_key("terminal", "background_tint_opacity");
+  write_config(global, "[terminal]\nbackground_mode=transparent\nbackground_opacity=55\nbackground_tint_color=#336699\nbackground_tint_opacity=40\n");
+  write_config(path, "");
+  const SettingsLoadOptions options{.config_path = path,
+      .startup_config_path = std::nullopt, .global_config_path = global};
+  auto loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "transparent" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, opacity, -1) == 55,
+              "transparent backgrounds should inherit the requested mode and opacity");
+  for (const auto &key : {opacity, tint_opacity}) {
+    for (const gint64 value : {0, 50, 100})
+      expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{value}),
+                  "background percentages include both ends of the range");
+    for (const gint64 value : {-1, 101})
+      expect_true(!set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{value}),
+                  "background percentages outside zero to one hundred must be rejected");
+  }
+  for (const auto *invalid : {"", "white", "#abc", "#12345678", "#x12345"})
+    expect_true(!set_explicit_setting_value(&loaded.store, tint, elder_terms::SettingValue{std::string(invalid)}),
+                "background tint must be a six-digit RGB color");
+  expect_true(!set_explicit_setting_value(&loaded.store, mode, elder_terms::SettingValue{std::string("invalid")}),
+              "unknown background modes must be rejected");
+  expect_true(set_explicit_setting_value(&loaded.store, mode, elder_terms::SettingValue{std::string("blur")}),
+              "frosted glass can be requested independently of current desktop support");
+  expect_true(set_explicit_setting_value(&loaded.store, tint, elder_terms::SettingValue{std::string("#a0B1c2")}) &&
+                  save_settings(loaded.store, path).saved,
+              "valid background preferences should save");
+  loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "blur",
+              "requested frosted glass survives persistence");
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, tint, "missing") == "#a0B1c2" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, tint_opacity, -1) == 100,
+              "tint and opacity should survive restart");
+  for (const auto &key : {mode, opacity, tint, tint_opacity}) clear_explicit_setting_value(&loaded.store, key);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "resetting background values should restore inheritance");
+  write_config(global, "");
+  loaded = load_settings(options, 12);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, mode, "missing") == "opaque" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, opacity, -1) == 80 &&
+                  elder_terms::setting_string_value_or_default(loaded.store, tint, "missing") == "#000000" &&
+                  elder_terms::setting_integer_value_or_default(loaded.store, tint_opacity, -1) == 0,
+              "background defaults should be opaque with optional tint disabled");
+  remove_config(path);
+  remove_config(global);
+}
+
+static void test_terminal_color_filter_settings() {
+  const auto global = temporary_config_path("filter-global");
+  const auto path = temporary_config_path("filter-connection");
+  const auto key = elder_terms::make_setting_key("terminal", "color_filter");
+  const SettingsLoadOptions options{.config_path = path, .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, ""); write_config(path, "");
+  auto loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "none", "color correction should default to off");
+  write_config(global, "[terminal]\ncolor_filter=oklch\n");
+  loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "oklch" &&
+      setting_value_source(loaded.store, key) == SettingValueSource::global, "color correction should inherit");
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "inherited filter should stay inherited");
+  for (const auto *value : {"none", "oklch", "reverse-lightness", "reverse-contrast", "reverse-roles", "reverse-cam16", "reverse-palette"}) {
+    expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}) &&
+        save_settings(loaded.store, path).saved, "selected correction should save");
+    loaded = load_settings(options, 1.0);
+    expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == value, "correction should survive restart");
+  }
+  expect_true(!set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string("unknown")}), "unknown filter should be rejected");
+  clear_explicit_setting_value(&loaded.store, key);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "reset should restore inherited correction");
+  remove_config(path); remove_config(global);
+}
+
+static void test_terminal_color_vision_settings() {
+  const auto global = temporary_config_path("vision-global");
+  const auto path = temporary_config_path("vision-connection");
+  const auto key = elder_terms::make_setting_key("terminal", "color_vision");
+  const auto amount = elder_terms::make_setting_key("terminal", "color_vision_strength");
+  const auto contrast = elder_terms::terminal_color_filter_setting_key();
+  const SettingsLoadOptions options{.config_path = path, .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, ""); write_config(path, "");
+  auto loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "none" &&
+      elder_terms::setting_integer_value_or_default(loaded.store, amount, -1) == 100,
+      "recoloring should default to disabled, with full adjustable strength");
+  write_config(global, "[terminal]\ncolor_vision=deutan\ncolor_vision_strength=60\ncolor_filter=oklch\n");
+  loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == "deutan" &&
+      elder_terms::setting_integer_value_or_default(loaded.store, amount, -1) == 60 &&
+      setting_value_source(loaded.store, key) == SettingValueSource::global, "recoloring should inherit");
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "inherited recoloring should stay inherited");
+  for (const auto *value : {"none", "protan", "deutan", "tritan"}) {
+    for (const gint64 strength : {0, 25, 100}) {
+      for (const auto *filter : {"none", "oklch", "reverse-lightness", "reverse-contrast", "reverse-roles", "reverse-cam16", "reverse-palette"}) {
+        expect_true(set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}) &&
+            set_explicit_setting_value(&loaded.store, amount, elder_terms::SettingValue{strength}) &&
+            set_explicit_setting_value(&loaded.store, contrast, elder_terms::SettingValue{std::string(filter)}) &&
+            save_settings(loaded.store, path).saved, "independent filters should save");
+        loaded = load_settings(options, 1.0);
+        expect_true(elder_terms::setting_string_value_or_default(loaded.store, key, "missing") == value &&
+            elder_terms::setting_integer_value_or_default(loaded.store, amount, -1) == strength &&
+            elder_terms::setting_string_value_or_default(loaded.store, contrast, "missing") == filter,
+            "both filters and strength should survive restart");
+      }
+    }
+  }
+  for (const auto *value : {"", "unknown", "PROTAN"})
+    expect_true(!set_explicit_setting_value(&loaded.store, key, elder_terms::SettingValue{std::string(value)}), "invalid profile should fail");
+  for (const auto &value : {elder_terms::SettingValue{gint64{-1}}, elder_terms::SettingValue{gint64{101}},
+      elder_terms::SettingValue{0.5}, elder_terms::SettingValue{std::string("50")}})
+    expect_true(!set_explicit_setting_value(&loaded.store, amount, value), "strength must be an integer in range");
+  clear_explicit_setting_value(&loaded.store, key);
+  clear_explicit_setting_value(&loaded.store, amount);
+  clear_explicit_setting_value(&loaded.store, contrast);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(), "reset should restore inheritance");
+  remove_config(path); remove_config(global);
+}
+
+static void test_terminal_cursor_settings() {
+  const auto global = temporary_config_path("cursor-global");
+  const auto path = temporary_config_path("cursor-connection");
+  const auto shape = elder_terms::make_setting_key("terminal", "cursor_shape");
+  const auto blink = elder_terms::make_setting_key("terminal", "cursor_blink");
+  const SettingsLoadOptions options{.config_path = path,
+      .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, "[terminal]\ncursor_shape=bar\ncursor_blink=false\n");
+  write_config(path, "");
+  auto loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == "bar" &&
+                  !elder_terms::setting_boolean_value_or_default(loaded.store, blink, true) &&
+                  setting_value_source(loaded.store, shape) == SettingValueSource::global,
+              "cursor shape and blinking should inherit the global preferences");
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "inherited cursor preferences should not be flattened into a connection");
+  for (const auto *value : {"block", "bar", "underline"}) {
+    for (const bool enabled : {false, true}) {
+      expect_true(set_explicit_setting_value(&loaded.store, shape, elder_terms::SettingValue{std::string(value)}) &&
+                      set_explicit_setting_value(&loaded.store, blink, elder_terms::SettingValue{enabled}) &&
+                      save_settings(loaded.store, path).saved,
+                  "each cursor shape and independent blink preference should save");
+      loaded = load_settings(options, 1.0);
+      expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == value &&
+                      elder_terms::setting_boolean_value_or_default(loaded.store, blink, !enabled) == enabled,
+                  "cursor preferences should survive restart");
+    }
+  }
+  for (const auto *invalid : {"", "terminal", "beam", "BLOCK"})
+    expect_true(!set_explicit_setting_value(&loaded.store, shape, elder_terms::SettingValue{std::string(invalid)}),
+                "unknown cursor shapes should be rejected without replacing the valid value");
+  expect_true(!set_explicit_setting_value(&loaded.store, blink, elder_terms::SettingValue{std::string("true")}),
+              "cursor blinking must be boolean");
+  clear_explicit_setting_value(&loaded.store, shape);
+  clear_explicit_setting_value(&loaded.store, blink);
+  expect_true(save_settings(loaded.store, path).saved && read_config(path).empty(),
+              "resetting cursor settings should restore inheritance");
+  write_config(global, "");
+  loaded = load_settings(options, 1.0);
+  expect_true(elder_terms::setting_string_value_or_default(loaded.store, shape, "missing") == "block" &&
+                  elder_terms::setting_boolean_value_or_default(loaded.store, blink, false),
+              "the built-in cursor should be a blinking full box");
+  remove_config(path);
+  remove_config(global);
 }
 
 static void test_terminal_font_list_round_trip_and_validation() {
@@ -935,7 +1186,7 @@ static void test_terminal_bell_sound_validation_and_round_trip() {
                   elder_terms::SettingValue{std::string("default")}),
               "an explicit built-in terminal bell should be accepted");
   expect_true(!terminal_bell_settings(store).sound_file.has_value(),
-              "an explicit default should restore VTE's built-in beep");
+              "an explicit default should restore terminal's built-in beep");
 
   const std::filesystem::path global_path =
       temporary_config_path("global-terminal-bell");
@@ -1053,187 +1304,6 @@ static void test_general_color_none_overrides_global_colors() {
                   general_exterior_background_setting_key()) ==
                   SettingValueSource::override,
               "an explicit none should remain a connection override");
-}
-
-static void test_terminal_type_defaults_follow_background_color() {
-  SettingsStore store =
-      create_default_settings(default_terminal_display_settings(1.0),
-                              "elder-terms");
-  expect_true(
-      elder_terms::telnet_connection_settings(store).terminal_type ==
-          "xterm-256color" &&
-          ssh_connection_settings(store).terminal_type ==
-              "xterm-256color",
-      "terminal connections without a background should use "
-      "xterm-256color");
-
-  set_explicit_setting_value(
-      &store, general_background_setting_key(),
-      elder_terms::SettingValue{std::string("#102030")});
-  expect_true(
-      elder_terms::telnet_connection_settings(store).terminal_type ==
-          "xterm" &&
-          ssh_connection_settings(store).terminal_type == "xterm",
-      "terminal connections with an RGB background should use xterm");
-
-  set_explicit_setting_value(
-      &store, general_type_setting_key(),
-      elder_terms::SettingValue{std::string("telnet")});
-  TerminalConnectionProfile profile =
-      required_terminal_connection_profile(store);
-  const auto *telnet =
-      std::get_if<TelnetConnectionSettings>(&profile.settings);
-  expect_true(telnet != nullptr && telnet->terminal_type == "xterm",
-              "the TELNET connection profile should receive the "
-              "background-dependent terminal type");
-
-  set_explicit_setting_value(
-      &store, general_type_setting_key(),
-      elder_terms::SettingValue{std::string("ssh")});
-  profile = required_terminal_connection_profile(store);
-  const auto *ssh =
-      std::get_if<SshConnectionSettings>(&profile.settings);
-  expect_true(ssh != nullptr && ssh->terminal_type == "xterm",
-              "the SSH connection profile should receive the "
-              "background-dependent terminal type");
-
-  set_explicit_setting_value(
-      &store, general_background_setting_key(),
-      elder_terms::SettingValue{std::string("none")});
-  expect_true(
-      elder_terms::telnet_connection_settings(store).terminal_type ==
-          "xterm-256color" &&
-          ssh_connection_settings(store).terminal_type ==
-              "xterm-256color",
-      "changing the background to none should restore xterm-256color");
-
-  set_explicit_setting_value(
-      &store, general_background_setting_key(),
-      elder_terms::SettingValue{std::string("#405060")});
-  expect_true(
-      elder_terms::telnet_connection_settings(store).terminal_type ==
-          "xterm" &&
-          ssh_connection_settings(store).terminal_type == "xterm",
-      "changing the background back to RGB should restore xterm");
-
-  const std::filesystem::path save_path =
-      temporary_config_path("background-terminal-type-default");
-  const SettingsSaveResult save_result = save_settings(store, save_path);
-  const std::string saved = read_config(save_path);
-  remove_config(save_path);
-  expect_true(save_result.saved,
-              "background-dependent terminal defaults should remain "
-              "saveable");
-  expect_true(saved.find("terminal_type=") == std::string::npos,
-              "a background-dependent terminal default should not be "
-              "serialized as an explicit setting");
-}
-
-static void test_configured_terminal_types_override_background_default() {
-  const std::filesystem::path global_path =
-      temporary_config_path("global-terminal-type-default");
-  const std::filesystem::path connection_path =
-      temporary_config_path("connection-terminal-type-default");
-  write_config(global_path,
-               "[general]\n"
-               "background=#102030\n"
-               "\n"
-               "[telnet]\n"
-               "terminal_type=vt220\n"
-               "\n"
-               "[ssh]\n"
-               "terminal_type=ansi\n");
-  write_config(connection_path,
-               "[general]\n"
-               "type=telnet\n"
-               "background=#405060\n"
-               "\n"
-               "[telnet]\n"
-               "terminal_type=screen\n");
-
-  SettingsLoadResult result = load_settings(
-      SettingsLoadOptions{
-          .config_path = connection_path,
-          .startup_config_path = std::nullopt,
-          .global_config_path = global_path,
-      },
-      1.0);
-  expect_true(
-      elder_terms::telnet_connection_settings(result.store).terminal_type ==
-          "screen",
-      "an explicit TELNET terminal type should override the RGB background "
-      "default");
-  expect_true(
-      ssh_connection_settings(result.store).terminal_type == "ansi",
-      "a global SSH terminal type should override the RGB background "
-      "default");
-
-  write_config(connection_path,
-               "[general]\n"
-               "type=telnet\n"
-               "background=none\n");
-  result = load_settings(
-      SettingsLoadOptions{
-          .config_path = connection_path,
-          .startup_config_path = std::nullopt,
-          .global_config_path = global_path,
-      },
-      1.0);
-  remove_config(global_path);
-  remove_config(connection_path);
-
-  expect_true(
-      elder_terms::telnet_connection_settings(result.store).terminal_type ==
-          "vt220" &&
-          ssh_connection_settings(result.store).terminal_type == "ansi",
-      "configured terminal types should remain active when a connection "
-      "overrides a global RGB background with none");
-
-  const std::filesystem::path color_only_global_path =
-      temporary_config_path("global-background-terminal-type-default");
-  const std::filesystem::path no_color_connection_path =
-      temporary_config_path("connection-no-background-terminal-type-default");
-  write_config(color_only_global_path,
-               "[general]\n"
-               "background=#708090\n");
-  write_config(no_color_connection_path,
-               "[general]\n"
-               "type=ssh\n");
-  const SettingsLoadResult inherited_color = load_settings(
-      SettingsLoadOptions{
-          .config_path = no_color_connection_path,
-          .startup_config_path = std::nullopt,
-          .global_config_path = color_only_global_path,
-      },
-      1.0);
-  expect_true(
-      elder_terms::telnet_connection_settings(inherited_color.store)
-                  .terminal_type == "xterm" &&
-          ssh_connection_settings(inherited_color.store).terminal_type ==
-              "xterm",
-      "a global RGB background should select the xterm built-in default");
-
-  write_config(no_color_connection_path,
-               "[general]\n"
-               "type=ssh\n"
-               "background=none\n");
-  const SettingsLoadResult no_color = load_settings(
-      SettingsLoadOptions{
-          .config_path = no_color_connection_path,
-          .startup_config_path = std::nullopt,
-          .global_config_path = color_only_global_path,
-      },
-      1.0);
-  remove_config(color_only_global_path);
-  remove_config(no_color_connection_path);
-
-  expect_true(
-      elder_terms::telnet_connection_settings(no_color.store).terminal_type ==
-          "xterm-256color" &&
-          ssh_connection_settings(no_color.store).terminal_type ==
-              "xterm-256color",
-      "a connection background of none should suppress the global RGB "
-      "terminal type default");
 }
 
 static void test_invalid_general_colors_fall_back_and_warn() {
@@ -1474,7 +1544,7 @@ static void test_terminal_text_defaults_follow_connection_type() {
                   local.backspace_code == TerminalBackspaceCode::automatic &&
                   local.cursor_key_mode == TerminalCursorKeyMode::normal &&
                   local.return_code == TerminalReturnCode::automatic,
-              "local terminal text defaults should preserve VTE Return");
+              "local terminal text defaults should preserve terminal Return");
 
   const TerminalTextSettings telnet =
       default_terminal_text_settings(TerminalConnectionKind::telnet);
@@ -1482,7 +1552,7 @@ static void test_terminal_text_defaults_follow_connection_type() {
                   telnet.backspace_code == TerminalBackspaceCode::automatic &&
                   telnet.cursor_key_mode == TerminalCursorKeyMode::normal &&
                   telnet.return_code == TerminalReturnCode::automatic,
-              "TELNET terminal text defaults should preserve VTE Return");
+              "TELNET terminal text defaults should preserve terminal Return");
 
   const TerminalTextSettings serial =
       default_terminal_text_settings(TerminalConnectionKind::serial);
@@ -1498,7 +1568,7 @@ static void test_terminal_text_defaults_follow_connection_type() {
                   ssh.backspace_code == TerminalBackspaceCode::automatic &&
                   ssh.cursor_key_mode == TerminalCursorKeyMode::normal &&
                   ssh.return_code == TerminalReturnCode::automatic,
-              "SSH terminal text defaults should preserve VTE Return");
+              "SSH terminal text defaults should preserve terminal Return");
 }
 
 static void test_terminal_text_explicit_settings_override_connection_defaults() {
@@ -2116,7 +2186,7 @@ static void test_sftp_profile_uses_ssh_endpoint_without_terminal_profile() {
       elder_terms::general_settings_select_sftp_connection(result.store),
       "SFTP selector should recognize the configured connection");
   expect_true(!terminal_connection_profile(result.store).has_value(),
-              "SFTP should not produce a VTE terminal connection profile");
+              "SFTP should not produce a terminal terminal connection profile");
 
   const elder_terms::SftpConnectionSettings settings =
       elder_terms::sftp_connection_settings(result.store);
@@ -2184,7 +2254,7 @@ static void test_ftp_profile_uses_independent_endpoint_and_active_mode() {
       elder_terms::general_settings_select_ftp_connection(result.store),
       "FTP selector should recognize the configured connection");
   expect_true(!terminal_connection_profile(result.store).has_value(),
-              "FTP should not produce a VTE terminal connection profile");
+              "FTP should not produce a terminal terminal connection profile");
 
   const elder_terms::FtpConnectionSettings settings =
       elder_terms::ftp_connection_settings(result.store);
@@ -2479,13 +2549,13 @@ static void test_invalid_values_fall_back_to_defaults() {
   write_config(path,
                "[general]\n"
                "auto_close=invalid\n"
+               "show_border=invalid\n"
                "type=telnet\n"
                "\n"
                "[terminal]\n"
                "width=invalid\n"
                "height=-5\n"
-               "zoom=0\n"
-               "show_border=invalid\n"
+               "font_size_dip=0\n"
                "\n"
                "[telnet]\n"
                "address=127.0.0.1\n"
@@ -2506,12 +2576,12 @@ static void test_invalid_values_fall_back_to_defaults() {
               "invalid terminal width should fall back to default");
   expect_true(display.height == 24,
               "invalid terminal height should fall back to default");
-  expect_true(display.zoom == 1.0,
-              "invalid terminal zoom should fall back to default");
+  expect_true(display.font_size_dip == 1.0,
+              "invalid terminal font_size_dip should fall back to default");
   expect_true(general_auto_close(result.store),
               "invalid terminal auto-close should fall back to default");
-  expect_true(!terminal_show_border(result.store),
-              "invalid terminal border visibility should fall back to false");
+  expect_true(!general_show_border(result.store),
+              "invalid window border visibility should fall back to false");
 
   const TerminalConnectionProfile profile =
       required_terminal_connection_profile(result.store);
@@ -2531,16 +2601,16 @@ static void test_invalid_values_fall_back_to_defaults() {
                                "invalid configuration value [terminal] height"),
               "invalid terminal height should emit a warning");
   expect_true(warnings_contain(result.warnings,
-                               "invalid configuration value [terminal] zoom"),
-              "invalid terminal zoom should emit a warning");
+                               "invalid configuration value [terminal] font_size_dip"),
+              "invalid terminal font_size_dip should emit a warning");
   expect_true(warnings_contain(
                   result.warnings,
                   "invalid configuration value [general] auto_close"),
               "invalid terminal auto-close should emit a warning");
   expect_true(warnings_contain(
                   result.warnings,
-                  "invalid configuration value [terminal] show_border"),
-              "invalid terminal border visibility should emit a warning");
+                  "invalid configuration value [general] show_border"),
+              "invalid window border visibility should emit a warning");
   expect_true(warnings_contain(result.warnings,
                                "invalid configuration value [telnet] port"),
               "invalid TELNET port should emit a warning");
@@ -2647,19 +2717,19 @@ static void test_public_setting_keys() {
                       "scrollback_lines",
               "terminal scrollback key should use [terminal] "
               "scrollback_lines");
-  expect_true(terminal_zoom_setting_key().name == "zoom",
-              "terminal zoom key should use the zoom name");
+  expect_true(terminal_font_size_dip_setting_key().name == "font_size_dip",
+              "terminal font_size_dip key should use the font_size_dip name");
   expect_true(terminal_font_families_setting_key().section == "terminal" &&
                   terminal_font_families_setting_key().name == "font_families",
               "the font list key should use [terminal] font_families");
   expect_true(general_auto_close_setting_key().name == "auto_close",
               "general auto_close key should use the auto_close name");
-  expect_true(terminal_show_border_setting_key().section == "terminal" &&
-                  terminal_show_border_setting_key().name == "show_border",
-              "terminal border key should use [terminal] show_border");
-  expect_true(terminal_border_width_setting_key().section == "terminal" &&
-                  terminal_border_width_setting_key().name == "border_width",
-              "terminal border width key should use [terminal] border_width");
+  expect_true(general_show_border_setting_key().section == "general" &&
+                  general_show_border_setting_key().name == "show_border",
+              "window border key should use [general] show_border");
+  expect_true(general_border_width_setting_key().section == "general" &&
+                  general_border_width_setting_key().name == "border_width",
+              "window border width key should use [general] border_width");
   expect_true(terminal_zoom_in_key_setting_key().section == "terminal" &&
                   terminal_zoom_in_key_setting_key().name == "zoom_in_key",
               "terminal zoom-in key should use [terminal] zoom_in_key");
@@ -2909,13 +2979,13 @@ static void test_save_settings_omits_default_values() {
                     elder_terms::SettingValue{gint64{81}});
   set_setting_value(&store, terminal_height_setting_key(),
                     elder_terms::SettingValue{gint64{24}});
-  set_setting_value(&store, terminal_zoom_setting_key(),
+  set_setting_value(&store, terminal_font_size_dip_setting_key(),
                     elder_terms::SettingValue{gdouble{1.0}});
   set_setting_value(&store, general_auto_close_setting_key(),
                     elder_terms::SettingValue{false});
-  set_setting_value(&store, terminal_show_border_setting_key(),
+  set_setting_value(&store, general_show_border_setting_key(),
                     elder_terms::SettingValue{true});
-  set_setting_value(&store, terminal_border_width_setting_key(),
+  set_setting_value(&store, general_border_width_setting_key(),
                     elder_terms::SettingValue{gint64{6}});
   set_setting_value(&store, terminal_zoom_in_key_setting_key(),
                     elder_terms::SettingValue{std::string("alt+Up")});
@@ -2952,9 +3022,9 @@ static void test_save_settings_omits_default_values() {
   expect_true(content.find("auto_close=false") != std::string::npos,
               "saved settings should include non-default auto-close");
   expect_true(content.find("show_border=true") != std::string::npos,
-              "saved settings should include enabled terminal borders");
+              "saved settings should include enabled window borders");
   expect_true(content.find("border_width=6") != std::string::npos,
-              "saved settings should include non-default terminal border width");
+              "saved settings should include non-default window border width");
   expect_true(content.find("zoom_in_key=alt+Up") != std::string::npos,
               "saved settings should include non-default zoom-in key");
   expect_true(content.find("send_break_key=shift+F12") != std::string::npos,
@@ -2978,8 +3048,8 @@ static void test_save_settings_omits_default_values() {
               "saved settings should include text-send Return-code behavior");
   expect_true(content.find("height=") == std::string::npos,
               "saved settings should omit default terminal height");
-  expect_true(content.find("zoom=") == std::string::npos,
-              "saved settings should omit default terminal zoom");
+  expect_true(content.find("font_size_dip=") == std::string::npos,
+              "saved settings should omit default terminal font_size_dip");
   expect_true(content.find("zoom_out_key=") == std::string::npos,
               "saved settings should omit default zoom-out key");
   expect_true(content.find("port=") == std::string::npos,
@@ -3081,7 +3151,7 @@ static void test_save_explicit_value_equal_to_built_in() {
       create_default_settings(default_terminal_display_settings(1.0),
                               "elder-terms");
   set_explicit_setting_value(
-      &store, terminal_zoom_setting_key(),
+      &store, terminal_font_size_dip_setting_key(),
       elder_terms::SettingValue{gdouble{1.0}});
 
   const SettingsSaveResult result = save_settings(store, path);
@@ -3089,7 +3159,7 @@ static void test_save_explicit_value_equal_to_built_in() {
               "saving an explicit built-in value should succeed");
   const std::string content = read_config(path);
   remove_config(path);
-  expect_true(content.find("zoom=1") != std::string::npos,
+  expect_true(content.find("font_size_dip=1") != std::string::npos,
               "an explicit value equal to built-in should be persisted");
 }
 
@@ -3286,7 +3356,7 @@ static void test_global_settings_layer_priority_and_sources() {
   write_config(config_path,
                "[terminal]\n"
                "width=100\n"
-               "zoom=1.25\n");
+               "font_size_dip=1.25\n");
   write_config(startup_path,
                "[terminal]\n"
                "width=110\n");
@@ -3308,7 +3378,7 @@ static void test_global_settings_layer_priority_and_sources() {
               "startup settings should override connection and global values");
   expect_true(display.height == 30,
               "global settings should override built-in values");
-  expect_true(display.zoom == 1.25,
+  expect_true(display.font_size_dip == 1.25,
               "connection settings should override built-in values");
   expect_true(setting_value_source(result.store,
                                    terminal_width_setting_key()) ==
@@ -4483,10 +4553,10 @@ static void test_regular_expression_reports_project_owned_matches() {
   std::string reason;
   elder_terms::RegularExpressionState *regex =
       elder_terms::create_regular_expression(
-          R"((?<scheme>https?)://(?<host>[\p{L}0-9.-]+))", false,
+          R"((?<scheme>https?)://(?<host>[\p{L}0-9.-]+))",
           &reason);
   expect_true(regex != nullptr,
-              "a valid PCRE2 expression should compile: " + reason);
+              "a valid boxrig expression should compile: " + reason);
   expect_true(elder_terms::regular_expression_capture_exists(regex, "0") &&
                   elder_terms::regular_expression_capture_exists(
                       regex, "scheme") &&
@@ -4598,9 +4668,15 @@ static void test_webdav_invalid_numeric_settings_remain_invalid_after_save() {
 
 int main() {
   try {
+    elder_terms_settings_test::test_general_borders_round_trip_and_layering();
     elder_terms_settings_test::test_webdav_settings_round_trip();
     elder_terms_settings_test::test_webdav_invalid_numeric_settings_remain_invalid_after_save();
     elder_terms_settings_test::test_independent_inactive_indicator_color();
+    elder_terms_settings_test::test_terminal_cursor_settings();
+    elder_terms_settings_test::test_terminal_background_settings();
+    elder_terms_settings_test::test_terminal_color_filter_settings();
+    elder_terms_settings_test::test_terminal_color_vision_settings();
+    elder_terms_settings_test::test_terminal_background_image_settings();
     elder_terms_settings_test::test_terminal_font_list_round_trip_and_validation();
     elder_terms_settings_test::test_default_settings();
     elder_terms_settings_test::test_general_indicator_color_round_trip_and_layering();
@@ -4609,7 +4685,7 @@ int main() {
     elder_terms_settings_test::
         test_terminal_scrollback_lines_range_and_round_trip();
     elder_terms_settings_test::
-        test_terminal_border_width_range_and_round_trip();
+        test_general_border_width_range_and_round_trip();
     elder_terms_settings_test::
         test_terminal_font_list_defaults_and_rebase();
     elder_terms_settings_test::
@@ -4618,10 +4694,6 @@ int main() {
     elder_terms_settings_test::test_general_color_settings();
     elder_terms_settings_test::
         test_general_color_none_overrides_global_colors();
-    elder_terms_settings_test::
-        test_terminal_type_defaults_follow_background_color();
-    elder_terms_settings_test::
-        test_configured_terminal_types_override_background_default();
     elder_terms_settings_test::
         test_invalid_general_colors_fall_back_and_warn();
     elder_terms_settings_test::test_terminal_text_defaults_follow_connection_type();

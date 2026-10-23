@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include "tray-backend.h"
 
 #include <cstring>
@@ -118,6 +123,35 @@ static cardio::promise<GVariant *> call_async(
       });
 }
 
+static int find_layout_id(GVariant *node, const std::string &label) {
+  gint id = -1;
+  GVariant *properties = nullptr;
+  GVariant *children = nullptr;
+  g_variant_get(node, "(i@a{sv}@av)", &id, &properties, &children);
+  const char *actual = nullptr;
+  const bool found = g_variant_lookup(properties, "label", "&s", &actual) &&
+                     label == actual;
+  g_variant_unref(properties);
+  if (found) {
+    g_variant_unref(children);
+    return id;
+  }
+  const auto length = g_variant_n_children(children);
+  for (gsize index = 0; index < length; ++index) {
+    GVariant *wrapped = g_variant_get_child_value(children, index);
+    GVariant *child = g_variant_get_variant(wrapped);
+    const int result = find_layout_id(child, label);
+    g_variant_unref(child);
+    g_variant_unref(wrapped);
+    if (result >= 0) {
+      g_variant_unref(children);
+      return result;
+    }
+  }
+  g_variant_unref(children);
+  return -1;
+}
+
 static cardio::promise<void> claim_watcher_async(Watcher &watcher) {
   GVariant *reply = co_await call_async(
       watcher.connection, "org.freedesktop.DBus", "/org/freedesktop/DBus",
@@ -142,6 +176,30 @@ struct Availability {
       elder_terms::TrayBackendAvailabilityState::pending;
   std::optional<cardio::promise_source<void>> changed;
 };
+
+struct MenuSignals {
+  int updates = 0;
+  std::optional<cardio::promise_source<void>> changed;
+};
+
+static void on_menu_layout_updated(GDBusConnection *, const gchar *,
+                                   const gchar *, const gchar *,
+                                   const gchar *, GVariant *,
+                                   gpointer user_data) {
+  auto *signals = static_cast<MenuSignals *>(user_data);
+  ++signals->updates;
+  if (signals->changed.has_value())
+    (void)signals->changed->try_resolve();
+}
+
+static cardio::promise<void> wait_for_menu_updates_async(
+    MenuSignals &signals, int expected) {
+  while (signals.updates < expected) {
+    signals.changed.emplace();
+    co_await signals.changed->get_promise();
+    signals.changed.reset();
+  }
+}
 
 static cardio::promise<void> wait_for_availability_async(
     Availability &availability, elder_terms::TrayBackendAvailabilityState expected) {
@@ -178,6 +236,7 @@ static cardio::promise<void> exercise_async(
   using State = elder_terms::TrayBackendAvailabilityState;
   Availability availability;
   elder_terms::TrayBackendState *backend = nullptr;
+  std::vector<std::string> opened_connections;
   try {
     auto first = create_watcher(address, scenario != "late-host");
     if (scenario != "late-watcher" && scenario != "destroy-waiting") {
@@ -191,6 +250,11 @@ static cardio::promise<void> exercise_async(
         .icon_name = "elder-terms",
         .callbacks = {
             .activate = {}, .application_settings = {}, .about = {}, .quit = {},
+            .open_connection = [&opened_connections](
+                const std::string &key,
+                const elder_terms::TrayActivationContext &) {
+              opened_connections.push_back(key);
+            },
             .availability_changed = [&availability](State value) {
               availability.current = value;
               if (availability.changed.has_value()) {
@@ -223,13 +287,208 @@ static cardio::promise<void> exercise_async(
               "The recovered tray must use StatusNotifierItem");
     }
 
+    if (scenario == "connections") {
+      elder_terms::update_tray_connections(backend, {
+          {"first", "First_connection", "Ctrl+Alt+X", "default"},
+          {"second", "Second", "", "default"},
+      });
+      const char *destination = g_dbus_connection_get_unique_name(
+          g_application_get_dbus_connection(application));
+      GVariant *layout = co_await call_async(
+          first->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "GetLayout",
+          g_variant_new("(ii@as)", 0, -1,
+                        g_variant_new_strv(nullptr, 0)));
+      const std::string printed = g_variant_print(layout, TRUE);
+      require(printed.find("Connections") != std::string::npos,
+              "The menu must have a Connections submenu");
+      require(printed.find("First__connection (Ctrl+Alt+X)") !=
+                  std::string::npos,
+              "Connection names must remain literal and show shortcuts");
+      require(printed.find("Second") != std::string::npos,
+              "The submenu must show every connection");
+      guint revision = 0;
+      GVariant *root = nullptr;
+      g_variant_get(layout, "(u@(ia{sv}av))", &revision, &root);
+      const int first_id = find_layout_id(
+          root, "First__connection (Ctrl+Alt+X)");
+      require(first_id > 0, "The first connection must have an ID");
+      g_variant_unref(root);
+      g_variant_unref(layout);
+
+      const gchar *label_property[] = {"label"};
+      GVariant *filtered = co_await call_async(
+          first->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "GetLayout",
+          g_variant_new("(ii@as)", 5, 0,
+                        g_variant_new_strv(label_property, 1)));
+      GVariant *submenu = nullptr;
+      g_variant_get(filtered, "(u@(ia{sv}av))", &revision, &submenu);
+      gint submenu_id = 0;
+      GVariant *submenu_properties = nullptr;
+      GVariant *submenu_children = nullptr;
+      g_variant_get(submenu, "(i@a{sv}@av)", &submenu_id,
+                    &submenu_properties, &submenu_children);
+      const char *submenu_label = nullptr;
+      require(submenu_id == 5 &&
+                  g_variant_lookup(submenu_properties, "label", "&s",
+                                   &submenu_label) &&
+                  std::strcmp(submenu_label, "Connections") == 0 &&
+                  g_variant_n_children(submenu_children) == 0 &&
+                  g_variant_lookup_value(submenu_properties, "enabled",
+                                         nullptr) == nullptr,
+              "GetLayout must honor parent, depth, and property filter");
+      g_variant_unref(submenu_children);
+      g_variant_unref(submenu_properties);
+      g_variant_unref(submenu);
+      g_variant_unref(filtered);
+
+      const gint32 requested_id = first_id;
+      const gchar *icon_property[] = {"icon-data"};
+      GVariant *group = co_await call_async(
+          first->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "GetGroupProperties",
+          g_variant_new("(@ai@as)",
+              g_variant_new_fixed_array(G_VARIANT_TYPE_INT32,
+                                        &requested_id, 1, sizeof(requested_id)),
+              g_variant_new_strv(icon_property, 1)));
+      GVariant *group_items = nullptr;
+      g_variant_get(group, "(@a(ia{sv}))", &group_items);
+      require(g_variant_n_children(group_items) == 1,
+              "GetGroupProperties must include a requested connection");
+      GVariant *group_item = g_variant_get_child_value(group_items, 0);
+      gint group_id = 0;
+      GVariant *group_properties = nullptr;
+      g_variant_get(group_item, "(i@a{sv})", &group_id, &group_properties);
+      GVariant *png = g_variant_lookup_value(group_properties, "icon-data",
+                                               G_VARIANT_TYPE("ay"));
+      gsize png_size = 0;
+      const auto *png_bytes = png == nullptr ? nullptr :
+          static_cast<const guint8 *>(g_variant_get_fixed_array(png, &png_size, 1));
+      require(group_id == first_id && png_bytes != nullptr && png_size > 8 &&
+                  std::memcmp(png_bytes, "\x89PNG\r\n\x1a\n", 8) == 0,
+              "Connection icon-data must be PNG bytes");
+      const std::vector<guint8> default_png(png_bytes,
+                                             png_bytes + png_size);
+      g_variant_unref(png);
+      g_variant_unref(group_properties);
+      g_variant_unref(group_item);
+      g_variant_unref(group_items);
+      g_variant_unref(group);
+
+      GVariant *event = co_await call_async(
+          first->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "Event",
+          g_variant_new("(isvu)", first_id, "clicked",
+                        g_variant_new_string(""), 42U));
+      g_variant_unref(event);
+      require(opened_connections.size() == 1 &&
+                  opened_connections.front() == "first",
+              "Clicking a connection must open the matching key");
+
+      elder_terms::update_tray_connections(backend, {
+          {"third", "Third", "", "default"},
+      });
+      layout = co_await call_async(
+          first->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "GetLayout",
+          g_variant_new("(ii@as)", 0, -1,
+                        g_variant_new_strv(nullptr, 0)));
+      guint newer_revision = 0;
+      g_variant_get(layout, "(u@(ia{sv}av))", &newer_revision, &root);
+      require(newer_revision > revision &&
+                  find_layout_id(root, "Third") > first_id &&
+                  find_layout_id(root, "First__connection (Ctrl+Alt+X)") < 0,
+              "Replacing connections must revise the menu without reusing IDs");
+      g_variant_unref(root);
+      g_variant_unref(layout);
+      event = co_await call_async(
+          first->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "Event",
+          g_variant_new("(isvu)", first_id, "clicked",
+                        g_variant_new_string(""), 43U));
+      g_variant_unref(event);
+      require(opened_connections.size() == 1,
+              "A stale menu ID must never open another connection");
+
+      MenuSignals signals;
+      const guint subscription = g_dbus_connection_signal_subscribe(
+          first->connection, destination, "com.canonical.dbusmenu",
+          "LayoutUpdated", "/StatusNotifierMenu", nullptr,
+          G_DBUS_SIGNAL_FLAGS_NONE, on_menu_layout_updated,
+          &signals, nullptr);
+      GVariant *barrier = co_await call_async(
+          first->connection, "org.freedesktop.DBus", "/org/freedesktop/DBus",
+          "org.freedesktop.DBus", "GetId", nullptr);
+      g_variant_unref(barrier);
+      elder_terms::update_tray_connections(backend, {
+          {"emoji", "Emoji icon", "", "noto:emoji_u1f44d"},
+      });
+      co_await wait_for_menu_updates_async(signals, 2);
+      g_dbus_connection_signal_unsubscribe(first->connection, subscription);
+      layout = co_await call_async(
+          first->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "GetLayout",
+          g_variant_new("(ii@as)", 0, -1,
+                        g_variant_new_strv(nullptr, 0)));
+      g_variant_get(layout, "(u@(ia{sv}av))", &newer_revision, &root);
+      const int emoji_id = find_layout_id(root, "Emoji icon");
+      require(emoji_id > first_id,
+              "The loaded preset must remain in the current menu");
+      g_variant_unref(root);
+      g_variant_unref(layout);
+      const gint32 requested_emoji = emoji_id;
+      group = co_await call_async(
+          first->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "GetGroupProperties",
+          g_variant_new("(@ai@as)",
+              g_variant_new_fixed_array(G_VARIANT_TYPE_INT32,
+                                        &requested_emoji, 1,
+                                        sizeof(requested_emoji)),
+              g_variant_new_strv(icon_property, 1)));
+      g_variant_get(group, "(@a(ia{sv}))", &group_items);
+      group_item = g_variant_get_child_value(group_items, 0);
+      g_variant_get(group_item, "(i@a{sv})", &group_id,
+                    &group_properties);
+      png = g_variant_lookup_value(group_properties, "icon-data",
+                                   G_VARIANT_TYPE("ay"));
+      png_bytes = png == nullptr ? nullptr :
+          static_cast<const guint8 *>(g_variant_get_fixed_array(png, &png_size, 1));
+      require(group_id == emoji_id && png_bytes != nullptr &&
+                  std::vector<guint8>(png_bytes, png_bytes + png_size) !=
+                      default_png,
+              "An asynchronously loaded preset must replace the default PNG");
+      g_variant_unref(png);
+      g_variant_unref(group_properties);
+      g_variant_unref(group_item);
+      g_variant_unref(group_items);
+      g_variant_unref(group);
+    }
+
     if (scenario == "restart") {
+      elder_terms::update_tray_connections(backend, {
+          {"retained", "Retained connection", "Ctrl+Alt+R", "default"},
+      });
       co_await release_watcher_async(*first);
       co_await wait_for_availability_async(availability, State::unavailable);
       auto second = create_watcher(address, true);
       co_await claim_watcher_async(*second);
       co_await wait_for_availability_async(availability, State::available);
       require(second->items.size() == 1, "The restarted host must receive the item");
+      const char *destination = g_dbus_connection_get_unique_name(
+          g_application_get_dbus_connection(application));
+      GVariant *layout = co_await call_async(
+          second->connection, destination, "/StatusNotifierMenu",
+          "com.canonical.dbusmenu", "GetLayout",
+          g_variant_new("(ii@as)", 0, -1,
+                        g_variant_new_strv(nullptr, 0)));
+      GVariant *root = nullptr;
+      guint revision = 0;
+      g_variant_get(layout, "(u@(ia{sv}av))", &revision, &root);
+      require(find_layout_id(root, "Retained connection (Ctrl+Alt+R)") > 0,
+              "A returning host must receive the current connection menu");
+      g_variant_unref(root);
+      g_variant_unref(layout);
     } else if (scenario == "host-signals" || scenario == "host-properties") {
       const bool properties = scenario == "host-properties";
       set_host_registered(*first, false, properties);

@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #include "control-server.h"
 #include "control-socket.h"
 
@@ -17,6 +22,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <cardio.h>
+#include <glib.h>
 
 namespace elder_terms {
 
@@ -35,8 +41,8 @@ static std::runtime_error socket_error(const char *operation) {
   return std::runtime_error(std::string(operation) + ": " + std::strerror(errno));
 }
 
-static std::string dispatch_request(ControlServerState *state,
-                                    const std::string &packet) {
+static cardio::promise<std::string> dispatch_request(ControlServerState *state,
+    std::string packet, cardio::cancellation cancellation) {
   // One half-closed stream carries command NUL connection NUL token.
   // NUL separation preserves whitespace, quotes and UTF-8 in connection names.
   const auto first = packet.find('\0');
@@ -44,36 +50,42 @@ static std::string dispatch_request(ControlServerState *state,
                           ? std::string::npos : packet.find('\0', first + 1);
   if (second == std::string::npos ||
       packet.find('\0', second + 1) != std::string::npos) {
-    return "ERROR Invalid control request\n";
+    co_return "ERROR Invalid control request\n";
   }
   const std::string command = packet.substr(0, first);
   const std::string connection = packet.substr(first + 1, second - first - 1);
   const std::string token = packet.substr(second + 1);
   if ((command != "open-application" && command != "open-connection" &&
+       command != "open-connection-id" &&
        command != "setup") ||
       ((command == "open-application" || command == "setup") &&
        !connection.empty()) ||
-      (command == "open-connection" && connection.empty())) {
-    return "ERROR Invalid control command\n";
+      (command == "open-connection" && connection.empty()) ||
+      (command == "open-connection-id" &&
+       !g_uuid_string_is_valid(connection.c_str()))) {
+    co_return "ERROR Invalid control command\n";
   }
-  const ControlReply reply = state->callback({
+  const ControlReply reply = co_await state->callback({
       .command = command == "setup"
                      ? ControlCommand::setup
                      : command == "open-connection"
                            ? ControlCommand::open_connection
+                           : command == "open-connection-id"
+                                 ? ControlCommand::open_connection_id
                            : ControlCommand::open_application,
-      .connection = command == "open-connection"
+      .connection = (command == "open-connection" ||
+                     command == "open-connection-id")
                         ? std::optional<std::string>(connection) : std::nullopt,
       .activation_token = token.empty() ? std::nullopt
                                        : std::optional<std::string>(token),
-  });
+  }, cancellation);
   if (reply.pending) {
-    return "PENDING " + reply.message + "\n";
+    co_return "PENDING " + reply.message + "\n";
   }
   if (!reply.success) {
-    return "ERROR " + reply.message + "\n";
+    co_return "ERROR " + reply.message + "\n";
   }
-  return reply.message.empty() ? "OK\n" : "OK " + reply.message + "\n";
+  co_return reply.message.empty() ? "OK\n" : "OK " + reply.message + "\n";
 }
 
 static cardio::promise<void> serve_client(ControlServerState *state, int fd) {
@@ -110,7 +122,8 @@ static cardio::promise<void> serve_client(ControlServerState *state, int fd) {
       }
     }
     const std::string response = oversized
-        ? "ERROR Control request is too large\n" : dispatch_request(state, packet);
+        ? "ERROR Control request is too large\n" : co_await dispatch_request(
+            state, std::move(packet), cancellation.get_cancellation());
     std::size_t offset = 0;
     while (offset < response.size()) {
       const auto count = send(fd, response.data() + offset,

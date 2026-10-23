@@ -1,3 +1,8 @@
+// elder-terms: A terminal application, inspired by personal computing in the 1990s.
+// Copyright (c) Kouji Matsui. (@kekyo@mi.kekyo.net)
+// Under MIT.
+// https://github.com/kekyo/elder-terms/
+
 #pragma once
 
 #include <optional>
@@ -37,7 +42,7 @@ struct HyperlinkActionRule {
   /** Terminal data against which the regular expression is matched. */
   HyperlinkRecognitionSource recognition_source =
       HyperlinkRecognitionSource::osc8;
-  /** PCRE2 regular expression used to recognize the link. */
+  /** Bounded boxrig regular expression used to recognize the link. */
   std::string pattern;
   /** Fixed executable name or path, without capture expansion. */
   std::string command;
