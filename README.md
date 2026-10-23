@@ -124,9 +124,11 @@ time the terminal starts.
 
 Terminal settings are split into two tabs. "Terminal" contains encoding, special
 keys, rows and columns, scrollback, BEL, shortcuts, and screen-reader access.
-"Terminal appearance" contains fonts, text size, borders, the cursor, background,
+"Terminal appearance" contains fonts, text size, the cursor, background,
 and color correction. The same layout is used for individual connections and
 "Connection defaults". Neither tab is shown for file transfers.
+Border visibility and width are configured on the "General" tab for both
+terminal and file transfer windows.
 
 ![Settings (Terminal)](./images/settings-terminal.png)
 
@@ -741,8 +743,11 @@ bottom status bar and puts the activity indicators beside the title. The
 dropdown can also use the global default or explicitly disable compact mode.
 It works for terminal and FTP, FTPS, SFTP, and WebDAV file browser windows. The
 built-in default is off.
-When window side borders are enabled, a compact terminal also shows a bottom
-border of the same width.
+Enable window side borders on the "General" tab to show borders of the chosen
+width on both sides of the window. Compact mode also shows a bottom border
+of the same width. In INI files, use `show_border` and `border_width` in
+`[general]` to set visibility and width in pixels. Widths from 1 to 1000px are
+accepted, with a default of 4px. Borders are disabled by default.
 
 ```ini
 [general]
