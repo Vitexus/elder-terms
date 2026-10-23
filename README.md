@@ -196,6 +196,8 @@ Well then, enjoy elder-terms!
 
 ## Configuration Structure
 
+![Inherited configuration values](./images/configuration-structure.png)
+
 elder-terms has the following three kinds of configuration values. Items later
 in the list take precedence.
 
@@ -228,6 +230,8 @@ removes the explicit value, causing the setting to inherit the global or
 built-in default again.
 
 ## Configuring Connection Icons
+
+![Connection icon picker](./images/connection-icon-picker.png)
 
 Open "Choose icon…" on a connection's "General" tab to display a popup grid.
 Switch between Noto Color Emoji and Material Icons, scroll through the images,
@@ -291,6 +295,8 @@ In an INI file, `[general] icon` accepts these forms:
 
 ## Finding a Host with IP Scan
 
+![IP scan results](./images/ip-scan-results.png)
+
 The TELNET, SSH/SFTP, and FTP settings place an "IP scan" button beside the
 address field.
 Opening it immediately scans the IPv4 ranges of all configured network interfaces
@@ -330,6 +336,8 @@ See the [systemd resolver API documentation](https://github.com/systemd/systemd/
 
 ## Using SSH and SFTP
 
+![SSH and SFTP connection settings](./images/ssh-sftp-settings.png)
+
 SSH, SFTP, TELNET, WebDAV and passive FTP/FTPS can use an SSH gateway.
 Configure it in the separate "SSH proxy" tab, keeping the final destination in
 its protocol tab. See [Using SSH proxy](./docs/en/ssh-proxy.md) for inheritance,
@@ -356,6 +364,8 @@ and therefore does not ask for them again.
 
 ## Reconnecting SSH and TELNET
 
+![Reconnect button after disconnection](./images/ssh-telnet-reconnect.png)
+
 To keep a disconnected terminal open,
 turn off "Close window when session ends" in its General settings (`[general] auto_close=false`).
 The disconnected overlay then offers a "Reconnect" button for SSH and TELNET.
@@ -364,6 +374,8 @@ It becomes clickable after the previous connection's pending work has stopped.
 This button is not available with automatic closing enabled or for local and serial terminals.
 
 ## Using FTP/FTPS
+
+![FTP and FTPS connection settings](./images/ftp-ftps-settings.png)
 
 Create a connection in the launcher and select `FTP` as its connection type.
 The FTP tab contains the server address, control port, user name, data
@@ -400,6 +412,8 @@ For more information about FTPS and FTP details, see [the document](./docs/ja/ft
 
 ## Using WebDAV
 
+![WebDAV connection settings](./images/webdav-settings.png)
+
 Select `WebDAV` as the connection type, then set the address, published path,
 and authentication on the WebDAV tab. For `https://files.example.com/dav/team/`,
 use `files.example.com` as the address and `/dav/team/` as the published path.
@@ -419,6 +433,8 @@ according to the connection settings.
 See [Using WebDAV](./docs/en/webdav.md) for settings and supported operations.
 
 ## Managing Items in SFTP/FTP/FTPS and WebDAV
+
+![File transfer item menu](./images/file-transfer-item-menu.png)
 
 SFTP/FTP/FTPS and WebDAV use the same two-pane file browser.
 Select an item in either the local or remote pane and right-click it to open the item menu.
@@ -457,6 +473,8 @@ The browser is temporarily covered by a progress overlay and is refreshed when t
 
 ## Local Startup Process
 
+![Local startup command](./images/local-startup-process.png)
+
 For a Local connection, "Startup command" on the Local tab selects the process that `elder-terms-terminal` starts in the terminal.
 The setting takes effect the next time the connection is opened and is read-only in a running terminal.
 
@@ -478,6 +496,8 @@ The same `[local]` setting can be saved as a global default or overridden for an
 Clearing "Startup command" restores inheritance.
 
 ## Selecting a Serial Device
+
+![Serial device selector](./images/serial-device-selector.png)
 
 For a serial connection, "Device identification" lets you choose one of three
 ways to identify the device:
@@ -522,6 +542,8 @@ choose the identification method above that suits your use case.
 
 ## Monitoring Serial Connections
 
+![Serial connection monitoring settings](./images/serial-connection-monitoring.png)
+
 "Connection monitoring signal" detects a session disconnection when DCD, CTS, or DSR changes from high to low.
 Select "Ignore (do not monitor)" if your USB serial adapter has no usable modem-line signal, 
 or if its driver does not support polling modem lines and reports "Invalid argument".
@@ -540,6 +562,8 @@ carrier_detect=ignore
 ```
 
 ## Character Encoding and Special Key Settings
+
+![Character encoding and special key settings](./images/terminal-encoding-keys.png)
 
 "Character encoding" converts bytes received from the remote host to UTF-8 for
 display, and converts entered text to the remote host's character encoding.
@@ -580,6 +604,8 @@ return_code=crlf
 
 ## Selecting and Copying Terminal Text
 
+![Selecting and copying terminal text](./images/terminal-text-selection.png)
+
 Drag with the left mouse button to select text. The selection uses a gray fill, with your configured color correction applied.
 A normal selection follows text order; a block selection is a rectangle aligned to display columns.
 
@@ -614,6 +640,8 @@ Focus changes, menus, and disconnection end an active drag. Changing focus alone
 
 ## Newlines When Sending and Pasting Text
 
+![Text sending and pasting settings](./images/terminal-send-paste.png)
+
 "Follow Enter/Return code for text send" applies to sending text files,
 macro output, and all text pasted from the clipboard or primary selection through a keyboard shortcut or the context menu.
 The built-in default is enabled.
@@ -636,6 +664,8 @@ text_send_follow_return_code=true
 ```
 
 ## Sending BREAK
+
+![Send BREAK menu item](./images/terminal-break-menu.png)
 
 When a key combination is assigned to "Send BREAK shortcut", one BREAK is sent for each physical key press.
 Automatic repeats caused by holding the key are suppressed.
@@ -675,6 +705,8 @@ If you use a different encoding, receiving extended or altered characters can pr
 
 ## Configuring the Scrollback Buffer
 
+![Scrollback buffer settings](./images/scrollback-settings.png)
+
 "Scrollback lines" on the "Terminal" tab sets the normal-screen history, from 1,000 to 100,000 lines.
 The built-in default is 10,000 lines.
 
@@ -686,6 +718,8 @@ scrollback_lines=20000
 ```
 
 ## Configuring the BEL Sound
+
+![BEL sound settings](./images/bel-sound-settings.png)
 
 "BEL sound" on the "Terminal" tab selects the sound played when the terminal receives BEL.
 The built-in `default` value uses the desktop environment's beep.
@@ -699,6 +733,8 @@ bell_sound=/home/user/.local/share/sounds/terminal-bell.oga
 ```
 
 ## Compact Mode
+
+![Compact mode](./images/compact-mode.png)
 
 Choosing "Enabled" for "Compact mode" on a connection's General tab hides the
 bottom status bar and puts the activity indicators beside the title. The
@@ -714,6 +750,8 @@ compact_mode=true
 ```
 
 ## Configuring Indicator Color
+
+![Indicator color settings](./images/indicator-color-settings.png)
 
 On the "General" tab, set "Active indicator color" and "Inactive indicator color" independently.
 Each applies to CONN, LOG, SD, RD, and all serial line indicators.
@@ -737,6 +775,8 @@ Invalid values produce a warning and use the next valid inherited or built-in va
 
 ## Configuring Text Size
 
+![Text size settings](./images/text-size-settings.png)
+
 "Text size (DIP)" on the "Terminal appearance" tab sets the text size. A DIP is based on 1/96 inch; the default is 12 DIP.
 You can also use `Ctrl`+`=`, `Ctrl`+`-`, or the mouse wheel while holding `Ctrl`. The committed size is saved in the connection settings.
 Zooming preserves the row and column counts reported to the connection. Resizing the window manually reports the new counts.
@@ -747,6 +787,8 @@ font_size_dip=14.5
 ```
 
 ## Configuring the Cursor and Background
+
+![Cursor and background settings](./images/cursor-background-settings.png)
 
 Cursor, background, and color correction options are on the "Terminal appearance" tab.
 They can inherit connection defaults or be overridden for each connection.
@@ -787,6 +829,8 @@ See [boxrig's background effects](https://github.com/kekyo/boxrig/blob/0.6.0/doc
 
 ## Improving Text Color Visibility
 
+![Text contrast correction](./images/text-contrast-settings.png)
+
 Select "Improve visibility (Oklch)" under "Color filter" on the "Terminal appearance" tab to improve contrast for text and markers that are difficult to distinguish from their background. All hues, including red, green, and blue, and neutral gray, black, and white are included.
 Oklch represents color using separate lightness, chroma, and hue components. This correction preserves hue and primarily adjusts lightness.
 Colors with a contrast ratio of at least 4.5:1 against the background are retained; only colors below that threshold are adjusted. Chroma is reduced when necessary to fit the displayable color range, and neutral colors remain neutral. The default is "No correction".
@@ -808,6 +852,8 @@ color_filter=oklch
 ```
 
 ## Reversing Background and Text Polarity
+
+![Reversing background and text polarity](./images/reverse-polarity-settings.png)
 
 Choose one of five modes under "Color filter" on the "Terminal appearance" tab. They turn white text on black into black text on white and continuously transform nearby colors as well. Use "Compare colors" to choose a mode that suits your usual palette.
 
@@ -837,6 +883,8 @@ color_filter=reverse-roles
 Use `none` to disable the filter or `oklch` for the existing visibility correction. Global and per-connection settings, inheritance, Apply, Save, and Cancel work as with other display preferences.
 
 ## Helping Distinguish Colors
+
+![Color distinction settings](./images/color-distinction-settings.png)
 
 Select Protan (P), Deutan (D), or Tritan (T) under "Color discrimination" on the "Terminal appearance" tab.
 Recoloring represents information from difficult-to-distinguish colors using differences in other colors.
@@ -874,6 +922,8 @@ Accepted `color_vision` values are `none`, `protan`, `deutan`, and `tritan`.
 
 ## Configuring Font Families
 
+![Font family settings](./images/font-family-settings.png)
+
 Use the "Terminal appearance" tab to edit an ordered list of font families.
 Add or remove rows, and use the up/down buttons to change their priority.
 Each row accepts a family name or opens a font chooser.
@@ -908,6 +958,8 @@ Semicolons and backslashes inside a name use the [GLib KeyFile escaping rules](h
 (`\;` and `\\`). Invalid lists produce a warning and use the next valid inherited or built-in value.
 
 ## Configuring Hotkeys
+
+![Hotkey settings](./images/hotkey-settings.png)
 
 Hotkeys work only while the elder-terms launcher is running.
 In environments with a system tray, you can keep the launcher in the tray by opening the launcher's application menu,
@@ -1062,6 +1114,8 @@ the command forwards it for window activation; focus remains subject to your com
 
 ## Configuring the Terminal Type
 
+![Terminal type settings](./images/terminal-type-settings.png)
+
 The terminal type is a name that tells the remote host which kind of terminal
 elder-terms emulates. This value is automatically reported during terminal-type
 negotiation for TELNET and when allocating a pseudo-terminal for SSH.
@@ -1076,6 +1130,8 @@ The default for TELNET and SSH is `xterm-256color`. Use global or connection set
 
 ## Configuring the Display Language
 
+![Display language settings](./images/language-settings.png)
+
 "Display language" under the launcher's "Application settings" lets you select
 the system default, English, Arabic, Spanish, French, Hindi, Japanese, Korean,
 Portuguese, Russian, or Simplified Chinese.
@@ -1086,6 +1142,8 @@ when you save, or restart it manually later. Terminal, SFTP, and FTP windows
 that are already open do not change language immediately either.
 
 ## Checking the Running Version
+
+![Version in the About dialog](./images/about-dialog.png)
 
 Open the application menu in either the launcher or a terminal window and
 select "About elder-terms". Both entries open the same launcher-owned dialog,
@@ -1099,6 +1157,8 @@ package.
 > a pull request.
 
 ## Configuring Logging
+
+![Logging settings](./images/logging-settings.png)
 
 Enabling "Enable logging" records content received from the remote host in a
 file. "Log directory" is the base destination directory and defaults to
@@ -1130,6 +1190,8 @@ without conversion, preserving the encoding configured for the connection.
 character encoding has been converted for display.
 
 ## Configuring Macros
+
+![Macro settings](./images/macro-settings.png)
 
 Macros (automatic macros) monitor text received from the remote host with
 regular expressions. When a match is found, they either send text to the host
@@ -1186,6 +1248,8 @@ and redirections is not interpreted. Specify each required value as a separate
 item in `arguments`.
 
 ## Configuring Terminal Link Actions
+
+![Terminal link action settings](./images/terminal-link-actions.png)
 
 Hold `Ctrl` and left-click a recognized link to run its configured external
 command. A rule can inspect either the target of an OSC 8 escape sequence or a
