@@ -2507,20 +2507,20 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expect((await endBorder.info()).states).not.toContain('showing');
 
       await openSettingsDialog(app);
-      await showTerminalAppearanceSettingsPage(app);
+      await showGeneralSettingsPage(app);
       await expectSelectedComboValue(
         app,
-        'settings_terminal_show_border_combo',
+        'settings_general_show_border_combo',
         'Disabled (built-in default)'
       );
       expect(
         await expectElementKind(
-          await app.getById('settings_terminal_border_width_entry'),
+          await app.getById('settings_general_border_width_entry'),
           'entry'
         ).text()
       ).toBe('');
       await expectElementKind(
-        await app.getById('settings_terminal_show_border_combo'),
+        await app.getById('settings_general_show_border_combo'),
         'comboBox'
       ).selectChildAt(1);
       await expectElementKind(
@@ -2552,14 +2552,14 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expectWindowCellSize(borderedLayout, defaultColumns, defaultRows);
 
       await openSettingsDialog(app);
-      await showTerminalAppearanceSettingsPage(app);
+      await showGeneralSettingsPage(app);
       await expectSelectedComboValue(
         app,
-        'settings_terminal_show_border_combo',
+        'settings_general_show_border_combo',
         'Enabled'
       );
       await expectElementKind(
-        await app.getById('settings_terminal_border_width_entry'),
+        await app.getById('settings_general_border_width_entry'),
         'entry'
       ).setText('7');
       await expectElementKind(
@@ -2583,14 +2583,14 @@ describe.concurrent('elder-terms-terminal settings', () => {
       expectWindowCellSize(widenedLayout, defaultColumns, defaultRows);
 
       await openSettingsDialog(app);
-      await showTerminalAppearanceSettingsPage(app);
+      await showGeneralSettingsPage(app);
       await expectSelectedComboValue(
         app,
-        'settings_terminal_show_border_combo',
+        'settings_general_show_border_combo',
         'Enabled'
       );
       await expectElementKind(
-        await app.getById('settings_terminal_show_border_combo'),
+        await app.getById('settings_general_show_border_combo'),
         'comboBox'
       ).selectChildAt(2);
       await expectElementKind(
@@ -2608,6 +2608,34 @@ describe.concurrent('elder-terms-terminal settings', () => {
       });
       expect((await startBorder.info()).states).not.toContain('showing');
       expect((await endBorder.info()).states).not.toContain('showing');
+
+      await openSettingsDialog(app);
+      await showGeneralSettingsPage(app);
+      await expectElementKind(
+        await app.getById('settings_general_border_width_entry'),
+        'entry'
+      ).setText('3');
+      await expectElementKind(
+        await app.getById('settings_general_show_border_combo'),
+        'comboBox'
+      ).selectChildAt(1);
+      await expectElementKind(
+        await app.getById('settings_apply_button'),
+        'button'
+      ).click();
+      await expectSettingsDialogClosed(app);
+
+      await waitForResult(async () => {
+        const layout = await readTerminalGridLayout(app);
+        expectWindowCellSize(layout, defaultColumns, defaultRows);
+        await expectFixtureTerminalGridSize(app, defaultColumns, defaultRows);
+        expect(layout.chromeWidth).toBe(initialLayout.chromeWidth + 6);
+        expect(layout.mainBounds.width).toBe(
+          initialLayout.mainBounds.width + 6
+        );
+        expect((await startBorder.capture()).bounds.width).toBe(3);
+        expect((await endBorder.capture()).bounds.width).toBe(3);
+      });
     });
   }, 120_000);
 

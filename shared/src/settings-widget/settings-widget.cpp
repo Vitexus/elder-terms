@@ -79,8 +79,8 @@ static constexpr char boolean_enabled[] = "enabled";
 static constexpr char boolean_disabled[] = "disabled";
 static constexpr gint64 minimum_terminal_scrollback_lines = 1000;
 static constexpr gint64 maximum_terminal_scrollback_lines = 100000;
-static constexpr gint64 minimum_terminal_border_width = 1;
-static constexpr gint64 maximum_terminal_border_width = 1000;
+static constexpr gint64 minimum_general_border_width = 1;
+static constexpr gint64 maximum_general_border_width = 1000;
 
 struct ConnectionSettingsPage {
   std::vector<const char *> connection_types;
@@ -133,6 +133,9 @@ struct SettingsWidgetState {
   GtkWidget *general_type_combo = nullptr;
   GtkWidget *general_auto_close_combo = nullptr;
   GtkWidget *general_compact_mode_combo = nullptr;
+  GtkWidget *general_show_border_combo = nullptr;
+  GtkWidget *general_border_width_entry = nullptr;
+  bool general_border_width_valid = true;
   KeyBindingInputWidgetState *general_open_connection_input = nullptr;
   GtkWidget *general_open_connection_reset_button = nullptr;
   GtkWidget *general_exterior_background_mode_combo = nullptr;
@@ -158,9 +161,7 @@ struct SettingsWidgetState {
   std::vector<TerminalFontRow> terminal_font_rows;
   std::vector<std::string> terminal_font_draft;
   bool terminal_fonts_valid = true;
-  GtkWidget *terminal_show_border_combo = nullptr;
   GtkWidget *terminal_accessibility_enabled_combo = nullptr;
-  GtkWidget *terminal_border_width_entry = nullptr;
   GtkWidget *terminal_bell_sound_entry = nullptr;
   GtkWidget *terminal_bell_sound_dialog = nullptr;
   GtkWidget *terminal_encoding_combo = nullptr;
@@ -179,7 +180,6 @@ struct SettingsWidgetState {
   bool terminal_width_valid = true;
   bool terminal_height_valid = true;
   bool terminal_scrollback_lines_valid = true;
-  bool terminal_border_width_valid = true;
   bool terminal_font_size_dip_valid = true;
   bool terminal_encoding_valid = true;
   bool terminal_bell_sound_valid = true;
@@ -1061,32 +1061,32 @@ update_terminal_scrollback_lines_from_widget(SettingsWidgetState *state) {
 }
 
 static void
-update_terminal_border_width_from_widget(SettingsWidgetState *state) {
+update_general_border_width_from_widget(SettingsWidgetState *state) {
   const char *text =
-      gtk_entry_get_text(GTK_ENTRY(state->terminal_border_width_entry));
+      gtk_entry_get_text(GTK_ENTRY(state->general_border_width_entry));
   if (trim_ascii_whitespace(text == nullptr ? "" : text).empty()) {
     clear_explicit_setting_value(&state->draft_store,
-                                 terminal_border_width_setting_key());
-    state->terminal_border_width_valid = true;
-    set_entry_validation(state->terminal_border_width_entry, true, {});
+                                 general_border_width_setting_key());
+    state->general_border_width_valid = true;
+    set_entry_validation(state->general_border_width_entry, true, {});
     sync_cleared_entry(
-        state, state->terminal_border_width_entry,
-        terminal_border_width_setting_key(),
-        std::to_string(terminal_border_width(state->draft_store)));
+        state, state->general_border_width_entry,
+        general_border_width_setting_key(),
+        std::to_string(general_border_width(state->draft_store)));
     return;
   }
   gtk_entry_set_placeholder_text(
-      GTK_ENTRY(state->terminal_border_width_entry), nullptr);
+      GTK_ENTRY(state->general_border_width_entry), nullptr);
   gint64 value = 0;
   std::string reason;
-  state->terminal_border_width_valid = parse_integer_entry(
-      state->terminal_border_width_entry, minimum_terminal_border_width,
-      maximum_terminal_border_width, &value, &reason);
-  set_entry_validation(state->terminal_border_width_entry,
-                       state->terminal_border_width_valid, reason);
-  if (state->terminal_border_width_valid) {
+  state->general_border_width_valid = parse_integer_entry(
+      state->general_border_width_entry, minimum_general_border_width,
+      maximum_general_border_width, &value, &reason);
+  set_entry_validation(state->general_border_width_entry,
+                       state->general_border_width_valid, reason);
+  if (state->general_border_width_valid) {
     set_explicit_setting_value(&state->draft_store,
-                               terminal_border_width_setting_key(),
+                               general_border_width_setting_key(),
                                SettingValue{value});
   }
 }
@@ -1169,17 +1169,17 @@ static void update_general_compact_mode_from_widget(
       SettingValue{choice == boolean_enabled});
 }
 
-static void update_terminal_show_border_from_widget(
+static void update_general_show_border_from_widget(
     SettingsWidgetState *state) {
   const std::string choice = active_combo_id(
-      state->terminal_show_border_combo, inherit_choice);
+      state->general_show_border_combo, inherit_choice);
   if (choice == inherit_choice) {
     clear_explicit_setting_value(&state->draft_store,
-                                 terminal_show_border_setting_key());
+                                 general_show_border_setting_key());
     return;
   }
   set_explicit_setting_value(
-      &state->draft_store, terminal_show_border_setting_key(),
+      &state->draft_store, general_show_border_setting_key(),
       SettingValue{choice == boolean_enabled});
 }
 
@@ -1535,7 +1535,7 @@ static bool settings_inputs_valid(const SettingsWidgetState *state) {
          state->local_command_line_valid && state->terminal_width_valid &&
          state->terminal_height_valid &&
          state->terminal_scrollback_lines_valid &&
-         state->terminal_border_width_valid && state->terminal_font_size_dip_valid &&
+         state->general_border_width_valid && state->terminal_font_size_dip_valid &&
          state->terminal_color_vision_strength_valid &&
          state->terminal_encoding_valid &&
          state->terminal_bell_sound_valid && state->terminal_fonts_valid &&
@@ -3376,11 +3376,11 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
                            general_compact_mode_setting_key(),
                            general_compact_mode(state->draft_store));
   }
-  if (state->terminal_show_border_combo != nullptr) {
-    populate_boolean_combo(state->terminal_show_border_combo,
+  if (state->general_show_border_combo != nullptr) {
+    populate_boolean_combo(state->general_show_border_combo,
                            state->draft_store,
-                           terminal_show_border_setting_key(),
-                           terminal_show_border(state->draft_store));
+                           general_show_border_setting_key(),
+                           general_show_border(state->draft_store));
   }
   if (state->terminal_accessibility_enabled_combo != nullptr) {
     populate_boolean_combo(state->terminal_accessibility_enabled_combo,
@@ -3420,13 +3420,13 @@ static void sync_widgets_from_draft(SettingsWidgetState *state, bool preserve_we
     populate_boolean_combo(state->terminal_cursor_blink_combo, state->draft_store,
         terminal_cursor_blink_setting_key(), terminal_cursor_settings(state->draft_store).blink);
   }
-  if (state->terminal_border_width_entry != nullptr) {
+  if (state->general_border_width_entry != nullptr) {
     sync_inheritable_entry(
-        state->terminal_border_width_entry, state->draft_store,
-        terminal_border_width_setting_key(),
-        std::to_string(terminal_border_width(state->draft_store)));
-    state->terminal_border_width_valid = true;
-    set_entry_validation(state->terminal_border_width_entry, true, {});
+        state->general_border_width_entry, state->draft_store,
+        general_border_width_setting_key(),
+        std::to_string(general_border_width(state->draft_store)));
+    state->general_border_width_valid = true;
+    set_entry_validation(state->general_border_width_entry, true, {});
   }
   if (state->terminal_bell_sound_entry != nullptr) {
     sync_inheritable_entry(
@@ -3881,12 +3881,12 @@ static void on_general_compact_mode_changed(GtkComboBox *, gpointer data) {
   notify_changed(state);
 }
 
-static void on_terminal_show_border_changed(GtkComboBox *, gpointer data) {
+static void on_general_show_border_changed(GtkComboBox *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
   if (state->synchronizing) {
     return;
   }
-  update_terminal_show_border_from_widget(state);
+  update_general_show_border_from_widget(state);
   notify_changed(state);
 }
 
@@ -3909,12 +3909,12 @@ static void on_terminal_cursor_changed(GtkComboBox *combo, gpointer data) {
   notify_changed(state);
 }
 
-static void on_terminal_border_width_changed(GtkEditable *, gpointer data) {
+static void on_general_border_width_changed(GtkEditable *, gpointer data) {
   auto *state = static_cast<SettingsWidgetState *>(data);
   if (state->synchronizing) {
     return;
   }
-  update_terminal_border_width_from_widget(state);
+  update_general_border_width_from_widget(state);
   update_action_sensitivity(state);
   notify_changed(state);
 }
@@ -5102,6 +5102,22 @@ static GtkWidget *create_general_page(SettingsWidgetState *state) {
   attach_row(page, row++, general_compact_mode_setting_key(),
              state->general_compact_mode_combo);
 
+  const std::string show_border_id =
+      widget_id(state, "general_show_border_combo");
+  state->general_show_border_combo =
+      create_combo_box(show_border_id.c_str());
+  g_signal_connect(state->general_show_border_combo, "changed",
+                   G_CALLBACK(on_general_show_border_changed), state);
+  attach_row(page, row++, general_show_border_setting_key(),
+             state->general_show_border_combo);
+
+  state->general_border_width_entry =
+      create_entry(widget_id(state, "general_border_width_entry"));
+  g_signal_connect(state->general_border_width_entry, "changed",
+                   G_CALLBACK(on_general_border_width_changed), state);
+  attach_row(page, row++, general_border_width_setting_key(),
+             state->general_border_width_entry);
+
   return page;
 }
 
@@ -5203,22 +5219,6 @@ create_terminal_pages(SettingsWidgetState *state) {
                    G_CALLBACK(on_terminal_font_size_dip_changed), state);
   attach_row(appearance_page, 1, terminal_font_size_dip_setting_key(),
              state->terminal_font_size_dip_entry);
-
-  const std::string show_border_id =
-      widget_id(state, "terminal_show_border_combo");
-  state->terminal_show_border_combo =
-      create_combo_box(show_border_id.c_str());
-  g_signal_connect(state->terminal_show_border_combo, "changed",
-                   G_CALLBACK(on_terminal_show_border_changed), state);
-  attach_row(appearance_page, 2, terminal_show_border_setting_key(),
-             state->terminal_show_border_combo);
-
-  state->terminal_border_width_entry =
-      create_entry(widget_id(state, "terminal_border_width_entry"));
-  g_signal_connect(state->terminal_border_width_entry, "changed",
-                   G_CALLBACK(on_terminal_border_width_changed), state);
-  attach_row(appearance_page, 3, terminal_border_width_setting_key(),
-             state->terminal_border_width_entry);
 
   state->terminal_bell_sound_entry =
       create_entry(widget_id(state, "terminal_bell_sound_entry"));
@@ -5352,12 +5352,12 @@ create_terminal_pages(SettingsWidgetState *state) {
   state->terminal_cursor_blink_combo = create_combo_box(widget_id(state, "terminal_cursor_blink_combo").c_str());
   for (auto *combo : {state->terminal_cursor_shape_combo, state->terminal_cursor_blink_combo})
     g_signal_connect(combo, "changed", G_CALLBACK(on_terminal_cursor_changed), state);
-  attach_row(appearance_page, 4, terminal_cursor_shape_setting_key(), state->terminal_cursor_shape_combo);
-  attach_row(appearance_page, 5, terminal_cursor_blink_setting_key(), state->terminal_cursor_blink_combo);
+  attach_row(appearance_page, 2, terminal_cursor_shape_setting_key(), state->terminal_cursor_shape_combo);
+  attach_row(appearance_page, 3, terminal_cursor_blink_setting_key(), state->terminal_cursor_blink_combo);
   auto *labels = gtk_size_group_new(GTK_SIZE_GROUP_HORIZONTAL);
   state->terminal_background_editor = create_terminal_background_editor(&state->draft_store, state->id_prefix,
       labels, [state] { notify_changed(state); });
-  gtk_grid_attach(GTK_GRID(appearance_page), terminal_background_editor_root(state->terminal_background_editor), 0, 6, 2, 1);
+  gtk_grid_attach(GTK_GRID(appearance_page), terminal_background_editor_root(state->terminal_background_editor), 0, 4, 2, 1);
   state->terminal_color_filter_combo = create_combo_box(widget_id(state, "terminal_color_filter_combo").c_str());
   gtk_widget_set_tooltip_text(state->terminal_color_filter_combo,
       _("Choose a visibility correction or a background reversal. Only one color filter is applied."));
@@ -5370,7 +5370,7 @@ create_terminal_pages(SettingsWidgetState *state) {
     else set_explicit_setting_value(&state->draft_store, key, SettingValue{choice});
     notify_changed(state);
   }), state);
-  attach_row(appearance_page, 7, terminal_color_filter_setting_key(), state->terminal_color_filter_combo);
+  attach_row(appearance_page, 5, terminal_color_filter_setting_key(), state->terminal_color_filter_combo);
   state->terminal_color_vision_combo = create_combo_box(widget_id(state, "terminal_color_vision_combo").c_str());
   gtk_widget_set_tooltip_text(state->terminal_color_vision_combo,
       _("Recolor text, explicit cell backgrounds and markers to help distinguish colors. Choose the setting that works for you."));
@@ -5383,7 +5383,7 @@ create_terminal_pages(SettingsWidgetState *state) {
     else set_explicit_setting_value(&state->draft_store, key, SettingValue{choice});
     notify_changed(state);
   }), state);
-  attach_row(appearance_page, 8, terminal_color_vision_setting_key(), state->terminal_color_vision_combo);
+  attach_row(appearance_page, 6, terminal_color_vision_setting_key(), state->terminal_color_vision_combo);
   state->terminal_color_vision_strength_entry = create_entry(widget_id(state, "terminal_color_vision_strength_entry"));
   gtk_widget_set_tooltip_text(state->terminal_color_vision_strength_entry,
       _("0 disables recoloring; 100 is the strongest adjustment. This value does not measure your color vision."));
@@ -5393,10 +5393,10 @@ create_terminal_pages(SettingsWidgetState *state) {
     update_terminal_color_vision_strength(state);
     notify_changed(state);
   }), state);
-  attach_row(appearance_page, 9, terminal_color_vision_strength_setting_key(), state->terminal_color_vision_strength_entry);
+  attach_row(appearance_page, 7, terminal_color_vision_strength_setting_key(), state->terminal_color_vision_strength_entry);
   state->terminal_color_preview = create_terminal_color_preview(&state->draft_store, state->id_prefix);
-  gtk_grid_attach(GTK_GRID(appearance_page), terminal_color_preview_root(state->terminal_color_preview), 0, 10, 2, 1);
-  for (int row = 0; row <= 9; row++) {
+  gtk_grid_attach(GTK_GRID(appearance_page), terminal_color_preview_root(state->terminal_color_preview), 0, 8, 2, 1);
+  for (int row = 0; row <= 7; row++) {
     auto *label = gtk_grid_get_child_at(GTK_GRID(appearance_page), 0, row);
     if (GTK_IS_LABEL(label)) gtk_size_group_add_widget(labels, label);
   }
@@ -6664,7 +6664,7 @@ void settings_widget_rebase_fallbacks(
   const bool height_invalid = !state->terminal_height_valid;
   const bool scrollback_lines_invalid =
       !state->terminal_scrollback_lines_valid;
-  const bool border_width_invalid = !state->terminal_border_width_valid;
+  const bool border_width_invalid = !state->general_border_width_valid;
   const bool zoom_invalid = !state->terminal_font_size_dip_valid;
   const bool color_vision_strength_invalid = !state->terminal_color_vision_strength_valid;
   const bool encoding_invalid = !state->terminal_encoding_valid;
@@ -6687,7 +6687,7 @@ void settings_widget_rebase_fallbacks(
   const std::string scrollback_lines_text =
       entry_text(state->terminal_scrollback_lines_entry);
   const std::string border_width_text =
-      entry_text(state->terminal_border_width_entry);
+      entry_text(state->general_border_width_entry);
   const std::string zoom_text = entry_text(state->terminal_font_size_dip_entry);
   const std::string color_vision_strength_text = entry_text(state->terminal_color_vision_strength_entry);
   const std::string encoding_text =
@@ -6753,9 +6753,9 @@ void settings_widget_rebase_fallbacks(
       state->terminal_scrollback_lines_entry, scrollback_lines_text,
       scrollback_lines_invalid,
       [state]() { update_terminal_scrollback_lines_from_widget(state); });
-  restore_invalid(state->terminal_border_width_entry, border_width_text,
+  restore_invalid(state->general_border_width_entry, border_width_text,
                   border_width_invalid, [state]() {
-                    update_terminal_border_width_from_widget(state);
+                    update_general_border_width_from_widget(state);
                   });
   restore_invalid(state->terminal_font_size_dip_entry, zoom_text, zoom_invalid,
                   [state]() { update_terminal_font_size_dip_from_widget(state); });

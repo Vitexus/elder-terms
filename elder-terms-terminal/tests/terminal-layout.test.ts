@@ -352,11 +352,9 @@ describe.concurrent('elder-terms-terminal terminal layout', () => {
           '[general]',
           `name=${'A long connection title '.repeat(20)}`,
           'compact_mode=true',
-          'exterior_background=#800000',
-          '',
-          '[terminal]',
           'show_border=true',
           'border_width=7',
+          'exterior_background=#800000',
           '',
         ].join('\n'),
         'utf8'
@@ -517,7 +515,7 @@ describe.concurrent('elder-terms-terminal terminal layout', () => {
       const configPath = join(directory, 'window-side-borders.ini');
       await writeFile(
         configPath,
-        '[general]\nexterior_background=#800000\n\n[terminal]\nshow_border=true\nborder_width=7\n',
+        '[general]\nexterior_background=#800000\nshow_border=true\nborder_width=7\n',
         'utf8'
       );
 

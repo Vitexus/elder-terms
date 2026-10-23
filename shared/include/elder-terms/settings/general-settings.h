@@ -223,6 +223,36 @@ ELDER_TERMS_API GeneralColorSettings
 general_color_settings(const SettingsStore &store);
 
 /**
+ * Returns the setting key for [general] show_border.
+ *
+ * @returns Setting key for connection window side-border visibility.
+ */
+ELDER_TERMS_API SettingKey general_show_border_setting_key();
+
+/**
+ * Returns the setting key for [general] border_width.
+ *
+ * @returns Setting key for connection window side-border width in pixels.
+ */
+ELDER_TERMS_API SettingKey general_border_width_setting_key();
+
+/**
+ * Extracts connection window side-border visibility from a store.
+ *
+ * @param store Source settings store.
+ * @returns True when the connection window should show left and right borders.
+ */
+ELDER_TERMS_API bool general_show_border(const SettingsStore &store);
+
+/**
+ * Extracts connection window side-border width from a store.
+ *
+ * @param store Source settings store.
+ * @returns Width of each connection window side border in pixels.
+ */
+ELDER_TERMS_API gint general_border_width(const SettingsStore &store);
+
+/**
  * Checks whether the loaded general settings select the TELNET backend.
  *
  * @param store Source settings store.

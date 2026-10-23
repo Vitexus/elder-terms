@@ -192,9 +192,7 @@ const scrollTerminalFieldIntoView = async (
     ? 'global_settings'
     : 'settings';
   const appearance =
-    /_terminal_(font|show_border|border_width|cursor_shape|cursor_blink|background|color_)/.test(
-      id
-    );
+    /_terminal_(font|cursor_shape|cursor_blink|background|color_)/.test(id);
   const pageId = `${prefix}_terminal${appearance ? '_appearance' : ''}_page`;
   await selectSettingsTab(
     app,
@@ -1027,6 +1025,8 @@ describe.concurrent('shared settings widget', () => {
               'Inactive indicator color',
               'Close window when session ends',
               'Compact mode',
+              'Show window side borders',
+              'Window side border width (px)',
             ],
           },
           {
@@ -1104,12 +1104,7 @@ describe.concurrent('shared settings widget', () => {
           },
           {
             id: 'global_settings_terminal_appearance_page',
-            labels: [
-              'Font size (DIP)',
-              'Font families',
-              'Show window side borders',
-              'Window side border width (px)',
-            ],
+            labels: ['Font size (DIP)', 'Font families'],
           },
           {
             id: 'global_settings_transfer_page',
@@ -1176,6 +1171,8 @@ describe.concurrent('shared settings widget', () => {
               'コンテンツの背景',
               'セッション終了時にウィンドウを閉じる',
               'コンパクトモード',
+              'ウィンドウの左右にボーダーを表示する',
+              'ウィンドウ左右のボーダー幅（px）',
             ],
           },
           {
@@ -1271,12 +1268,7 @@ describe.concurrent('shared settings widget', () => {
           },
           {
             id: 'global_settings_terminal_appearance_page',
-            labels: [
-              '文字サイズ（DIP）',
-              'フォントファミリー',
-              'ウィンドウの左右にボーダーを表示する',
-              'ウィンドウ左右のボーダー幅（px）',
-            ],
+            labels: ['文字サイズ（DIP）', 'フォントファミリー'],
           },
           {
             id: 'global_settings_transfer_page',
@@ -1763,7 +1755,7 @@ describe.concurrent('shared settings widget', () => {
           );
           await waitForEntryPlaceholder(
             app,
-            'settings_terminal_border_width_entry',
+            'settings_general_border_width_entry',
             '4 (built-in default)'
           );
           expect(
@@ -5252,11 +5244,11 @@ describe.concurrent('shared settings widget', () => {
           'comboBox'
         );
         const showBorder = expectElementKind(
-          await app.getById('settings_terminal_show_border_combo'),
+          await app.getById('settings_general_show_border_combo'),
           'comboBox'
         );
         const borderWidth = expectElementKind(
-          await app.getById('settings_terminal_border_width_entry'),
+          await app.getById('settings_general_border_width_entry'),
           'entry'
         );
         const zoomInKey = expectElementKind(
@@ -5282,7 +5274,7 @@ describe.concurrent('shared settings widget', () => {
         );
         await expectSelectedComboValue(
           app,
-          'settings_terminal_show_border_combo',
+          'settings_general_show_border_combo',
           'Enabled'
         );
         await expectNumericEntryValue(borderWidth, 7);
@@ -5350,8 +5342,6 @@ describe.concurrent('shared settings widget', () => {
         await setNumericEntryValue(zoom, 14.5);
         await selectSettingsTab(app, 'General');
         await autoClose.selectChildAt(1);
-        await selectSettingsTab(app, 'Terminal appearance');
-        await showTerminalAppearancePage(app);
         await showBorder.selectChildAt(2);
         await setNumericEntryValue(borderWidth, 6);
         await scrollTerminalFieldIntoView(
@@ -5725,14 +5715,13 @@ describe.concurrent('shared settings widget', () => {
     );
   });
 
-  it('accepts only terminal border widths from 1 through 1000 pixels', async (context) => {
+  it('accepts only window border widths from 1 through 1000 pixels', async (context) => {
     await runSharedGtkTest(
       context,
-      ['--page=terminal_appearance', '--save'],
+      ['--page=general', '--save'],
       async ({ app }) => {
-        await showTerminalAppearancePage(app);
         const borderWidth = expectElementKind(
-          await app.getById('settings_terminal_border_width_entry'),
+          await app.getById('settings_general_border_width_entry'),
           'entry'
         );
         const apply = await app.getById('settings_apply_button');
@@ -5740,13 +5729,13 @@ describe.concurrent('shared settings widget', () => {
 
         await waitForEntryPlaceholder(
           app,
-          'settings_terminal_border_width_entry',
+          'settings_general_border_width_entry',
           '4 (built-in default)'
         );
         await borderWidth.setText('0');
         await waitForEntryIconTooltip(
           app,
-          'settings_terminal_border_width_entry',
+          'settings_general_border_width_entry',
           'Value must be between 1 and 1000'
         );
         await expectInsensitive(apply);
@@ -5755,7 +5744,7 @@ describe.concurrent('shared settings widget', () => {
         await borderWidth.setText('1001');
         await waitForEntryIconTooltip(
           app,
-          'settings_terminal_border_width_entry',
+          'settings_general_border_width_entry',
           'Value must be between 1 and 1000'
         );
         await expectInsensitive(apply);
@@ -5953,8 +5942,8 @@ describe.concurrent('shared settings widget', () => {
       '--global=terminal.scrollback_lines=20000',
       '--global=terminal.font_size_dip=15',
       '--global=general.auto_close=true',
-      '--global=terminal.show_border=true',
-      '--global=terminal.border_width=9',
+      '--global=general.show_border=true',
+      '--global=general.border_width=9',
       '--global=terminal.encoding=CP932',
       '--global=terminal.backspace_code=del',
       '--global=terminal.cursor_key_mode=normal',
@@ -6071,12 +6060,12 @@ describe.concurrent('shared settings widget', () => {
       );
       await expectSelectedComboValue(
         app,
-        'settings_terminal_show_border_combo',
+        'settings_general_show_border_combo',
         'Enabled (global default)'
       );
       await expectInheritedEntry(
         app,
-        'settings_terminal_border_width_entry',
+        'settings_general_border_width_entry',
         '9 (global default)'
       );
       await expectInheritedEntry(

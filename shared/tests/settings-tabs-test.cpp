@@ -125,6 +125,17 @@ static void verify_tab_structure(const Fixture &fixture, bool terminal_visible) 
                       "Terminal appearance") == 0,
           "Terminal appearance tab has the wrong title");
 
+  auto *general = find_widget(fixture.root, id("general_page").c_str());
+  require(general != nullptr && gtk_widget_get_visible(general),
+          "General tab is missing or hidden");
+  for (const char *field : {"general_show_border_combo", "general_border_width_entry"}) {
+    const auto name = id(field);
+    auto *widget = find_widget(fixture.root, name.c_str());
+    require(widget != nullptr && count_widgets(fixture.root, name.c_str()) == 1 &&
+                belongs_to(widget, general) && gtk_widget_get_visible(widget),
+            "Border field is missing, duplicated, hidden, or outside General");
+  }
+
   constexpr std::array behavior_fields{
       "terminal_encoding_combo", "terminal_backspace_code_combo",
       "terminal_cursor_key_mode_combo", "terminal_return_code_combo",
@@ -134,7 +145,6 @@ static void verify_tab_structure(const Fixture &fixture, bool terminal_visible) 
       "terminal_send_break_key_entry", "terminal_accessibility_enabled_combo"};
   constexpr std::array appearance_fields{
       "terminal_fonts_mode_combo", "terminal_font_size_dip_entry",
-      "terminal_show_border_combo", "terminal_border_width_entry",
       "terminal_cursor_shape_combo", "terminal_cursor_blink_combo",
       "terminal_background_mode_combo", "terminal_background_opacity_entry",
       "terminal_background_tint_color_entry", "terminal_background_tint_opacity_entry",
@@ -214,9 +224,11 @@ int main(int argc, char **argv) {
   try {
     require(gtk_init_check(&argc, &argv), "GTK initialization failed");
     verify_actions();
-    Fixture transfer = create_fixture("sftp", SettingsWidgetMode::connection);
-    verify_tab_structure(transfer, false);
-    destroy_fixture(&transfer);
+    for (const char *type : {"sftp", "ftp", "webdav"}) {
+      Fixture transfer = create_fixture(type, SettingsWidgetMode::connection);
+      verify_tab_structure(transfer, false);
+      destroy_fixture(&transfer);
+    }
     Fixture defaults = create_fixture("sftp", SettingsWidgetMode::global_defaults);
     verify_tab_structure(defaults, true);
     destroy_fixture(&defaults);

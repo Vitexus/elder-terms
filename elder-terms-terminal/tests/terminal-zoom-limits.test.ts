@@ -37,7 +37,7 @@ process.stdout.write('Local terminal\\r\\n日本語とEnglish\\r\\n');
           );
           await writeFile(
             config,
-            `[general]\ncompact_mode=${compact}\nbackground=#2B1212\n[terminal]\nfont_families=Inconsolata;Noto Sans Mono CJK JP;\ncursor_shape=bar\nwidth=111\nheight=31\nshow_border=true\n[local]\ncommand_line=${process.execPath} ${peer} ${input}\n`
+            `[general]\ncompact_mode=${compact}\nbackground=#2B1212\nshow_border=true\n[terminal]\nfont_families=Inconsolata;Noto Sans Mono CJK JP;\ncursor_shape=bar\nwidth=111\nheight=31\n[local]\ncommand_line=${process.execPath} ${peer} ${input}\n`
           );
           await runGtkTest(
             context,

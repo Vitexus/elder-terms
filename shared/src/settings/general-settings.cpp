@@ -13,6 +13,12 @@
 
 namespace elder_terms {
 
+static constexpr bool default_general_show_border = false;
+static constexpr gint64 default_general_border_width = 4;
+static constexpr gint64 minimum_general_border_width = 1;
+static constexpr gint64 maximum_general_border_width = 1000;
+static constexpr char general_show_border_key[] = "show_border";
+static constexpr char general_border_width_key[] = "border_width";
 static constexpr char general_section[] = "general";
 static constexpr char general_auto_close_key[] = "auto_close";
 static constexpr bool default_general_auto_close = true;
@@ -36,6 +42,36 @@ static constexpr char serial_connection_type[] = "serial";
 static constexpr char sftp_connection_type[] = "sftp";
 static constexpr char ftp_connection_type[] = "ftp";
 static constexpr char webdav_connection_type[] = "webdav";
+
+static bool validate_border_width(const SettingValue &value,
+                                  std::string *reason) {
+  const auto *integer = std::get_if<gint64>(&value);
+  if (integer == nullptr || *integer < minimum_general_border_width ||
+      *integer > maximum_general_border_width) {
+    *reason = "must be an integer between 1 and 1000";
+    return false;
+  }
+  return true;
+}
+
+SettingKey general_show_border_setting_key() {
+  return make_setting_key(general_section, general_show_border_key);
+}
+
+SettingKey general_border_width_setting_key() {
+  return make_setting_key(general_section, general_border_width_key);
+}
+
+bool general_show_border(const SettingsStore &store) {
+  return setting_boolean_value_or_default(
+      store, general_show_border_setting_key(), default_general_show_border);
+}
+
+gint general_border_width(const SettingsStore &store) {
+  return static_cast<gint>(setting_integer_value_or_default(
+      store, general_border_width_setting_key(),
+      default_general_border_width));
+}
 
 static bool validate_connection_type(const SettingValue &value,
                                      std::string *reason) {
@@ -295,6 +331,16 @@ general_setting_definitions(std::string default_connection_name) {
           .key = general_indicator_off_color_setting_key(),
           .default_value = SettingValue{std::string("default")},
           .validate = validate_indicator_color,
+      },
+      {
+          .key = general_show_border_setting_key(),
+          .default_value = SettingValue{default_general_show_border},
+          .validate = nullptr,
+      },
+      {
+          .key = general_border_width_setting_key(),
+          .default_value = SettingValue{default_general_border_width},
+          .validate = validate_border_width,
       },
       {
           .key = general_compact_mode_setting_key(),

@@ -253,8 +253,8 @@ bool apply_terminal_presentation(TerminalPresentation *presentation, const Setti
   auto *core = boxrig_ui_model_terminal(boxrig_ui_view_model(boxrig_gtk3_terminal_widget_view(widget)));
   if (boxrig_terminal_set_scrollback_capacity(core, display.scrollback_lines) != BOXRIG_STATUS_OK) return false;
   presentation->bindings = terminal_key_bindings(settings);
-  const bool border = terminal_show_border(settings);
-  const auto width = terminal_border_width(settings);
+  const bool border = general_show_border(settings);
+  const auto width = general_border_width(settings);
   const bool compact = general_compact_mode(settings);
   gint border_width = 0, border_height = 0;
   gtk_widget_get_size_request(window->frame_start_border, &border_width, &border_height);

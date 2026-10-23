@@ -1180,71 +1180,80 @@ describe('elder-terms main window', () => {
   });
 
   it('starts unselected in a resizable split layout', async (context) => {
-    await runLauncherGtkTest(context, prepareProfiles, async ({ app }) => {
-      expect(await app.getWindowCount()).toBe(1);
-      const window = expectElementKind(
-        await app.getById('main_window'),
-        'window'
-      );
-      const splitPane = await app.getById('split_pane');
-      const terminalEntriesLabel = await app.getById('terminal_entries_label');
-      const left = await app.getById('connection_scroller');
-      const right = await app.getById('details_stack');
-      const list = await app.getById('connection_list');
-      const actionRow = await app.getById('action_row');
-      const apply = await app.getById('apply_button');
-      const connect = await app.getById('connect_button');
+    await runLauncherGtkTest(
+      context,
+      prepareProfiles,
+      async ({ app }) => {
+        expect(await app.getWindowCount()).toBe(1);
+        const window = expectElementKind(
+          await app.getById('main_window'),
+          'window'
+        );
+        const splitPane = await app.getById('split_pane');
+        const terminalEntriesLabel = await app.getById(
+          'terminal_entries_label'
+        );
+        const left = await app.getById('connection_scroller');
+        const right = await app.getById('details_stack');
+        const list = await app.getById('connection_list');
+        const actionRow = await app.getById('action_row');
+        const apply = await app.getById('apply_button');
+        const connect = await app.getById('connect_button');
 
-      expect(['table', 'tree']).toContain(list.kind);
-      expect((await terminalEntriesLabel.info()).name).toBe('Terminal entries');
-      expect((await apply.info()).name).toBe('Save');
-      expect((await connect.info()).name).toBe('Launch');
-      await expectInsensitive(apply);
-      await expectInsensitive(connect);
-      const terminalEntriesCapture = await terminalEntriesLabel.capture();
-      const leftCapture = await left.capture();
-      expect(terminalEntriesCapture.bounds.y).toBeLessThan(
-        leftCapture.bounds.y
-      );
-      expect(leftCapture.bounds.x).toBeLessThan(
-        (await right.capture()).bounds.x
-      );
+        expect(['table', 'tree']).toContain(list.kind);
+        expect((await terminalEntriesLabel.info()).name).toBe(
+          'Terminal entries'
+        );
+        expect((await apply.info()).name).toBe('Save');
+        expect((await connect.info()).name).toBe('Launch');
+        await expectInsensitive(apply);
+        await expectInsensitive(connect);
+        const terminalEntriesCapture = await terminalEntriesLabel.capture();
+        const leftCapture = await left.capture();
+        expect(terminalEntriesCapture.bounds.y).toBeLessThan(
+          leftCapture.bounds.y
+        );
+        expect(leftCapture.bounds.x).toBeLessThan(
+          (await right.capture()).bounds.x
+        );
 
-      const splitPaneCapture = await splitPane.capture();
-      expect(splitPaneCapture.clipped).toBe(false);
-      await expectCaptureToMatchFixture(
-        splitPaneCapture,
-        'launcher-terminal-entries',
-        terminalEntriesFixturePath
-      );
+        const splitPaneCapture = await splitPane.capture();
+        expect(splitPaneCapture.clipped).toBe(false);
+        await expectCaptureToMatchFixture(
+          splitPaneCapture,
+          'launcher-terminal-entries',
+          terminalEntriesFixturePath
+        );
 
-      const initialBounds = await window.moveTo(100, 100);
-      const actionCapture = await actionRow.capture();
-      const startX = Math.trunc(
-        actionCapture.bounds.x + actionCapture.bounds.width / 2
-      );
-      const startY = Math.trunc(
-        actionCapture.bounds.y + actionCapture.bounds.height / 2
-      );
-      await app.input.moveMouseTo(startX, startY);
-      await app.input.setMouseButton('left', true);
-      await app.input.moveMouseTo(startX + 120, startY + 80);
-      await app.input.setMouseButton('left', false);
+        const initialBounds = await window.moveTo(100, 100);
+        const actionCapture = await actionRow.capture();
+        const startX = Math.trunc(
+          actionCapture.bounds.x + actionCapture.bounds.width / 2
+        );
+        const startY = Math.trunc(
+          actionCapture.bounds.y + actionCapture.bounds.height / 2
+        );
+        await app.input.moveMouseTo(startX, startY);
+        await app.input.setMouseButton('left', true);
+        await app.input.moveMouseTo(startX + 120, startY + 80);
+        await app.input.setMouseButton('left', false);
 
-      await waitForResult(async () => {
-        const movedBounds = await window.bounds();
-        expect(movedBounds.x).toBeGreaterThanOrEqual(initialBounds.x + 80);
-        expect(movedBounds.y).toBeGreaterThanOrEqual(initialBounds.y + 30);
-        expect(movedBounds.width).toBe(initialBounds.width);
-        expect(movedBounds.height).toBe(initialBounds.height);
-      });
+        await waitForResult(async () => {
+          const movedBounds = await window.bounds();
+          expect(movedBounds.x).toBeGreaterThanOrEqual(initialBounds.x + 80);
+          expect(movedBounds.y).toBeGreaterThanOrEqual(initialBounds.y + 30);
+          expect(movedBounds.width).toBe(initialBounds.width);
+          expect(movedBounds.height).toBe(initialBounds.height);
+        });
 
-      const before = await window.bounds();
-      await window.resizeTo(before.width + 120, before.height + 80);
-      const after = await window.bounds();
-      expect(after.width).toBeGreaterThan(before.width);
-      expect(after.height).toBeGreaterThan(before.height);
-    });
+        const before = await window.bounds();
+        await window.resizeTo(before.width + 120, before.height + 80);
+        const after = await window.bounds();
+        expect(after.width).toBeGreaterThan(before.width);
+        expect(after.height).toBeGreaterThan(before.height);
+      },
+      { args: [], env: {}, xvfbScreen: '1600x1000x24' }
+    );
   });
 
   it('keeps the launcher blocked until a nested CA chooser and settings both close', async (context) => {

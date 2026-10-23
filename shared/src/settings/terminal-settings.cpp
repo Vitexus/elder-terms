@@ -21,19 +21,13 @@ static constexpr glong default_terminal_height = 24;
 static constexpr glong default_terminal_scrollback_lines = 10000;
 static constexpr gint64 minimum_terminal_scrollback_lines = 1000;
 static constexpr gint64 maximum_terminal_scrollback_lines = 100000;
-static constexpr bool default_terminal_show_border = false;
-static constexpr gint64 default_terminal_border_width = 4;
-static constexpr gint64 minimum_terminal_border_width = 1;
-static constexpr gint64 maximum_terminal_border_width = 1000;
 static constexpr char terminal_section[] = "terminal";
 static constexpr char terminal_width_key[] = "width";
 static constexpr char terminal_height_key[] = "height";
 static constexpr char terminal_scrollback_lines_key[] = "scrollback_lines";
 static constexpr char terminal_font_size_dip_key[] = "font_size_dip";
 static constexpr char terminal_font_families_key[] = "font_families";
-static constexpr char terminal_show_border_key[] = "show_border";
 static constexpr char terminal_accessibility_enabled_key[] = "accessibility_enabled";
-static constexpr char terminal_border_width_key[] = "border_width";
 static constexpr char terminal_bell_sound_key[] = "bell_sound";
 static constexpr char terminal_zoom_in_key_name[] = "zoom_in_key";
 static constexpr char terminal_zoom_out_key_name[] = "zoom_out_key";
@@ -103,17 +97,6 @@ static bool validate_scrollback_lines(const SettingValue &value,
   if (integer == nullptr || *integer < minimum_terminal_scrollback_lines ||
       *integer > maximum_terminal_scrollback_lines) {
     *reason = "must be an integer between 1000 and 100000";
-    return false;
-  }
-  return true;
-}
-
-static bool validate_border_width(const SettingValue &value,
-                                  std::string *reason) {
-  const auto *integer = std::get_if<gint64>(&value);
-  if (integer == nullptr || *integer < minimum_terminal_border_width ||
-      *integer > maximum_terminal_border_width) {
-    *reason = "must be an integer between 1 and 1000";
     return false;
   }
   return true;
@@ -374,16 +357,8 @@ TerminalBackgroundSettings terminal_background_settings(const SettingsStore &sto
       static_cast<int>(setting_integer_value_or_default(store, terminal_background_tint_opacity_setting_key(), 0))};
 }
 
-SettingKey terminal_show_border_setting_key() {
-  return terminal_key(terminal_show_border_key);
-}
-
 SettingKey terminal_accessibility_enabled_setting_key() {
   return terminal_key(terminal_accessibility_enabled_key);
-}
-
-SettingKey terminal_border_width_setting_key() {
-  return terminal_key(terminal_border_width_key);
 }
 
 SettingKey terminal_bell_sound_setting_key() {
@@ -533,19 +508,9 @@ terminal_setting_definitions(TerminalDisplaySettings terminal_defaults) {
           .normalize = normalize_font_families,
       },
       {
-          .key = terminal_show_border_setting_key(),
-          .default_value = SettingValue{default_terminal_show_border},
-          .validate = nullptr,
-      },
-      {
           .key = terminal_accessibility_enabled_setting_key(),
           .default_value = SettingValue{false},
           .validate = nullptr,
-      },
-      {
-          .key = terminal_border_width_setting_key(),
-          .default_value = SettingValue{default_terminal_border_width},
-          .validate = validate_border_width,
       },
       {
           .key = terminal_bell_sound_setting_key(),
@@ -619,20 +584,9 @@ TerminalFontFamilies terminal_font_families(const SettingsStore &store) {
   return {.families = std::move(families)};
 }
 
-bool terminal_show_border(const SettingsStore &store) {
-  return setting_boolean_value_or_default(
-      store, terminal_show_border_setting_key(), default_terminal_show_border);
-}
-
 bool terminal_accessibility_enabled(const SettingsStore &store) {
   return setting_boolean_value_or_default(
       store, terminal_accessibility_enabled_setting_key(), false);
-}
-
-gint terminal_border_width(const SettingsStore &store) {
-  return static_cast<gint>(setting_integer_value_or_default(
-      store, terminal_border_width_setting_key(),
-      default_terminal_border_width));
 }
 
 TerminalBellSettings terminal_bell_settings(const SettingsStore &store) {

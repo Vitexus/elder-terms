@@ -217,24 +217,10 @@ ELDER_TERMS_API bool terminal_font_families_are_valid(
     const std::vector<std::string> &families, std::string *reason);
 
 /**
- * Returns the setting key for [terminal] show_border.
- *
- * @returns Setting key for terminal window side-border visibility.
- */
-ELDER_TERMS_API SettingKey terminal_show_border_setting_key();
-
-/**
  * Returns the setting key for [terminal] accessibility_enabled.
  * @returns Setting key controlling screen-reader access to terminal text.
  */
 ELDER_TERMS_API SettingKey terminal_accessibility_enabled_setting_key();
-
-/**
- * Returns the setting key for [terminal] border_width.
- *
- * @returns Setting key for terminal window side-border width in pixels.
- */
-ELDER_TERMS_API SettingKey terminal_border_width_setting_key();
 
 /**
  * Returns the setting key for [terminal] bell_sound.
@@ -351,28 +337,12 @@ ELDER_TERMS_API TerminalFontFamilies
 terminal_font_families(const SettingsStore &store);
 
 /**
- * Extracts terminal window side-border visibility from a store.
- *
- * @param store Source settings store.
- * @returns True when the terminal window should show left and right borders.
- */
-ELDER_TERMS_API bool terminal_show_border(const SettingsStore &store);
-
-/**
  * Extracts the terminal text accessibility preference.
  * @param store Source settings store.
  * @returns True when terminal text should be exposed to assistive technology;
  * false by default. Standard GTK controls are unaffected.
  */
 ELDER_TERMS_API bool terminal_accessibility_enabled(const SettingsStore &store);
-
-/**
- * Extracts terminal window side-border width from a store.
- *
- * @param store Source settings store.
- * @returns Width of each terminal window side border in pixels.
- */
-ELDER_TERMS_API gint terminal_border_width(const SettingsStore &store);
 
 /**
  * Extracts terminal BEL playback settings from a store.

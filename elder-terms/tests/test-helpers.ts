@@ -131,6 +131,8 @@ export interface LauncherGtkTestOptions {
   readonly args: readonly string[];
   /** Additional environment variables. */
   readonly env: Readonly<Record<string, string>>;
+  /** Xvfb screen geometry for a test that needs more display space. */
+  readonly xvfbScreen?: string;
   /** Whether the isolated Xvfb session provides a StatusNotifier tray host. */
   readonly xvfbTrayHost?: boolean;
   /** Whether to record top-level X11 window maps from before launch. */
@@ -436,6 +438,7 @@ export const runLauncherGtkTest = async (
     xvfbPool: {
       type: 'xvfb',
     },
+    xvfbScreen: options?.xvfbScreen,
     xvfbTrayHost: options?.xvfbTrayHost ?? true,
     onSystemOutput: (event) => {
       systemOutput.push(event);

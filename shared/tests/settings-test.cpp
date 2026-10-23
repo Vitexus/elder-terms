@@ -103,8 +103,8 @@ using elder_terms::TerminalReturnCode;
 using elder_terms::TerminalTextSettings;
 using elder_terms::general_auto_close;
 using elder_terms::terminal_backspace_code_setting_key;
-using elder_terms::terminal_border_width;
-using elder_terms::terminal_border_width_setting_key;
+using elder_terms::general_border_width;
+using elder_terms::general_border_width_setting_key;
 using elder_terms::TerminalBellSettings;
 using elder_terms::terminal_bell_settings;
 using elder_terms::terminal_bell_sound_is_valid;
@@ -120,8 +120,8 @@ using elder_terms::terminal_font_families;
 using elder_terms::terminal_font_families_setting_key;
 using elder_terms::terminal_height_setting_key;
 using elder_terms::terminal_scrollback_lines_setting_key;
-using elder_terms::terminal_show_border;
-using elder_terms::terminal_show_border_setting_key;
+using elder_terms::general_show_border;
+using elder_terms::general_show_border_setting_key;
 using elder_terms::terminal_return_code_setting_key;
 using elder_terms::terminal_return_code_to_string;
 using elder_terms::terminal_width_setting_key;
@@ -285,8 +285,8 @@ static void test_default_settings() {
               "auto-close must belong to general settings");
   expect_true(general_auto_close(store),
               "default terminal auto-close should be enabled");
-  expect_true(!terminal_show_border(store),
-              "terminal window side borders should be disabled by default");
+  expect_true(!general_show_border(store),
+              "connection window side borders should be disabled by default");
   expect_true(!elder_terms::setting_boolean_value_or_default(
                   store, {"terminal", "accessibility_enabled"}, true),
               "terminal text accessibility should be registered and disabled by default");
@@ -300,8 +300,8 @@ static void test_default_settings() {
   clear_explicit_setting_value(&accessibility, accessibility_key);
   expect_true(!elder_terms::terminal_accessibility_enabled(accessibility),
               "clearing the override should restore disabled terminal text accessibility");
-  expect_true(terminal_border_width(store) == 4,
-              "default terminal window side-border width should be 4 pixels");
+  expect_true(general_border_width(store) == 4,
+              "default connection window side-border width should be 4 pixels");
   expect_true(!terminal_bell_settings(store).sound_file.has_value(),
               "the default terminal bell should retain terminal's built-in beep");
   const GeneralColorSettings colors = general_color_settings(store);
@@ -596,10 +596,44 @@ static void test_terminal_scrollback_lines_range_and_round_trip() {
               "terminal scrollback should survive saving and reloading");
 }
 
-static SettingsLoadResult load_terminal_border_width(const std::string &name,
+static void test_general_borders_round_trip_and_layering() {
+  const auto path = temporary_config_path("general-borders");
+  const auto global = temporary_config_path("global-borders");
+  const auto visible = elder_terms::make_setting_key("general", "show_border");
+  const auto width = elder_terms::make_setting_key("general", "border_width");
+  const SettingsLoadOptions options{.config_path = path,
+      .startup_config_path = std::nullopt, .global_config_path = global};
+  write_config(global, "[general]\nshow_border=true\nborder_width=7\n");
+  for (const char *type : {"local", "telnet", "ssh", "serial", "sftp", "ftp", "webdav"}) {
+    write_config(path, std::string("[general]\ntype=") + type + "\n");
+    auto loaded = load_settings(options, 1.0);
+    expect_true(elder_terms::setting_boolean_value_or_default(loaded.store, visible, false),
+                "all connection types should inherit General border visibility");
+    expect_true(elder_terms::setting_integer_value_or_default(loaded.store, width, -1) == 7,
+                "all connection types should inherit General border width");
+    expect_true(set_explicit_setting_value(&loaded.store, visible, false) &&
+                    set_explicit_setting_value(&loaded.store, width, gint64{12}),
+                "General borders should accept per-connection overrides");
+    expect_true(save_settings(loaded.store, path).saved,
+                "General border settings should save");
+    const auto reloaded = load_settings(options, 1.0);
+    expect_true(!elder_terms::setting_boolean_value_or_default(reloaded.store, visible, true) &&
+                    elder_terms::setting_integer_value_or_default(reloaded.store, width, -1) == 12,
+                "General border settings should survive saving and reloading");
+    clear_explicit_setting_value(&loaded.store, visible);
+    clear_explicit_setting_value(&loaded.store, width);
+    expect_true(elder_terms::setting_boolean_value_or_default(loaded.store, visible, false) &&
+                    elder_terms::setting_integer_value_or_default(loaded.store, width, -1) == 7,
+                "clearing overrides should restore inherited General borders");
+  }
+  remove_config(path);
+  remove_config(global);
+}
+
+static SettingsLoadResult load_general_border_width(const std::string &name,
                                                       const std::string &value) {
   const std::filesystem::path path = temporary_config_path(name);
-  write_config(path, "[terminal]\nborder_width=" + value + "\n");
+  write_config(path, "[general]\nborder_width=" + value + "\n");
   const SettingsLoadResult result = load_settings(
       SettingsLoadOptions{
           .config_path = path,
@@ -610,51 +644,51 @@ static SettingsLoadResult load_terminal_border_width(const std::string &name,
   return result;
 }
 
-static void test_terminal_border_width_range_and_round_trip() {
+static void test_general_border_width_range_and_round_trip() {
   const SettingsLoadResult minimum =
-      load_terminal_border_width("border-width-minimum", "1");
-  expect_true(terminal_border_width(minimum.store) == 1,
-              "minimum terminal border width should be accepted");
+      load_general_border_width("border-width-minimum", "1");
+  expect_true(general_border_width(minimum.store) == 1,
+              "minimum window border width should be accepted");
   expect_true(minimum.warnings.empty(),
-              "minimum terminal border width should not emit warnings");
+              "minimum window border width should not emit warnings");
 
   const SettingsLoadResult maximum =
-      load_terminal_border_width("border-width-maximum", "1000");
-  expect_true(terminal_border_width(maximum.store) == 1000,
-              "maximum terminal border width should be accepted");
+      load_general_border_width("border-width-maximum", "1000");
+  expect_true(general_border_width(maximum.store) == 1000,
+              "maximum window border width should be accepted");
   expect_true(maximum.warnings.empty(),
-              "maximum terminal border width should not emit warnings");
+              "maximum window border width should not emit warnings");
 
   const SettingsLoadResult below_minimum =
-      load_terminal_border_width("border-width-below-minimum", "0");
-  expect_true(terminal_border_width(below_minimum.store) == 4,
-              "terminal border width below the minimum should use the default");
+      load_general_border_width("border-width-below-minimum", "0");
+  expect_true(general_border_width(below_minimum.store) == 4,
+              "window border width below the minimum should use the default");
   expect_true(warnings_contain(
                   below_minimum.warnings,
-                  "invalid configuration value [terminal] border_width"),
-              "terminal border width below the minimum should emit a warning");
+                  "invalid configuration value [general] border_width"),
+              "window border width below the minimum should emit a warning");
 
   const SettingsLoadResult above_maximum =
-      load_terminal_border_width("border-width-above-maximum", "1001");
-  expect_true(terminal_border_width(above_maximum.store) == 4,
-              "terminal border width above the maximum should use the default");
+      load_general_border_width("border-width-above-maximum", "1001");
+  expect_true(general_border_width(above_maximum.store) == 4,
+              "window border width above the maximum should use the default");
   expect_true(warnings_contain(
                   above_maximum.warnings,
-                  "invalid configuration value [terminal] border_width"),
-              "terminal border width above the maximum should emit a warning");
+                  "invalid configuration value [general] border_width"),
+              "window border width above the maximum should emit a warning");
 
   const std::filesystem::path saved_path =
       temporary_config_path("border-width-round-trip");
   SettingsStore configured = minimum.store;
   expect_true(set_explicit_setting_value(
-                  &configured, terminal_border_width_setting_key(),
+                  &configured, general_border_width_setting_key(),
                   elder_terms::SettingValue{gint64{12}}),
-              "valid terminal border width should be accepted in memory");
+              "valid window border width should be accepted in memory");
   const SettingsSaveResult saved = save_settings(configured, saved_path);
-  expect_true(saved.saved, "terminal border width settings should save");
+  expect_true(saved.saved, "window border width settings should save");
   expect_true(read_config(saved_path).find("border_width=12") !=
                   std::string::npos,
-              "saved settings should include terminal border width");
+              "saved settings should include window border width");
   const SettingsLoadResult reloaded = load_settings(
       SettingsLoadOptions{
           .config_path = saved_path,
@@ -662,8 +696,8 @@ static void test_terminal_border_width_range_and_round_trip() {
       },
       1.0);
   remove_config(saved_path);
-  expect_true(terminal_border_width(reloaded.store) == 12,
-              "terminal border width should survive saving and reloading");
+  expect_true(general_border_width(reloaded.store) == 12,
+              "window border width should survive saving and reloading");
 }
 
 static void test_independent_inactive_indicator_color() {
@@ -2515,13 +2549,13 @@ static void test_invalid_values_fall_back_to_defaults() {
   write_config(path,
                "[general]\n"
                "auto_close=invalid\n"
+               "show_border=invalid\n"
                "type=telnet\n"
                "\n"
                "[terminal]\n"
                "width=invalid\n"
                "height=-5\n"
                "font_size_dip=0\n"
-               "show_border=invalid\n"
                "\n"
                "[telnet]\n"
                "address=127.0.0.1\n"
@@ -2546,8 +2580,8 @@ static void test_invalid_values_fall_back_to_defaults() {
               "invalid terminal font_size_dip should fall back to default");
   expect_true(general_auto_close(result.store),
               "invalid terminal auto-close should fall back to default");
-  expect_true(!terminal_show_border(result.store),
-              "invalid terminal border visibility should fall back to false");
+  expect_true(!general_show_border(result.store),
+              "invalid window border visibility should fall back to false");
 
   const TerminalConnectionProfile profile =
       required_terminal_connection_profile(result.store);
@@ -2575,8 +2609,8 @@ static void test_invalid_values_fall_back_to_defaults() {
               "invalid terminal auto-close should emit a warning");
   expect_true(warnings_contain(
                   result.warnings,
-                  "invalid configuration value [terminal] show_border"),
-              "invalid terminal border visibility should emit a warning");
+                  "invalid configuration value [general] show_border"),
+              "invalid window border visibility should emit a warning");
   expect_true(warnings_contain(result.warnings,
                                "invalid configuration value [telnet] port"),
               "invalid TELNET port should emit a warning");
@@ -2690,12 +2724,12 @@ static void test_public_setting_keys() {
               "the font list key should use [terminal] font_families");
   expect_true(general_auto_close_setting_key().name == "auto_close",
               "general auto_close key should use the auto_close name");
-  expect_true(terminal_show_border_setting_key().section == "terminal" &&
-                  terminal_show_border_setting_key().name == "show_border",
-              "terminal border key should use [terminal] show_border");
-  expect_true(terminal_border_width_setting_key().section == "terminal" &&
-                  terminal_border_width_setting_key().name == "border_width",
-              "terminal border width key should use [terminal] border_width");
+  expect_true(general_show_border_setting_key().section == "general" &&
+                  general_show_border_setting_key().name == "show_border",
+              "window border key should use [general] show_border");
+  expect_true(general_border_width_setting_key().section == "general" &&
+                  general_border_width_setting_key().name == "border_width",
+              "window border width key should use [general] border_width");
   expect_true(terminal_zoom_in_key_setting_key().section == "terminal" &&
                   terminal_zoom_in_key_setting_key().name == "zoom_in_key",
               "terminal zoom-in key should use [terminal] zoom_in_key");
@@ -2949,9 +2983,9 @@ static void test_save_settings_omits_default_values() {
                     elder_terms::SettingValue{gdouble{1.0}});
   set_setting_value(&store, general_auto_close_setting_key(),
                     elder_terms::SettingValue{false});
-  set_setting_value(&store, terminal_show_border_setting_key(),
+  set_setting_value(&store, general_show_border_setting_key(),
                     elder_terms::SettingValue{true});
-  set_setting_value(&store, terminal_border_width_setting_key(),
+  set_setting_value(&store, general_border_width_setting_key(),
                     elder_terms::SettingValue{gint64{6}});
   set_setting_value(&store, terminal_zoom_in_key_setting_key(),
                     elder_terms::SettingValue{std::string("alt+Up")});
@@ -2988,9 +3022,9 @@ static void test_save_settings_omits_default_values() {
   expect_true(content.find("auto_close=false") != std::string::npos,
               "saved settings should include non-default auto-close");
   expect_true(content.find("show_border=true") != std::string::npos,
-              "saved settings should include enabled terminal borders");
+              "saved settings should include enabled window borders");
   expect_true(content.find("border_width=6") != std::string::npos,
-              "saved settings should include non-default terminal border width");
+              "saved settings should include non-default window border width");
   expect_true(content.find("zoom_in_key=alt+Up") != std::string::npos,
               "saved settings should include non-default zoom-in key");
   expect_true(content.find("send_break_key=shift+F12") != std::string::npos,
@@ -4634,6 +4668,7 @@ static void test_webdav_invalid_numeric_settings_remain_invalid_after_save() {
 
 int main() {
   try {
+    elder_terms_settings_test::test_general_borders_round_trip_and_layering();
     elder_terms_settings_test::test_webdav_settings_round_trip();
     elder_terms_settings_test::test_webdav_invalid_numeric_settings_remain_invalid_after_save();
     elder_terms_settings_test::test_independent_inactive_indicator_color();
@@ -4650,7 +4685,7 @@ int main() {
     elder_terms_settings_test::
         test_terminal_scrollback_lines_range_and_round_trip();
     elder_terms_settings_test::
-        test_terminal_border_width_range_and_round_trip();
+        test_general_border_width_range_and_round_trip();
     elder_terms_settings_test::
         test_terminal_font_list_defaults_and_rebase();
     elder_terms_settings_test::
